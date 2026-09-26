@@ -150,7 +150,7 @@ Python 3.10+. No dependencies on Windows beyond the standard library; `evdev`
 on Linux (`pip install -r link/requirements-linux.txt`, or `python3-evdev`).
 
 ```bash
-python -m pytest link/tests          # 667 tests, about a minute and a half
+python -m pytest link/tests          # 669 tests, about a minute and a half
 python -m link.nishro_link           # run from source
 python link/packaging/build-deb.py   # the .deb, into dist/ (pure Python; builds on Windows too)
 ```

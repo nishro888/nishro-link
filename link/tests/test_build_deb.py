@@ -90,8 +90,11 @@ def test_the_policy_names_the_helper_the_program_runs(deb):
 
 def test_the_menu_entry_starts_the_launcher(deb):
     entry = deb["data"]["./usr/share/applications/nishro-link.desktop"][1].decode()
-    assert "\nExec=nishro-link\n" in entry and "\nIcon=nishro-link\n" in entry
-    assert "./usr/bin/nishro-link" in deb["data"]
+    # A full path: an older per-user install in ~/.local/bin is earlier on
+    # PATH, and a bare name would start that instead.
+    assert f"\nExec={autostart.INSTALLED}\n" in entry
+    assert "\nIcon=nishro-link\n" in entry
+    assert "." + autostart.INSTALLED in deb["data"]
     assert "./usr/share/icons/hicolor/scalable/apps/nishro-link.svg" in deb["data"]
 
 

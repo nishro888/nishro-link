@@ -32,6 +32,7 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 # launches at login, and the second one opens the window the first kept hidden.
 RUN_VALUE = "NishroLink"
 BACKGROUND = "--background"
+INSTALLED = "/usr/bin/nishro-link"            # the .deb's launcher
 
 
 def available() -> bool:
@@ -53,9 +54,11 @@ def command(extra=()) -> list:
         code = (f"import sys; sys.path.insert(0, {root!r}); "
                 f"from link.nishro_link import main; sys.exit(main())")
         return [exe, "-c", code, *extra]
-    installed = shutil.which("nishro-link")
-    if installed and _is_ours(installed, root):
-        return [installed, *extra]
+    # The package's launcher by its full path first: an older per-user install
+    # in ~/.local/bin comes earlier on PATH, and would be what a bare name ran.
+    for installed in (INSTALLED, shutil.which("nishro-link")):
+        if installed and _is_ours(installed, root):
+            return [installed, *extra]
     return ["env", f"PYTHONPATH={root}", sys.executable, "-m", "link.nishro_link",
             *extra]
 

@@ -83,6 +83,7 @@ def test_the_installed_launcher_is_used_when_it_is_this_copy(linux, monkeypatch,
     launcher = tmp_path / "nishro-link"
     launcher.write_text(f'#!/bin/sh\nPYTHONPATH="{root}"\n')
     monkeypatch.setattr(autostart.shutil, "which", lambda name: str(launcher))
+    monkeypatch.setattr(autostart, "INSTALLED", str(tmp_path / "not-there"))
     assert autostart.command() == [str(launcher), "--background"]
 
     launcher.write_text('#!/bin/sh\nPYTHONPATH="/usr/lib/nishro-link"\n')
@@ -152,3 +153,17 @@ def test_unsupported_systems_say_so(monkeypatch):
     assert autostart.state() == {"available": False, "on": False, "current": False}
     with pytest.raises(OSError):
         autostart.switch(True)
+
+
+def test_the_package_launcher_wins_over_an_older_one_on_path(linux, monkeypatch,
+                                                             tmp_path):
+    """An earlier per-user install sits in ~/.local/bin, ahead of /usr/bin."""
+    monkeypatch.setattr(autostart.pathlib.Path, "resolve",
+                        lambda self: tmp_path / "lib" / "link" / "autostart.py")
+    package = tmp_path / "usr-bin-nishro-link"
+    package.write_text(f'#!/bin/sh\nPYTHONPATH="{tmp_path / "lib"}"\n')
+    old = tmp_path / "local-bin-nishro-link"
+    old.write_text('#!/bin/sh\nexec python3 ~/.local/share/nishro-link/...\n')
+    monkeypatch.setattr(autostart, "INSTALLED", str(package))
+    monkeypatch.setattr(autostart.shutil, "which", lambda name: str(old))
+    assert autostart.command()[0] == str(package)
