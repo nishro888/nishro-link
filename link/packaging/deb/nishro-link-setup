@@ -1,0 +1,38 @@
+#!/bin/sh
+# Run as root through pkexec, by the "Set up permissions" button in Nishro
+# Link's window. Lets one user use the keyboard and mouse: the `input` group,
+# the uinput module, and the udev rule this package installed.
+#
+# Only for the user who asked: pkexec says who that was (PKEXEC_UID), and a
+# request to set up somebody else is refused.
+set -e
+
+user="$1"
+if [ -z "$user" ]; then
+    echo "usage: nishro-link-setup USER" >&2
+    exit 2
+fi
+if ! id "$user" >/dev/null 2>&1; then
+    echo "no such user: $user" >&2
+    exit 2
+fi
+if [ "$user" = root ]; then
+    echo "nothing to set up for root" >&2
+    exit 2
+fi
+if [ -n "${PKEXEC_UID:-}" ]; then
+    asker="$(getent passwd "$PKEXEC_UID" | cut -d: -f1)"
+    if [ "$asker" != "$user" ]; then
+        echo "only $asker can be set up from their own session" >&2
+        exit 2
+    fi
+fi
+
+getent group input >/dev/null || groupadd --system input
+usermod -aG input "$user"
+modprobe uinput 2>/dev/null || true
+if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger --subsystem-match=misc --sysname-match=uinput 2>/dev/null || true
+fi
+echo "ok: $user can use the keyboard and mouse after logging in again"

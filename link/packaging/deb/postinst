@@ -1,0 +1,29 @@
+#!/bin/sh
+# After installing: load uinput, apply the udev rule, and - when it can be told
+# who is installing - add them to the `input` group.
+set -e
+
+case "$1" in
+configure)
+    # Compiled now, as root: the program runs as a user who cannot write here,
+    # and would otherwise recompile every module at every start.
+    python3 -m compileall -q /usr/lib/nishro-link/link >/dev/null 2>&1 || true
+    modprobe uinput 2>/dev/null || true
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules 2>/dev/null || true
+        udevadm trigger --subsystem-match=misc --sysname-match=uinput 2>/dev/null || true
+    fi
+    # `sudo apt install ./nishro-link.deb` keeps SUDO_USER. The App Center does
+    # not say who asked; for that case the program's own window offers the same
+    # setup behind the desktop's password prompt.
+    u="${SUDO_USER:-}"
+    if [ -n "$u" ] && [ "$u" != root ] && id "$u" >/dev/null 2>&1; then
+        if ! id -nG "$u" | tr ' ' '\n' | grep -qx input; then
+            usermod -aG input "$u" || true
+            echo "Nishro Link: $u can use the keyboard and mouse after logging out and back in once."
+        fi
+    fi
+    ;;
+esac
+
+exit 0

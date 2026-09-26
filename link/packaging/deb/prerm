@@ -1,0 +1,12 @@
+#!/bin/sh
+# Before removing or upgrading: drop the bytecode postinst compiled, which dpkg
+# does not know about and would otherwise leave behind.
+set -e
+
+case "$1" in
+remove|upgrade|deconfigure)
+    rm -rf /usr/lib/nishro-link/link/__pycache__
+    ;;
+esac
+
+exit 0

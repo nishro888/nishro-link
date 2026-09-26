@@ -1,0 +1,4 @@
+# Nishro Link plays the pointer and keys through /dev/uinput. Give it to the
+# `input` group - the group that already reads /dev/input - instead of root
+# alone, so a member of that group can both read and play input.
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

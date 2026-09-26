@@ -52,6 +52,9 @@ It is a single file with Python built in; nothing else is needed.
   is dismissed, Windows blocks the program and other devices cannot find it -
   the window will say so and offer an *Allow through the firewall* button.
 
+To start it at sign-in: **Settings → Start when I log in**. It then starts in
+the background; open it again to bring the window back.
+
 To build it yourself and install it for your user (Start Menu entry, optional
 start at sign-in):
 
@@ -60,7 +63,32 @@ powershell -ExecutionPolicy Bypass -File link\packaging\build-windows.ps1
 powershell -ExecutionPolicy Bypass -File link\packaging\install-windows.ps1 -Autostart
 ```
 
-### Linux (tested on Ubuntu, Wayland and X11)
+### Ubuntu, Debian and derivatives (Wayland and X11)
+
+Download `nishro-link_0.9.0-beta_all.deb` from the [Releases](../../releases)
+page and open it in the App Center (Software Install), or:
+
+```bash
+sudo apt install ./nishro-link_0.9.0-beta_all.deb
+```
+
+It installs what it needs (`python3-tk`, `python3-evdev`), adds **Nishro Link**
+to the app menu, and lets the `input` group use `/dev/uinput`. Reading the
+keyboard and mouse needs your user in that group:
+
+- installed with `sudo apt`, it adds you;
+- installed from the App Center, the window shows **Set up permissions**, which
+  does the same behind your normal password prompt.
+
+Either way, **log out and back in once** afterwards. The window says when that
+is all that is left.
+
+If a firewall (ufw) is running: `sudo ufw allow 8770` (the link is TCP 8770,
+finding devices by name is UDP 8770; that command opens both). To start at
+login: **Settings → Start when I log in**. To remove it:
+`sudo apt remove nishro-link`.
+
+### Other Linux, or without root
 
 ```bash
 git clone https://github.com/nishro888/nishro-link.git
@@ -68,17 +96,11 @@ cd nishro-link
 ./link/packaging/install-linux.sh
 ```
 
-The installer puts it in `~/.local/share/nishro-link`, adds a `nishro-link`
-command and a systemd user unit, and sets up the two device permissions it
-needs - reading `/dev/input` (the `input` group) and writing `/dev/uinput` (a
-udev rule). Where that needs `sudo` it prints the exact commands. After being
-added to the `input` group, **log out and back in**.
-
-For the window: `sudo apt install python3-tk`. If a firewall (ufw) is running:
-`sudo ufw allow 8770`.
-
-Start it with `nishro-link`, or at login with
-`systemctl --user enable --now nishro-link`.
+The script installs for your user only, in `~/.local/share/nishro-link`, with a
+`nishro-link` command. It sets up the same two device permissions - reading
+`/dev/input` (the `input` group) and writing `/dev/uinput` (a udev rule) - and
+where that needs `sudo` it prints the exact commands. For the window:
+`sudo apt install python3-tk` or your distribution's equivalent.
 
 ## Getting started
 
@@ -128,8 +150,9 @@ Python 3.10+. No dependencies on Windows beyond the standard library; `evdev`
 on Linux (`pip install -r link/requirements-linux.txt`, or `python3-evdev`).
 
 ```bash
-python -m pytest link/tests          # 615 tests, about a minute and a half
+python -m pytest link/tests          # 667 tests, about a minute and a half
 python -m link.nishro_link           # run from source
+python link/packaging/build-deb.py   # the .deb, into dist/ (pure Python; builds on Windows too)
 ```
 
 The test suite never touches the real network: discovery is confined to
@@ -149,7 +172,9 @@ link/
   inject.py          moving the pointer and typing (SendInput / uinput)
   control_api.py     the local control API the window and web page use
   ui_*.py            the window
-  packaging/         Windows build and install, Linux install
+  access.py          Linux keyboard and mouse permissions: checked, and fixed
+  autostart.py       starting at login
+  packaging/         the Windows exe, the .deb, and the install scripts
 ```
 
 ## License

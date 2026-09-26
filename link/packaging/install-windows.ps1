@@ -62,7 +62,7 @@ $s.Save()
 Ok "Start Menu entry"
 
 if ($Autostart) {
-    Set-ItemProperty $runKey -Name NishroLink -Value "`"$exe`""
+    Set-ItemProperty $runKey -Name NishroLink -Value "`"$exe`" --background"
     Ok "starts at sign-in"
 }
 
@@ -110,7 +110,7 @@ Say "Done"
 Write-Host @"
   Run it            $exe
                     (or 'Nishro Link' in the Start Menu)
-  Start at sign-in  re-run this installer with -Autostart
+  Start at sign-in  Settings > Start when I log in (or re-run with -Autostart)
   Uninstall         re-run this installer with -Uninstall
 
   Failsafe: press BOTH Ctrl keys together to release all input, on either machine.

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Nishro Link, as installed by the .deb. The program itself is in
+# /usr/lib/nishro-link; this only points Python at it.
+PYTHONPATH="/usr/lib/nishro-link${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec python3 -m link.nishro_link "$@"

@@ -1,0 +1,14 @@
+#!/bin/sh
+# After removing: stop applying the udev rule. Group membership is left alone -
+# other software may rely on the `input` group too.
+set -e
+
+case "$1" in
+remove|purge)
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules 2>/dev/null || true
+    fi
+    ;;
+esac
+
+exit 0

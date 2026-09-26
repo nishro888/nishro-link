@@ -347,3 +347,81 @@ def test_a_device_card_draws_its_real_monitor_layout(app):
     s = app.api.status()
     lap = next(d for d in s["devices"] if d["name"] == "laptop")
     assert lap["rects"] == [[0, 0, 1366, 768]]
+
+
+# ------------------------------------------------------------ Linux setup
+def test_missing_permissions_are_shown_with_the_fix(app):
+    s = app.api.status()
+    app._render(dict(s, setup={"ok": False, "relogin": False, "fixable": True,
+                               "problems": ["It cannot read this computer's "
+                                            "keyboard and mouse."]}))
+    assert app.setup_box.winfo_manager() == "pack"
+    assert "needs permission" in app.setup_text.cget("text")
+    assert app.setup_btn.winfo_manager() == "pack"
+    assert app.chip.cget("text") == "SETUP NEEDED"
+    app._render(dict(s, setup=None))
+    assert app.setup_box.winfo_manager() == "", "and goes once it is done"
+
+
+def test_after_setup_it_asks_for_a_new_login_not_the_button_again(app):
+    s = app.api.status()
+    app._render(dict(s, setup={"ok": False, "relogin": True, "fixable": False,
+                               "problems": ["Setup is done - log out and back "
+                                            "in once to finish it."]}))
+    assert app.setup_text.cget("text").startswith("Almost ready.")
+    assert app.setup_btn.winfo_manager() == ""
+
+
+# ---------------------------------------------------- start when I log in
+@pytest.fixture
+def login_store(monkeypatch):
+    """Stands in for the Run key / autostart folder: tests must not change
+    what really starts at login."""
+    from link import autostart
+    stored = {}
+
+    def switch(on, cmd=None, where=None):
+        if on:
+            stored["cmd"] = list(cmd)
+        else:
+            stored.pop("cmd", None)
+
+    def state(cmd=None, where=None):
+        return {"available": True, "on": "cmd" in stored,
+                "current": stored.get("cmd") == list(cmd or [])}
+    monkeypatch.setattr(autostart, "switch", switch)
+    monkeypatch.setattr(autostart, "state", state)
+    return stored
+
+
+def test_the_login_switch_applies_at_once(app, login_store):
+    app.show_page("settings")
+    assert app.autostart is not None
+    app._render(app.api.status())
+    assert app.autostart.get() is False
+    assert app.autostart_note.cget("text").startswith("Off.")
+
+    app.autostart.set(True)
+    app._set_autostart()
+    assert "--background" in login_store["cmd"]
+    app._render(app.api.status())
+    assert app.autostart.get() is True
+    assert "in the background" in app.autostart_note.cget("text")
+
+    app.autostart.set(False)
+    app._set_autostart()
+    assert "cmd" not in login_store
+
+
+def test_a_login_entry_for_another_copy_is_pointed_out(app, login_store):
+    login_store["cmd"] = ["C:/old/NishroLink.exe", "--background"]
+    app._render(app.api.status())
+    assert app.autostart.get() is True
+    assert "different copy" in app.autostart_note.cget("text")
+
+
+def test_the_login_command_keeps_this_runs_config_file(app, login_store):
+    app.autostart.set(True)
+    app._set_autostart()
+    cmd = login_store["cmd"]
+    assert cmd[cmd.index("--config") + 1] == str(app.api.cfg_path)

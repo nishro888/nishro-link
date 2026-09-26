@@ -24,7 +24,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from . import config, pairing, runtime
+from . import access, autostart, config, pairing, runtime
 
 MAX_BODY = 64 * 1024     # every real command is a few hundred bytes
 
@@ -48,6 +48,9 @@ class ControlAPI:
         # Set by check_firewall(): [] clear, a list of rules if blocked, None if
         # it could not be checked (never shown as a problem).
         self.firewall_blocked = None
+        # Linux device access, from access.check(); None or ok means nothing
+        # to do. Set by the program at startup.
+        self.setup = None
 
     @property
     def url(self) -> str:
@@ -197,6 +200,8 @@ class ControlAPI:
             "trusted_peer": n.trusted_peer,
             "encrypted": False,      # authenticated, not encrypted - see protocol.py
             "firewall_blocked": self.firewall_blocked or [],
+            "setup": self.setup if self.setup and not self.setup.get("ok") else None,
+            "autostart": self._autostart_state(),
             "policy": dict(core.policy),
             "enabled": bool(n.enabled),
             "connected": n.ch is not None,
@@ -241,6 +246,10 @@ class ControlAPI:
             return self._forget()
         if path == "/api/device/forget":
             return self._forget_device(str(body.get("name") or ""))
+        if path == "/api/setup":
+            return self._setup()
+        if path == "/api/autostart":
+            return self._autostart(bool(body.get("on")))
         if path == "/api/firewall":
             return self._firewall()
         if path == "/api/discover":
@@ -430,6 +439,39 @@ class ControlAPI:
         self.node.core.devices = self._roster_view()
         self.log(f"{name} forgotten - off the arrangement and the device list")
         return {"ok": True}
+
+    def _setup(self) -> dict:
+        """Set up keyboard and mouse access on Linux, through the desktop's own
+        password prompt. After it, a new login is still needed."""
+        r = access.fix()
+        if r.get("ok"):
+            self.setup = access.check()
+            self.log("keyboard and mouse access set up - log out and back in "
+                     "once to finish")
+        return dict(r, setup=self.setup)
+
+    # ------------------------------------------------- start when I log in
+    def _launch(self) -> list:
+        """The command a login runs: this copy, with this run's config file."""
+        return autostart.command(["--config", str(self.cfg_path)]
+                                 if self.cfg_path else [])
+
+    def _autostart_state(self) -> dict:
+        try:
+            return autostart.state(self._launch())
+        except Exception:                  # never let the status call fail on it
+            return {"available": False, "on": False, "current": False}
+
+    def _autostart(self, on: bool) -> dict:
+        try:
+            autostart.switch(on, self._launch())
+        except Exception as e:
+            self.log(f"could not {'set' if on else 'stop'} starting at login: {e}")
+            return {"ok": False, "error": str(e),
+                    "autostart": self._autostart_state()}
+        self.log("starts at login, in the background" if on
+                 else "no longer starts at login")
+        return {"ok": True, "autostart": self._autostart_state()}
 
     def check_firewall(self) -> None:
         """Look for firewall rules blocking this program. Slow (PowerShell), so

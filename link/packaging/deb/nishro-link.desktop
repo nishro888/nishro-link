@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Nishro Link
+GenericName=Mouse and keyboard sharing
+Comment=One mouse and keyboard across several computers
+Exec=nishro-link
+Icon=nishro-link
+Terminal=false
+Categories=Utility;Network;
+Keywords=keyboard;mouse;kvm;share;screens;synergy;barrier;
+StartupNotify=true
+StartupWMClass=Nishro Link

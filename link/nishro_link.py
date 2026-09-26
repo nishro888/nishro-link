@@ -32,7 +32,7 @@ import socket
 import sys
 import threading
 
-from . import config, control_api, desk, desktop
+from . import access, config, control_api, desk, desktop
 from .inject import make_injector
 from .node import Node, NodeCore
 from .runtime import RunLog, SingleInstance, log_path
@@ -168,6 +168,9 @@ def build_parser():
                     help="port for the local control UI (0 turns it off)")
     ap.add_argument("--no-window", action="store_true",
                     help="run without the application window (headless/service)")
+    ap.add_argument("--background", action="store_true",
+                    help="start with the window hidden (how it starts at login); "
+                         "launching it again shows the window")
     return ap
 
 
@@ -306,13 +309,10 @@ def main() -> int:
     core = NodeCore(cfg["node"], lay, policy, is_hub=bool(cfg["hub"]),
                     side=cfg["side"])
 
-    try:
-        capture = make_capture(screen, origin=(here.x, here.y))
-        injector = make_injector(screen=screen, origin=(here.x, here.y))
-    except Exception as e:
-        log(f"cannot start: {e}")
-        return 1
-
+    # Checked before the keyboard and mouse are touched: a second launch - the
+    # menu clicked while the login copy runs - used to create its own virtual
+    # input device before finding out it had nothing to do.
+    #
     # One instance per port. Two of these running is not a harmless mistake:
     # they fight over the same devices and interleave into the same log, which
     # is how an incident ends up described by the wrong process's output.
@@ -327,6 +327,27 @@ def main() -> int:
         log(f"another Nishro Link is already running on port {cfg['port']}. "
             f"Stop it first, or use a different --port.")
         return 2
+
+    setup = access.check()
+    try:
+        if not setup["ok"]:
+            raise PermissionError(" ".join(setup["problems"]))
+        capture = make_capture(screen, origin=(here.x, here.y))
+        injector = make_injector(screen=screen, origin=(here.x, here.y))
+    except Exception as e:
+        if not sys.platform.startswith("linux"):
+            log(f"cannot start: {e}")
+            return 1
+        # Start anyway, with linking paused and nothing touching the devices.
+        # Exiting here left someone who had just installed the package with a
+        # program that did nothing when clicked; the window now says what is
+        # missing and offers to set it up.
+        log(f"keyboard and mouse not available yet: {e}")
+        capture, injector = access.NoCapture(), access.NoInjector()
+        setup = access.check()
+        if setup["ok"]:                   # a failure check() cannot explain
+            setup = {"ok": False, "read": False, "write": False, "relogin": False,
+                     "fixable": False, "problems": [str(e)]}
 
     n = Node(core, capture, injector, port=cfg["port"], pin=cfg["pin"],
              peer_addr=cfg["peer_addr"], on_log=log,
@@ -355,9 +376,17 @@ def main() -> int:
     log("FAILSAFE: press both Ctrl keys together to release everything")
     log(f"log: {log_path()}")
 
+    if not setup["ok"]:
+        n.enabled = False                 # nothing to link with yet
+        for line in setup["problems"]:
+            log(f"setup needed: {line}")
+        if setup.get("fixable"):
+            log("open Nishro Link's window and press 'Set up permissions'")
+
     ui = None
     if args.ui_port:
         ui = control_api.ControlAPI(n, cfg, log, cfg_path=args.config, port=args.ui_port)
+        ui.setup = setup
         if ui.start():
             log(f"control UI: {ui.url}")
             log("  (that link carries a one-time token - it changes every run)")
@@ -385,6 +414,10 @@ def main() -> int:
         if ui_tk:
             window = ui_tk.App(ui, on_quit=n.stop)
             only.watch(window.show)      # a second launch raises this window
+            if args.background and setup["ok"]:
+                # Started at login. Hidden unless something needs a person:
+                # setup that is not done would otherwise wait unseen forever.
+                window.hide()
 
     try:
         if window:

@@ -27,7 +27,7 @@ import threading
 import tkinter as tk
 from tkinter import messagebox
 
-from . import ui_arrange, ui_pair, ui_theme
+from . import autostart, ui_arrange, ui_pair, ui_theme
 from .ui_kit import (Button, Card, Dot, Kit, Metric, Monitors, Pill, Scroll,
                      Segmented, Toggle, ago, field, label)
 
@@ -160,6 +160,17 @@ class App:
         self.fw_btn = Button(self.fw_box, kit, "Allow through the firewall",
                              self._fix_firewall, kind="danger", small=True)
         self.fw_btn.pack(side="right", padx=12)
+
+        # Linux, first run: the keyboard and mouse are not ours to use yet.
+        self.setup_box = tk.Frame(self.main, bg=C["warn_bg"], highlightthickness=1,
+                                  highlightbackground=C["warn"])
+        self.setup_text = self._wrap(tk.Label(
+            self.setup_box, bg=C["warn_bg"], fg=C["ink"], font=F["small"],
+            justify="left", anchor="w", text=""))
+        self.setup_text.pack(side="left", fill="x", expand=True, padx=12, pady=10)
+        self.setup_btn = Button(self.setup_box, kit, "Set up permissions",
+                                self._fix_setup, kind="primary", small=True)
+        self.setup_btn.pack(side="right", padx=12)
 
         self.stack = tk.Frame(self.main, bg=C["panel"])
         self.stack.pack(fill="both", expand=True, pady=(6, 0))
@@ -495,6 +506,24 @@ class App:
             tk.Label(row, text=text, font=F["body"], bg=C["card"],
                      fg=C["ink"]).pack(side="left", padx=10)
 
+        # Applied as soon as it is flipped, not by Save: it changes nothing in
+        # the running program, and a switch that waits for a button reads as
+        # broken.
+        self.autostart = self.autostart_note = None
+        if autostart.available():
+            st = Card(box, kit, "Startup")
+            st.pack(fill="x", pady=(12, 0))
+            row = tk.Frame(st.body, bg=C["card"])
+            row.pack(fill="x", pady=3)
+            self.autostart = tk.BooleanVar(value=False)
+            Toggle(row, kit, self.autostart, command=self._set_autostart
+                   ).pack(side="left")
+            tk.Label(row, text="Start Nishro Link when I log in", font=F["body"],
+                     bg=C["card"], fg=C["ink"]).pack(side="left", padx=10)
+            self.autostart_note = self._wrap(label(st.body, kit, "", "small", "dim"))
+            self.autostart_note.configure(bg=C["card"])
+            self.autostart_note.pack(anchor="w", fill="x", pady=(8, 0))
+
         sec = Card(box, kit, "Security")
         sec.pack(fill="x", pady=(12, 0))
         g = tk.Frame(sec.body, bg=C["card"])
@@ -552,7 +581,9 @@ class App:
             f"looking for {_peer(s)}" if s.get("paired") else "not paired yet"
         self.subtitle.configure(text=f"{s['node']}  ·  {role}  ·  "
                                      f"{online} of {len(devs)} online")
-        if not s["enabled"]:
+        if s.get("setup"):
+            colour = C["warn"]            # the setup banner below says why
+        elif not s["enabled"]:
             self.chip.set("LINKING OFF", "bad")
             colour = C["bad"]
         elif s["connected"]:
@@ -566,6 +597,24 @@ class App:
             text=("off" if not s["enabled"] else
                   f"{online} of {len(devs)} online"))
         self.btn_toggle.set_text("Stop linking" if s["enabled"] else "Start linking")
+
+        setup = s.get("setup")
+        shown = self.setup_box.winfo_manager() == "pack"
+        if setup and not shown:
+            self.setup_box.pack(fill="x", padx=26, pady=(6, 0), before=self.stack)
+        elif not setup and shown:
+            self.setup_box.pack_forget()
+        if setup:
+            head = ("Almost ready." if setup.get("relogin") else
+                    "Nishro Link needs permission to use this computer's "
+                    "keyboard and mouse.")
+            self.setup_text.configure(text=head + " " + " ".join(setup["problems"]))
+            if setup.get("fixable"):
+                if not self.setup_btn.winfo_manager():
+                    self.setup_btn.pack(side="right", padx=12)
+            elif self.setup_btn.winfo_manager():
+                self.setup_btn.pack_forget()
+            self.chip.set("SETUP NEEDED", "warn")
 
         blocked = bool(s.get("firewall_blocked"))
         shown = self.fw_box.winfo_manager() == "pack"
@@ -630,6 +679,13 @@ class App:
             self.may_drive.set(s["policy"].get("may_drive", True))
         if "may_be_driven" not in self.touched:
             self.may_be_driven.set(s["policy"].get("may_be_driven", True))
+        if self.autostart is not None:
+            a = s.get("autostart") or {}
+            if self.autostart.get() != bool(a.get("on")):
+                self.autostart.set(bool(a.get("on")))
+            note = _autostart_note(a)
+            if self.autostart_note.cget("text") != note:
+                self.autostart_note.configure(text=note)
 
         # ---- activity
         lines = s.get("log", [])
@@ -657,6 +713,13 @@ class App:
     def _toggle(self) -> None:
         on = bool(self._last and self._last["enabled"])
         self.api.command("/api/disable" if on else "/api/enable", {})
+        self._poll_now()
+
+    def _set_autostart(self) -> None:
+        r = self.api.command("/api/autostart", {"on": bool(self.autostart.get())})
+        if not r.get("ok"):
+            self._say(f"Could not change starting at login: {r.get('error')}",
+                      self.C["bad"])
         self._poll_now()
 
     def _fix_firewall(self) -> None:
@@ -689,6 +752,38 @@ class App:
             else:
                 self._say("Windows still reports a block: "
                           + "; ".join(r.get("blocked") or []), self.C["bad"])
+            self._poll_now()
+        wait()
+
+    def _fix_setup(self) -> None:
+        """The desktop's password prompt, off the Tk thread - it waits for a
+        person, and the window must not freeze meanwhile."""
+        self.setup_btn.set_enabled(False)
+        self._say("Your computer will ask for your password.", self.C["warn"])
+        done = []
+        threading.Thread(target=lambda: done.append(
+            self.api.command("/api/setup", {}) or {}), daemon=True).start()
+
+        def wait():
+            if not self._alive:
+                return
+            if not done:
+                self.root.after(200, wait)
+                return
+            r = done[0]
+            try:
+                self.setup_btn.set_enabled(True)
+            except tk.TclError:
+                return
+            if r.get("ok"):
+                self._say("Done. Log out and back in once, then open Nishro Link "
+                          "again.", self.C["ok"])
+            elif r.get("declined"):
+                self._say("Nothing was changed - the password prompt was closed.",
+                          self.C["dim"])
+            else:
+                self._say(f"Setup did not finish: {r.get('error', 'unknown error')}",
+                          self.C["bad"])
             self._poll_now()
         wait()
 
@@ -875,6 +970,17 @@ def _tone(line: str) -> str:
                               "enabled")):
         return "ok"
     return ""
+
+
+def _autostart_note(a: dict) -> str:
+    if not a.get("on"):
+        return "Off. Nishro Link starts only when you open it."
+    if not a.get("current"):
+        return ("On, but set to start a different copy of Nishro Link - one that "
+                "has since moved or been replaced. Switch this off and on again "
+                "to start this one.")
+    return ("It starts in the background with this window hidden. Open Nishro "
+            "Link again to bring the window back.")
 
 
 def _device_state(d) -> str:
