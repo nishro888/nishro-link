@@ -1,0 +1,310 @@
+"""Groups over real sockets: adding a device from EITHER side, a wrong password,
+removing a device, leaving, and a new password reaching everyone.
+
+Reported: add and remove were "not fully user friendly", and after typing a
+name and a password "I don't see peer connected or not". These pin down that
+each of those ends in a state the window can show - connected, or the reason
+not - and never in silence or an endless retry.
+
+Every device here listens on its own port on loopback, as each would on its own
+machine; discovery is bypassed by giving the address.
+"""
+import threading
+import time
+
+import pytest
+
+from link import pairing
+from link.desk import Desk
+from link.node import Node, NodeCore
+
+from test_node_live import FakeCapture, FakeInjector, free_port
+
+LAPTOP_PW = "k7qm-2xvp-9hdt"
+AIO_PW = "b3nr-8wzc-4tyh"
+
+
+def device(name, pin, hub=True, peer=None, port=None, w=1920, h=1080):
+    d = Desk(name)
+    d.add(name, w, h)
+    n = Node(NodeCore(name, d, {}, is_hub=hub), FakeCapture(), FakeInjector(),
+             port=port or free_port(), pin=pin,
+             peer_addr="127.0.0.1" if peer else None, peer_name=peer)
+    n.lines = []
+    n._log = n.lines.append
+    n._start_responder = lambda: None
+    n.events = []
+    n.on_event = lambda kind, info: n.events.append((kind, info.get("name")))
+    return n
+
+
+def accept_invites(n):
+    """What ControlAPI._on_invited does, without the config file."""
+    def cb(hub, hub_id, addr, port, secret, by):
+        def go():
+            time.sleep(0.2)
+            n.reconfigure(hub=False, peer_addr=addr, peer_name=hub, peer_id=hub_id,
+                          port=port, pin=secret, joining=True)
+            with n._lock:
+                n.core.alone()
+        threading.Thread(target=go, daemon=True).start()
+        return True
+    n.on_invited = cb
+
+
+def wait(cond, what, nodes=(), timeout=8.0):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if cond():
+            return
+        time.sleep(0.02)
+    tail = "\n".join(f"  {n.core.node}: {x}" for n in nodes for x in n.lines[-10:])
+    pytest.fail(f"timed out waiting for {what}\n{tail}")
+
+
+@pytest.fixture
+def running():
+    nodes = []
+
+    def start(*ns):
+        for n in ns:
+            nodes.append(n)
+            threading.Thread(target=n.run, daemon=True).start()
+        return ns
+    yield start
+    for n in nodes:
+        n.stop()
+
+
+# ------------------------------------------------------------ inviting
+def test_the_hub_adds_a_device_that_is_on_its_own(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", AIO_PW)
+    accept_invites(aio)
+    running(laptop, aio)
+    r = laptop.invite("aio", "B3NR 8WZC 4TYH", addr="127.0.0.1", port=aio.port)
+    assert r == {"ok": True, "reason": None, "detail": "aio"}, laptop.adding
+    assert laptop.adding["phase"] == "connected"
+    wait(lambda: "aio" in laptop.links and aio.connected(), "aio to join",
+         (laptop, aio))
+    assert aio.pin == pairing.normalise(LAPTOP_PW), "it now has the group's password"
+    assert aio.core.is_hub is False and aio.peer_name == "laptop"
+    assert {"laptop", "aio"} <= set(aio.core.layout.names())
+    assert ("invited", "laptop") in aio.events
+
+
+def test_a_member_adds_a_device_to_its_hubs_group(running):
+    """From the second AIO's window, not the laptop's: it goes to the laptop."""
+    laptop = device("laptop", LAPTOP_PW)
+    aio1 = device("aio1", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    aio2 = device("aio2", AIO_PW)
+    accept_invites(aio2)
+    running(laptop, aio1, aio2)
+    wait(lambda: aio1.connected(), "aio1 to join first", (laptop, aio1))
+    r = aio1.invite("aio2", AIO_PW, addr="127.0.0.1", port=aio2.port)
+    assert r["ok"], aio1.adding
+    wait(lambda: {"aio1", "aio2"} <= set(laptop.links), "both in the group",
+         (laptop, aio1, aio2))
+    assert aio2.peer_name == "laptop", "joined the hub, not the one who asked"
+
+
+def test_a_wrong_password_is_said_and_nothing_changes(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", AIO_PW)
+    accept_invites(aio)
+    running(laptop, aio)
+    r = laptop.invite("aio", "zzzz-zzzz-zzzz", addr="127.0.0.1", port=aio.port)
+    assert (r["ok"], r["reason"]) == (False, "wrong_password")
+    assert aio.core.is_hub and aio.pin == pairing.normalise(AIO_PW)
+    assert ("rejected", "laptop") in aio.events, "and the other side says so too"
+
+
+def test_a_device_with_its_own_group_is_not_taken_from_it(running):
+    laptop = device("laptop", LAPTOP_PW)
+    desk = device("desk", AIO_PW)
+    desk.core.layout.add("tablet", 1280, 800, owner="tablet", x=1920, y=0)
+    accept_invites(desk)
+    running(laptop, desk)
+    r = laptop.invite("desk", AIO_PW, addr="127.0.0.1", port=desk.port)
+    assert (r["ok"], r["reason"]) == (False, "busy")
+    assert "tablet" in r["detail"]
+    assert desk.core.is_hub
+
+
+def test_nobody_listening_is_unreachable_not_a_hang(running):
+    laptop = device("laptop", LAPTOP_PW)
+    running(laptop)
+    t = time.monotonic()
+    r = laptop.invite("aio", AIO_PW, addr="127.0.0.1", port=free_port())
+    assert r["reason"] == "unreachable" and time.monotonic() - t < 5
+
+
+# -------------------------------------------------------------- joining
+def test_joining_says_connected(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", "K7QM2XVP9HDT", hub=False, peer="laptop",
+                 port=laptop.port)
+    aio.joining = True
+    running(laptop, aio)
+    wait(lambda: aio.dial["phase"] == "connected", "the dial to say connected",
+         (laptop, aio))
+    assert aio.joining is False, "only the first hello is a pairing"
+    assert ("connected", "laptop") in aio.events
+    assert ("joined", "aio") in laptop.events
+
+
+def test_a_wrong_password_stops_the_dialling_and_says_why(running):
+    """It used to retry forever, and the window said "looking for it"."""
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", "zzzz-zzzz-zzzz", hub=False, peer="laptop",
+                 port=laptop.port)
+    running(laptop, aio)
+    wait(lambda: aio.dial["phase"] == "failed", "the dial to fail", (laptop, aio))
+    assert (aio.dial["reason"], aio.blocked) == ("wrong_password",
+                                                 "wrong_password")
+    time.sleep(1.0)
+    refusals = [x for x in laptop.lines if "wrong password" in x]
+    assert len(refusals) == 1, "tried once, not over and over"
+    # A new pairing - the right password this time - tries again.
+    aio.reconfigure(pin=LAPTOP_PW, joining=True)
+    wait(lambda: aio.dial["phase"] == "connected", "the second try", (laptop, aio))
+
+
+# -------------------------------------------------------------- removing
+def test_a_removed_device_is_told_and_forgotten(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    told = []
+    aio.on_removed = told.append
+    running(laptop, aio)
+    wait(lambda: "aio" in laptop.links, "aio to connect", (laptop, aio))
+    assert laptop.remove("aio") is None
+    wait(lambda: told == ["laptop"], "aio to hear it", (laptop, aio))
+    wait(lambda: "aio" not in laptop.core.layout.names(), "the hub to forget it",
+         (laptop, aio))
+    assert aio.blocked == "removed", "and it does not dial back in"
+
+
+def test_a_device_removed_while_off_is_refused_until_paired_again(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    laptop.removed_ids.add(aio.device_id)
+    told = []
+    aio.on_removed = told.append
+    running(laptop, aio)
+    wait(lambda: told == ["laptop"], "aio to be refused", (laptop, aio))
+    assert "aio" not in laptop.links
+    # Paired again on purpose: in.
+    aio.reconfigure(joining=True)
+    wait(lambda: "aio" in laptop.links, "aio to be let back in", (laptop, aio))
+    assert aio.device_id not in laptop.removed_ids
+
+
+def test_a_device_that_leaves_is_taken_off_the_hub(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    running(laptop, aio)
+    wait(lambda: "aio" in laptop.links, "aio to connect", (laptop, aio))
+    aio.leave()
+    aio.go_alone(pairing.new_password())
+    wait(lambda: "aio" not in laptop.core.layout.names(), "the hub to forget it",
+         (laptop, aio))
+    assert ("left_group", "aio") in laptop.events
+    assert aio.core.is_hub and aio.core.layout.names() == ["aio"]
+
+
+# ------------------------------------------------------------- passwords
+def test_a_new_password_reaches_the_devices_connected_now(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    running(laptop, aio)
+    wait(lambda: "aio" in laptop.links, "aio to connect", (laptop, aio))
+    new = pairing.new_password()
+    assert laptop.rekey(new) == 1
+    wait(lambda: aio.pin == pairing.normalise(new), "aio to have it", (laptop, aio))
+    # And it works: drop the link, and aio reconnects with the new one.
+    laptop._close_links()
+    wait(lambda: aio.dial["phase"] == "connected" and "aio" in laptop.links,
+         "a reconnect with the new password", (laptop, aio))
+
+
+# ------------------------------------------------- checking before joining
+def test_the_password_is_checked_with_the_hub_before_anything_changes(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", AIO_PW)
+    running(laptop, aio)
+    r = aio.probe("laptop", "K7QM2XVP9HDT", addr="127.0.0.1", port=laptop.port)
+    assert r["ok"] and r["hub"] == "laptop" and r["hub_id"] == laptop.device_id
+    assert aio.adding["phase"] == "checked"
+    time.sleep(0.2)
+    assert not laptop.links and not [e for e in laptop.events if e[0] == "joined"]
+    assert aio.core.is_hub, "nothing switched: that is the caller's decision"
+
+
+def test_a_wrong_password_found_by_checking_changes_nothing(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", AIO_PW)
+    running(laptop, aio)
+    r = aio.probe("laptop", "wrong-wrong-wrong", addr="127.0.0.1",
+                  port=laptop.port)
+    assert (r["ok"], r["reason"]) == (False, "wrong_password")
+    assert aio.core.is_hub and aio.pin == pairing.normalise(AIO_PW)
+
+
+def test_naming_a_member_finds_its_hub():
+    """Pick aio1 from the list; aio1 is in laptop's group; laptop is dialled."""
+    from link.discovery import Found
+    n = device("aio2", AIO_PW)
+    asked = []
+
+    def find(q):
+        asked.append(q)
+        return {"aio1": [Found("aio1", "a1", "10.0.0.7", 8770, False, "laptop")],
+                "laptop": [Found("laptop", "l1", "10.0.0.5", 8770, True, "laptop")]
+                }.get(q, [])
+    n.find = find
+    n.probe("aio1", LAPTOP_PW, port=free_port())     # nothing listens: unreachable
+    assert asked == ["aio1", "laptop"]
+    assert n.adding["target"] == "laptop" and n.adding["detail"]
+
+
+def test_joining_through_the_window_ends_in_connected(tmp_path, running):
+    """The whole path the Add dialog takes: check, switch, connect."""
+    from link import config, control_api
+    from link.runtime import RunLog
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", AIO_PW)
+    running(laptop, aio)
+    cfg = config.merge(config.DEFAULTS, {"node": "aio", "hub": True,
+                                         "pin": AIO_PW, "port": aio.port})
+    api = control_api.ControlAPI(aio, cfg, RunLog(tmp_path / "l.log", echo=False),
+                                 cfg_path=tmp_path / "c.json", port=0)
+    r = api.command("/api/join", {"name": "laptop", "pin": LAPTOP_PW,
+                                  "addr": "127.0.0.1", "port": laptop.port})
+    assert r == {"ok": True, "started": True}
+    wait(lambda: api.status()["adding"]["phase"] == "connected", "connected",
+         (laptop, aio))
+    s = api.status()
+    assert (s["role"], s["group"]) == ("member", "laptop")
+    saved = config.load(tmp_path / "c.json")
+    assert (saved["peer"], saved["hub"]) == ("laptop", False)
+    assert any("Connected to laptop's group" in e["text"] for e in s["events"])
+
+
+def test_a_failed_join_leaves_the_device_as_it_was(tmp_path, running):
+    from link import config, control_api
+    from link.runtime import RunLog
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", AIO_PW)
+    running(laptop, aio)
+    cfg = config.merge(config.DEFAULTS, {"node": "aio", "hub": True,
+                                         "pin": AIO_PW, "port": aio.port})
+    api = control_api.ControlAPI(aio, cfg, RunLog(tmp_path / "l.log", echo=False),
+                                 cfg_path=tmp_path / "c.json", port=0)
+    api.command("/api/join", {"name": "laptop", "pin": "nope-nope-nope",
+                              "addr": "127.0.0.1", "port": laptop.port})
+    wait(lambda: api.status()["adding"]["phase"] == "failed", "the refusal",
+         (laptop, aio))
+    s = api.status()
+    assert s["adding"]["reason"] == "wrong_password"
+    assert s["role"] == "alone" and aio.pin == pairing.normalise(AIO_PW)

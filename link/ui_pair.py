@@ -1,47 +1,118 @@
-"""Adding a device: pick a side, then a name and a password. No addresses.
+"""Adding a device: pick it, type the password it shows, watch it connect.
 
-Pairing two machines is one decision made twice - somebody has to go first - so
-both people open this same dialog and pick opposite sides:
+There is no "which side are you" step any more. Every device shows its name and
+password (Devices page) and is ready to be added; this dialog lists what is on
+the network and says, per device, what adding it means:
 
-  Let another device connect   this machine shows its NAME and a password it
-                               made up, and waits
-  Connect to another device    this machine lists the devices it can see, you
-                               pick one (or type its name) and the password
+  on its own             "Add"             it joins THIS group   (invite)
+  in another group       "Join its group"  this device joins THAT group (join)
+  already in this group  nothing to do
 
-Any number of devices can join the one that waits: each of them chooses
-"Connect to another device" and picks it.
+Either way the person types ONE password - the one shown on the device they
+picked - and the dialog follows the attempt step by step until it says
+"connected" or says why not, in words, with what to do about it. It used to
+close itself after a second and a half with "looking for it and connecting",
+whatever then happened: reported as "I don't see peer connected or not".
 
-An address never appears. Addresses come from DHCP and change; the name is found
-on the network each time it is needed (discovery.py). There is an Advanced
-section with an address field, for the network that drops the search.
+A wrong password changes nothing on either side: invite proves it before
+anything moves, and join checks it with the hub first (Node.probe).
 
-The password is generated, not chosen, for the reason given in pairing.py.
+The other direction is always on screen too, at the bottom: this device's own
+name and password, for adding it from the other machine instead.
 """
 from __future__ import annotations
 
 import queue
 import threading
+import time
 import tkinter as tk
 
-from . import ui_theme
+from . import pairing, ui_theme
 from .ui_kit import Button, Kit, Toggle, field
+
+POLL_MS = 150
+
+STEPS = {
+    "invite": ("Find {t}", "Check the password", "{t} joins this group", "Connected"),
+    "join": ("Find {t}", "Check the password", "Join {t}'s group", "Connected"),
+}
+# Which step each phase is on.
+STEP_OF = {"searching": 0, "connecting": 0, "verifying": 1, "checked": 2,
+           "joining": 2, "connected": 3}
+
+
+def failure(mode: str, reason: str, target: str, detail=None, port=8770) -> str:
+    """What went wrong and what to do about it - never a bare error code."""
+    t = target or "the device"
+    return {
+        "wrong_password": f"{t} did not accept that password. Check it on {t} - "
+                          f"Devices page, under This device - and type it again.",
+        "not_found": f"{t} is not answering on this network. Is Nishro Link open "
+                     f"on it? If it is, a firewall there may be blocking it "
+                     f"(UDP {port}).",
+        "unreachable": f"{t} was found but could not be reached - its firewall is "
+                       f"probably blocking Nishro Link (TCP {port}).",
+        "busy": f"{t} already has devices in its own group.",
+        "in_group": f"{t} is in {detail}'s group.",
+        "paused": f"Sharing is switched off on {t}. Switch it on there, then try "
+                  f"again.",
+        "version": f"{t} runs a different version of Nishro Link. Install the "
+                   f"same version on both.",
+        "timeout": f"{t} accepted, but has not connected yet. Check that sharing "
+                   f"is switched on there.",
+        "name_taken": f"{t}'s group already has a device with this device's name. "
+                      f"Rename this device in Settings, then try again.",
+        "impostor": f"Something answered as {t} but could not prove it knows the "
+                    f"password, so nothing was sent to it.",
+        "not_connected": "This device is not connected to its group right now, so "
+                         "it cannot add others. Add it from the hub instead.",
+        "refused": f"{t} refused: {detail or 'no reason given'}.",
+    }.get(reason, f"That did not work ({reason}{': ' + str(detail) if detail else ''}).")
+
+
+def row_action(f: dict, me: dict):
+    """(what it is, tone, button text, mode, target) for one device found.
+    mode None: nothing to do - or not allowed, and `what` says why."""
+    name, group = f.get("name"), f.get("group")
+    mine = me.get("group")
+    if (group and mine and group == mine) or name in me.get("members", ()):
+        return "In this group", "dim", None, None, None
+    has_group = me.get("role") == "hub"     # devices of its own, so cannot join
+    if f.get("waiting") and f.get("alone"):
+        if me.get("role") == "member" and not me.get("connected"):
+            return "On its own", "ok", None, None, None
+        return "On its own", "ok", "Add", "invite", name
+    if f.get("waiting"):
+        if has_group:
+            return "Has its own group", "accent2", None, None, None
+        return "Has its own group", "accent2", "Join its group", "join", name
+    if group:
+        if has_group:
+            return f"In {group}'s group", "dim", None, None, None
+        return f"In {group}'s group", "dim", "Join that group", "join", group
+    return "Sharing is off", "faint", None, None, None
 
 
 class AddDevice:
-    """A modal: pick a side, then show or type a name and a password."""
+    """A modal: the devices found, then one password, then the outcome."""
 
-    def __init__(self, parent, api, palette, on_done=None, search=None):
+    def __init__(self, parent, api, palette, on_done=None, search=None,
+                 on_arrange=None, start=None):
         self.api = api
         self.C = dict(ui_theme.palette(), **(palette or {}))
         self.kit = Kit(self.C, ui_theme.fonts(parent))
         self.on_done = on_done
-        self.status = None
+        self.on_arrange = on_arrange
         # How to look for devices. Injectable so tests need not wait out a real
         # search, and so the network is never touched from a test.
         self._search = search or (lambda: api.command("/api/discover", {}))
         self._results: queue.Queue = queue.Queue()
         self._alive = True
         self._found = []
+        self.mode = self.target = None
+        self.outcome = None               # "connected" or a failure reason
+        self._poll_id = None
+        self._t0 = 0.0
 
         s = api.status()
         self.port = s.get("port") or 8770
@@ -51,15 +122,21 @@ class AddDevice:
         self.top.title("Add a device")
         self.top.transient(parent)
         self.top.resizable(True, False)
+        self.top.minsize(480, 0)
         self.top.protocol("WM_DELETE_WINDOW", self.close)
-        self._choice()
+        self.top.bind("<Escape>", lambda _e: self.close())
+        if start:
+            self._password(*start)
+        else:
+            self._list()
         self.top.update_idletasks()
         self._centre(parent)
         try:
-            self.top.grab_set()          # modal: the choice comes first
+            self.top.grab_set()
         except tk.TclError:
             pass
 
+    # ------------------------------------------------------------- pieces
     def _centre(self, parent) -> None:
         w, h = self.top.winfo_reqwidth(), self.top.winfo_reqheight()
         try:
@@ -71,134 +148,127 @@ class AddDevice:
         self.top.geometry(f"+{max(0, x)}+{max(0, y)}")
 
     def _clear(self) -> None:
+        if self._poll_id is not None:
+            try:
+                self.top.after_cancel(self._poll_id)
+            except tk.TclError:
+                pass
+            self._poll_id = None
         self.top.unbind("<Return>")
         for child in self.top.winfo_children():
             child.destroy()
 
-    def _text(self, parent, text, role="body", tone="ink", wrap=460):
+    def _text(self, parent, text, role="body", tone="ink", wrap=470):
         return tk.Label(parent, text=text, font=self.kit.F[role],
                         bg=parent.cget("bg"), fg=self.C[tone], justify="left",
                         anchor="w", wraplength=wrap)
 
     def _page(self, title, blurb):
         self._clear()
-        box = tk.Frame(self.top, bg=self.C["panel"], padx=22, pady=20)
+        box = tk.Frame(self.top, bg=self.C["panel"], padx=24, pady=20)
         box.pack(fill="both", expand=True)
         self._text(box, title, "h2").pack(anchor="w")
-        self._text(box, blurb, "small", "dim").pack(anchor="w", pady=(4, 14))
+        if blurb:
+            self._text(box, blurb, "small", "dim").pack(anchor="w", pady=(4, 14))
         return box
 
-    # ------------------------------------------------------- step 1: which side
-    def _choice(self) -> None:
+    def _me(self) -> dict:
+        s = self.api.status()
+        return {"role": s.get("role"), "group": s.get("group"),
+                "members": s.get("members") or [], "connected": s.get("connected"),
+                "node": s.get("node")}
+
+    # ------------------------------------------------------- 1: the list
+    def _list(self) -> None:
         C = self.C
-        box = self._page("Connect devices",
-                         "Open this on both machines. One lets the other connect; "
-                         "the other connects to it. It does not matter which "
-                         "does which - and any number of devices can connect to "
-                         "the same one.")
-        for title, blurb, go, glyph in (
-            ("Let another device connect to this one",
-             "This machine shows its name and a password, and waits.",
-             self._show, "⇲"),
-            ("Connect to another device",
-             "Pick the other machine from a list, or type its name, then enter "
-             "the password it shows.",
-             self._enter, "⇱"),
-        ):
-            card = tk.Frame(box, bg=C["card"], highlightthickness=1,
-                            highlightbackground=C["line"], cursor="hand2")
-            card.pack(fill="x", pady=5)
-            inner = tk.Frame(card, bg=C["card"], padx=14, pady=12)
-            inner.pack(fill="x")
-            tk.Label(inner, text=glyph, font=self.kit.F["hero"], bg=C["card"],
-                     fg=C["accent"]).pack(side="left", padx=(0, 14))
-            words = tk.Frame(inner, bg=C["card"])
-            words.pack(side="left", fill="x", expand=True)
-            self._text(words, title, "h3").pack(anchor="w")
-            self._text(words, blurb, "small", "dim", wrap=360).pack(anchor="w",
-                                                                    pady=(2, 0))
-            Button(inner, self.kit, "Choose", go, small=True).pack(side="right")
-            for w in (card, inner, words):
-                w.bind("<Button-1>", lambda _e, g=go: g())
+        box = self._page("Add a device",
+                         "Devices with Nishro Link open on this network. Pick one, "
+                         "then type the password it shows.")
+        self.rows = tk.Frame(box, bg=C["card"], highlightthickness=1,
+                             highlightbackground=C["line"])
+        self.rows.pack(fill="x")
+        bar = tk.Frame(box, bg=C["panel"])
+        bar.pack(fill="x", pady=(6, 0))
+        self.found_note = self._text(bar, "", "small", "dim", wrap=360)
+        self.found_note.pack(side="left", fill="x", expand=True)
+        self.search_btn = Button(bar, self.kit, "Search again", self._start_search,
+                                 kind="ghost", small=True)
+        self.search_btn.pack(side="right")
+
+        # Typed by hand, for a device the search does not reach.
+        hand = tk.Frame(box, bg=C["panel"])
+        hand.pack(fill="x", pady=(14, 0))
+        self._text(hand, "Not in the list? Type its name:", "small", "dim"
+                   ).pack(side="left")
+        self.f_name = field(hand, self.kit, width=18)
+        self.f_name.pack(side="left", padx=8, ipady=3)
+        self.btn_by_name = Button(hand, self.kit, "Next", self._by_name, small=True)
+        self.btn_by_name.pack(side="left")
+        self.f_addr = self._advanced(box)
+        self.f_name.bind("<Return>", lambda _e: self._by_name())
+
+        self._reverse(box)
         row = tk.Frame(box, bg=C["panel"])
         row.pack(fill="x", pady=(14, 0))
-        Button(row, self.kit, "Cancel", self.close, kind="ghost").pack(side="right")
-
-    # ------------------------------------------- step 2a: let the other connect
-    def _show(self) -> None:
-        C = self.C
-        box = self._page("Let another device connect",
-                         "On the other machine choose “Connect to another "
-                         "device”, pick this one and type the password.")
-        r = self.api.command("/api/password", {}) or {}
-        card = tk.Frame(box, bg=C["card"], highlightthickness=1,
-                        highlightbackground=C["accent"])
-        card.pack(fill="x")
-        grid = tk.Frame(card, bg=C["card"], padx=16, pady=14)
-        grid.pack(fill="x")
-        self.f_name = self._field(grid, "Device name", 0, r.get("name") or self.node,
-                                  readonly=True, big=True)
-        self.f_pin = self._field(grid, "Password", 1, r.get("pin", ""),
-                                 readonly=True, big=True, mono=True)
-        grid.columnconfigure(1, weight=1)
-
-        tools = tk.Frame(box, bg=C["panel"])
-        tools.pack(fill="x", pady=(8, 0))
-        Button(tools, self.kit, "Copy password",
-               lambda: self._copy(self.f_pin.get()), small=True).pack(side="left")
-        Button(tools, self.kit, "New password", self._new_password,
-               small=True).pack(side="left", padx=6)
-
-        self.f_port = self._advanced(box, [("Port", str(self.port))])[0]
-        self._footer(box, "Start waiting", self._do_wait)
-
-    def _new_password(self) -> None:
-        r = self.api.command("/api/password", {"new": True}) or {}
-        self._set(self.f_pin, r.get("pin", ""))
-        self._say("A new password. A device that used the old one has to be "
-                  "paired again.", self.C["warn"])
-
-    # ---------------------------------------- step 2b: connect to another one
-    def _enter(self) -> None:
-        C = self.C
-        box = self._page("Connect to another device",
-                         "Take the password from the other machine, where it is "
-                         "showing it and waiting.")
-        self._text(box, "DEVICES ON THIS NETWORK", "caps", "dim").pack(anchor="w")
-        lst = tk.Frame(box, bg=C["panel"])
-        lst.pack(fill="x", pady=(4, 0))
-        self.devices = tk.Listbox(lst, height=4, activestyle="none",
-                                  exportselection=False, bg=C["card"], fg=C["ink"],
-                                  selectbackground=C["accent"],
-                                  selectforeground=C["accent_ink"],
-                                  highlightthickness=1, highlightbackground=C["line"],
-                                  highlightcolor=C["accent"], relief="flat",
-                                  font=self.kit.F["body"], borderwidth=0)
-        self.devices.pack(side="left", fill="x", expand=True)
-        self.devices.bind("<<ListboxSelect>>", self._picked)
-        self.search_btn = Button(lst, self.kit, "Search again", self._start_search,
-                                 small=True)
-        self.search_btn.pack(side="left", padx=(8, 0), anchor="n")
-        self.found_note = self._text(box, "", "small", "dim")
-        self.found_note.pack(anchor="w", pady=(4, 12))
-
-        grid = tk.Frame(box, bg=C["panel"])
-        grid.pack(fill="x")
-        self.f_name = self._field(grid, "Device name", 0, "")
-        self.f_pin = self._field(grid, "Password", 1, "", mono=True)
-        grid.columnconfigure(1, weight=1)
-        self.f_name.focus_set()
-
-        self.f_port, self.f_addr = self._advanced(
-            box, [("Port", str(self.port)),
-                  ("Address", "", "only if the device never shows up in the list")])
-        self._footer(box, "Connect", self._do_dial)
-        self.top.bind("<Return>", lambda _e: self._do_dial())
+        Button(row, self.kit, "Close", self.close, kind="ghost").pack(side="right")
         self._start_search()
 
+    def _advanced(self, box):
+        C = self.C
+        holder = tk.Frame(box, bg=C["panel"])
+        holder.pack(fill="x", pady=(8, 0))
+        inner = tk.Frame(holder, bg=C["panel"])
+        self._text(inner, "Its address", "small", "dim").pack(side="left")
+        entry = field(inner, self.kit, width=18)
+        entry.pack(side="left", padx=8, ipady=3)
+        self._text(inner, "only if the name is never found - a network that "
+                          "drops searches", "tiny", "faint", wrap=200
+                   ).pack(side="left")
+        shown = tk.BooleanVar(value=False)
+
+        def flip():
+            if shown.get():
+                inner.pack(fill="x", pady=(6, 0))
+            else:
+                inner.pack_forget()
+        row = tk.Frame(holder, bg=C["panel"])
+        row.pack(anchor="w")
+        Toggle(row, self.kit, shown, command=flip).pack(side="left")
+        tk.Label(row, text="Advanced", font=self.kit.F["small"], bg=C["panel"],
+                 fg=C["dim"]).pack(side="left", padx=8)
+        self.advanced = shown
+        return entry
+
+    def _reverse(self, box) -> None:
+        """The other way round, always in view: add THIS device from there."""
+        C = self.C
+        pw = (self.api.command("/api/password", {}) or {}).get("pin", "")
+        wrap = tk.Frame(box, bg=C["card"], highlightthickness=1,
+                        highlightbackground=C["line"])
+        wrap.pack(fill="x", pady=(18, 0))
+        inner = tk.Frame(wrap, bg=C["card"], padx=14, pady=10)
+        inner.pack(fill="x")
+        self._text(inner, "Or add this device from the other one - it needs:",
+                   "small", "dim").grid(row=0, column=0, columnspan=4, sticky="w")
+        self._text(inner, "Name", "small", "dim").grid(row=1, column=0, sticky="w",
+                                                      pady=(6, 0))
+        self._text(inner, self.node, "h3", "ink").grid(row=1, column=1, sticky="w",
+                                                      padx=(8, 20), pady=(6, 0))
+        self._text(inner, "Password", "small", "dim").grid(row=1, column=2,
+                                                          sticky="w", pady=(6, 0))
+        self.my_pw = self._text(inner, pw, "mono", "accent")
+        self.my_pw.grid(row=1, column=3, sticky="w", padx=(8, 8), pady=(6, 0))
+        Button(inner, self.kit, "Copy", lambda: self._copy(pw), small=True
+               ).grid(row=1, column=4, sticky="e", pady=(6, 0))
+        inner.columnconfigure(3, weight=1)
+
+    # ------------------------------------------------------------ search
     def _start_search(self) -> None:
-        self.devices.delete(0, "end")
-        self.found_note.configure(text="Searching…")
+        for w in self.rows.winfo_children():
+            w.destroy()
+        self._text(self.rows, "  Searching…", "body", "dim").pack(anchor="w",
+                                                                   pady=10)
+        self.found_note.configure(text="")
         self.search_btn.set_enabled(False)
         threading.Thread(target=self._search_thread, daemon=True).start()
         self.top.after(100, self._search_poll)
@@ -225,143 +295,257 @@ class AddDevice:
     def _show_found(self, r) -> None:
         try:
             self.search_btn.set_enabled(True)
+            for w in self.rows.winfo_children():
+                w.destroy()
         except tk.TclError:
             return                                   # the page was left meanwhile
         self._found = list(r.get("devices") or [])
-        self.devices.delete(0, "end")
-        for d in self._found:
-            state = ("waiting for a connection" if d.get("waiting")
-                     else "not accepting connections")
-            self.devices.insert("end", f"  {d.get('name')}   —   {state}")
+        me = self._me()
         if r.get("error"):
-            note = f"The search failed: {r['error']}"
+            self._text(self.rows, f"  The search failed: {r['error']}", "body",
+                       "bad").pack(anchor="w", pady=10)
         elif not self._found:
-            note = ("Nothing found. On the other machine, choose “Let another "
-                    "device connect” - or type its name below anyway. If it "
-                    "still cannot be found, a firewall is dropping the search: "
-                    f"allow UDP {self.port} for Nishro Link.")
-        else:
-            note = "Pick one, or type a name below."
-        self.found_note.configure(text=note)
-        waiting = [i for i, d in enumerate(self._found) if d.get("waiting")]
-        if len(waiting) == 1 and not self.f_name.get():
-            # Exactly one device is waiting: that is almost certainly the one.
-            self.devices.selection_set(waiting[0])
-            self._picked()
+            self._text(self.rows, "  No devices found yet.", "body", "dim"
+                       ).pack(anchor="w", pady=(10, 2))
+            self._text(self.rows, f"  Open Nishro Link on the other computer. If "
+                                  f"it still does not appear, a firewall is "
+                                  f"dropping the search - allow UDP {self.port} "
+                                  f"for Nishro Link, or type its name below.",
+                       "small", "dim", wrap=440).pack(anchor="w", pady=(0, 10))
+        for i, f in enumerate(self._found):
+            self._row(f, me, first=(i == 0))
+        n = len(self._found)
+        self.found_note.configure(text=(f"{n} found" if n else ""))
+        if me.get("role") == "hub":
+            self.found_note.configure(text=(
+                f"{n} found. This device has a group of its own, so it can add "
+                f"devices that are on their own, but not join another group."))
 
-    def _picked(self, _e=None) -> None:
-        sel = self.devices.curselection()
-        if not sel:
+    def _row(self, f, me, first=False) -> None:
+        C = self.C
+        what, tone, action, mode, target = row_action(f, me)
+        if not first:
+            tk.Frame(self.rows, bg=C["line"], height=1).pack(fill="x")
+        row = tk.Frame(self.rows, bg=C["card"], padx=12, pady=9)
+        row.pack(fill="x")
+        dot = tk.Canvas(row, width=10, height=10, highlightthickness=0,
+                        bg=C["card"])
+        dot.create_oval(1, 1, 9, 9, outline="",
+                        fill=C["ok"] if f.get("waiting") else C["faint"])
+        dot.pack(side="left", padx=(0, 10))
+        tk.Label(row, text=f.get("name"), font=self.kit.F["h3"], bg=C["card"],
+                 fg=C["ink"]).pack(side="left")
+        tk.Label(row, text="  " + what, font=self.kit.F["small"], bg=C["card"],
+                 fg=C.get(tone, C["dim"])).pack(side="left")
+        if action:
+            Button(row, self.kit, action,
+                   lambda m=mode, t=target: self._password(m, t),
+                   kind="primary" if mode == "invite" else "secondary",
+                   small=True).pack(side="right")
+
+    def _by_name(self) -> None:
+        name = self.f_name.get().strip()
+        addr = self.f_addr.get().strip() if self.advanced.get() else ""
+        if not name and not addr:
+            self.found_note.configure(text="Type the other device's name first.",
+                                      fg=self.C["warn"])
             return
-        d = self._found[sel[0]]
-        self._set(self.f_name, d.get("name", ""))
-        if not d.get("waiting"):
-            self._say(f"{d.get('name')} is not waiting for a connection yet - on "
-                      f"it, choose “Let another device connect”.", self.C["warn"])
-        else:
-            self._say("")
+        if name and name.casefold() == self.node.casefold():
+            self.found_note.configure(text=f"'{name}' is this device.",
+                                      fg=self.C["warn"])
+            return
+        # Not knowing whether it is on its own or in a group, try adding it; if
+        # it turns out to have a group, the same password joins that instead.
+        mode = "join" if self._me().get("role") == "member" else "invite"
+        self._password(mode, name or addr, addr=addr or None)
+
+    # ---------------------------------------------------- 2: the password
+    def _password(self, mode, target, addr=None) -> None:
+        C = self.C
+        self.mode, self.target, self.addr = mode, target, addr
+        self.outcome = None
+        title = f"Add {target}" if mode == "invite" else f"Join {target}'s group"
+        box = self._page(title, None)
+        self._text(box, f"Type the password shown on {target} - in Nishro Link, "
+                        f"Devices page, under “This device”.", "body", "dim"
+                   ).pack(anchor="w", pady=(4, 2))
+        self._text(box, "Capitals and dashes don't matter.", "small", "faint"
+                   ).pack(anchor="w", pady=(0, 10))
+        self.f_pin = field(box, self.kit)
+        self.f_pin.configure(font=self.kit.F["mono_big"], justify="center")
+        self.f_pin.pack(fill="x", ipady=6)
         self.f_pin.focus_set()
 
-    # ------------------------------------------------------------ pieces
-    def _field(self, parent, text, row, value, readonly=False, big=False,
-               mono=False):
-        C, F = self.C, self.kit.F
-        tk.Label(parent, text=text, font=F["small"], bg=parent.cget("bg"),
-                 fg=C["dim"]).grid(row=row, column=0, sticky="w", padx=(0, 12),
-                                   pady=5)
-        e = field(parent, self.kit)
-        e.configure(font=F["mono_big"] if (mono and big) else
-                    F["mono"] if mono else F["h2"] if big else F["body"])
-        e.grid(row=row, column=1, sticky="ew", pady=5, ipady=4)
-        e.insert(0, value)
-        if readonly:
-            e.configure(state="readonly",
-                        readonlybackground=C["card"] if big else C["card_hi"],
-                        fg=C["accent"] if big else C["ink"])
-        return e
+        self.steps = tk.Frame(box, bg=C["panel"])
+        self.steps.pack(fill="x", pady=(16, 0))
+        self._draw_steps(-1)
+        self.msg = self._text(box, "", "body", "dim")
+        self.msg.pack(anchor="w", fill="x", pady=(12, 0))
+        self.extra = tk.Frame(box, bg=C["panel"])
+        self.extra.pack(fill="x")
 
-    def _set(self, entry, value) -> None:
-        was = str(entry.cget("state"))
-        entry.configure(state="normal")
-        entry.delete(0, "end")
-        entry.insert(0, value)
-        entry.configure(state=was)
-
-    def _advanced(self, box, fields):
-        """A collapsed section, so the ordinary path shows no ports or addresses."""
-        C = self.C
-        holder = tk.Frame(box, bg=C["panel"])
-        holder.pack(fill="x", pady=(12, 0))
-        inner = tk.Frame(holder, bg=C["panel"])
-        entries = []
-        for i, spec in enumerate(fields):
-            entries.append(self._field(inner, spec[0], i, spec[1]))
-            if len(spec) > 2:
-                tk.Label(inner, text=spec[2], font=self.kit.F["tiny"], bg=C["panel"],
-                         fg=C["faint"]).grid(row=i, column=2, sticky="w", padx=(8, 0))
-        inner.columnconfigure(1, weight=1)
-        shown = tk.BooleanVar(value=False)
-
-        def flip():
-            if shown.get():
-                inner.pack(fill="x", pady=(6, 0))
-            else:
-                inner.pack_forget()
-
-        row = tk.Frame(holder, bg=C["panel"])
-        row.pack(anchor="w")
-        Toggle(row, self.kit, shown, command=flip).pack(side="left")
-        tk.Label(row, text="Advanced", font=self.kit.F["small"], bg=C["panel"],
-                 fg=C["dim"]).pack(side="left", padx=8)
-        self.advanced = shown
-        return entries
-
-    def _footer(self, box, action, command) -> None:
-        C = self.C
-        self.msg = self._text(box, "", "small", "dim")
-        self.msg.pack(anchor="w", fill="x", pady=(14, 0))
         row = tk.Frame(box, bg=C["panel"])
-        row.pack(fill="x", pady=(10, 0))
-        Button(row, self.kit, action, command, kind="primary").pack(side="right")
-        Button(row, self.kit, "Back", self._choice, kind="ghost").pack(side="right",
-                                                                     padx=8)
+        row.pack(fill="x", pady=(16, 0))
+        self.btn_go = Button(row, self.kit,
+                             "Add" if mode == "invite" else "Join", self._go,
+                             kind="primary")
+        self.btn_go.pack(side="right")
+        self.btn_back = Button(row, self.kit, "Back", self._list, kind="ghost")
+        self.btn_back.pack(side="right", padx=8)
+        self.top.bind("<Return>", lambda _e: self._go())
 
+    def _draw_steps(self, at: int, failed: bool = False, done: bool = False) -> None:
+        C, F = self.C, self.kit.F
+        for w in self.steps.winfo_children():
+            w.destroy()
+        self.step_labels = []
+        for i, text in enumerate(STEPS[self.mode]):
+            if done or i < at:
+                mark, colour = "✓", C["ok"]
+            elif i == at:
+                mark, colour = ("✖", C["bad"]) if failed else ("●", C["accent"])
+            else:
+                mark, colour = "○", C["faint"]
+            row = tk.Frame(self.steps, bg=C["panel"])
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=mark, font=F["h3"], bg=C["panel"], fg=colour,
+                     width=2).pack(side="left")
+            lb = tk.Label(row, text=text.format(t=self.target), font=F["body"],
+                          bg=C["panel"],
+                          fg=C["ink"] if (i <= at or done) else C["faint"])
+            lb.pack(side="left")
+            self.step_labels.append(lb)
+
+    def _go(self) -> None:
+        if self.outcome == "connected":
+            return self.close()
+        pin = self.f_pin.get()
+        bad = pairing.problem(pin)
+        if bad:
+            self.msg.configure(text=f"That password is too short - {bad}.",
+                               fg=self.C["warn"])
+            return
+        body = {"name": self.target, "pin": pin}
+        if self.addr:
+            body["addr"] = self.addr
+        r = self.api.command("/api/invite" if self.mode == "invite" else "/api/join",
+                             body) or {}
+        if r.get("error"):
+            self.msg.configure(text=r["error"][:1].upper() + r["error"][1:],
+                               fg=self.C["bad"])
+            return
+        self._t0 = time.time()
+        self.outcome = None
+        for w in self.extra.winfo_children():
+            w.destroy()
+        self.btn_go.set_enabled(False)
+        self.f_pin.configure(state="disabled")
+        self.msg.configure(text="", fg=self.C["dim"])
+        self._draw_steps(0)
+        self._poll_id = self.top.after(POLL_MS, self._follow)
+
+    def _follow(self) -> None:
+        """Follow the attempt in status()["adding"] until it ends."""
+        self._poll_id = None
+        if not self._alive:
+            return
+        try:
+            a = self.api.status().get("adding") or {}
+        except Exception as e:
+            a = {"phase": "failed", "reason": "error", "detail": repr(e)}
+        fresh = (a.get("since") or 0) >= self._t0 - 1.0 and \
+            a.get("mode") in (None, self.mode)
+        phase = a.get("phase") if fresh else "searching"
+        if phase == "connected":
+            return self._done(a)
+        if phase == "failed":
+            return self._failed(a)
+        self._draw_steps(STEP_OF.get(phase, 0))
+        if phase == "verifying" and a.get("detail"):
+            self.target = a["detail"] if self.mode == "join" else self.target
+        self._poll_id = self.top.after(POLL_MS, self._follow)
+
+    def _failed(self, a) -> None:
+        C = self.C
+        reason = a.get("reason") or "error"
+        self.outcome = reason
+        at = max(0, min(3, STEP_OF.get(self._last_phase(reason), 0)))
+        self._draw_steps(at, failed=True)
+        self.msg.configure(text=failure(self.mode, reason, a.get("target")
+                                        or self.target, a.get("detail"), self.port),
+                           fg=C["bad"])
+        self.f_pin.configure(state="normal")
+        self.btn_go.set_enabled(True)
+        self.btn_go.set_text("Try again")
+        if reason == "wrong_password":
+            self.f_pin.select_range(0, "end")
+            self.f_pin.focus_set()
+        # The same password joins its group instead, when it turned out to have
+        # one - offered, not done behind the person's back.
+        me = self._me()
+        if reason in ("busy", "in_group") and me.get("role") != "hub":
+            # busy: it is the hub of its own group. in_group: detail names it.
+            group = a.get("detail") if reason == "in_group" else self.target
+            Button(self.extra, self.kit, f"Join {group}'s group instead",
+                   lambda g=group: self._switch_to_join(g),
+                   kind="primary", small=True).pack(anchor="w", pady=(8, 0))
+        elif reason in ("busy", "in_group"):
+            self._text(self.extra, "Both devices have groups of their own. Remove "
+                                   "the devices from one of them first, then add "
+                                   "it again.", "small", "dim"
+                       ).pack(anchor="w", pady=(6, 0))
+
+    @staticmethod
+    def _last_phase(reason) -> str:
+        return {"wrong_password": "verifying", "impostor": "verifying",
+                "name_taken": "verifying", "busy": "verifying",
+                "timeout": "joining", "refused": "verifying"}.get(reason,
+                                                                   "searching")
+
+    def _switch_to_join(self, group) -> None:
+        pin = self.f_pin.get()
+        self._password("join", group)
+        self.f_pin.insert(0, pin)
+        self._go()
+
+    def _done(self, a) -> None:
+        C = self.C
+        self.outcome = "connected"
+        who = self.target if self.mode == "invite" else (a.get("detail")
+                                                          or self.target)
+        box = self._page("", None)
+        tk.Label(box, text="✓", font=self.kit.F["hero"], bg=C["panel"],
+                 fg=C["ok"]).pack(anchor="w")
+        head = (f"{who} is connected" if self.mode == "invite"
+                else f"Connected to {who}'s group")
+        self._text(box, head, "h2").pack(anchor="w", pady=(2, 6))
+        self._text(box, "Now drag each machine to where it sits on your desk, so "
+                        "the pointer crosses at the right edge.", "body", "dim"
+                   ).pack(anchor="w")
+        row = tk.Frame(box, bg=C["panel"])
+        row.pack(fill="x", pady=(18, 0))
+        Button(row, self.kit, "Arrange  →", self._arrange,
+               kind="primary").pack(side="right")
+        Button(row, self.kit, "Done", self.close, kind="ghost").pack(side="right",
+                                                                   padx=8)
+        self.top.bind("<Return>", lambda _e: self._arrange())
+        if self.on_done:
+            self.on_done({"ok": True, "mode": self.mode, "name": who})
+
+    def _arrange(self) -> None:
+        cb = self.on_arrange
+        self.close()
+        if cb:
+            cb()
+
+    # --------------------------------------------------------------- misc
     def _copy(self, text) -> None:
         try:
             self.top.clipboard_clear()
             self.top.clipboard_append(text)
-            self._say("Copied.", self.C["ok"])
+            self.found_note.configure(text="Password copied.", fg=self.C["ok"])
         except tk.TclError:
-            self._say("Could not reach the clipboard.", self.C["bad"])
-
-    # ---------------------------------------------------------------- actions
-    def _do_wait(self) -> None:
-        self._pair({"mode": "wait", "port": self.f_port.get()})
-
-    def _do_dial(self) -> None:
-        self._pair({"mode": "dial", "peer": self.f_name.get().strip(),
-                    "pin": self.f_pin.get(), "port": self.f_port.get(),
-                    "peer_addr": self.f_addr.get().strip()})
-
-    def _pair(self, body) -> None:
-        r = self.api.command("/api/pair", body) or {}
-        if r.get("error"):
-            return self._say(r["error"], self.C["bad"])
-        self.status = r
-        if self.on_done:
-            self.on_done(r)
-        if r.get("waiting"):
-            # Staying open on purpose: the name and password on screen are what
-            # is being typed on the other machine right now.
-            self._say("Waiting for devices to connect. Leave this open until they "
-                      "have - they need what is on screen. Any number can join.",
-                      self.C["ok"])
-        else:
-            self._say("Looking for it and connecting…", self.C["ok"])
-            self.top.after(1200, self.close)
-
-    def _say(self, text, colour=None) -> None:
-        self.msg.configure(text=text, fg=colour or self.C["dim"])
+            pass
 
     def close(self) -> None:
         self._alive = False

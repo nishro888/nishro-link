@@ -1,6 +1,15 @@
-"""The Add-a-device dialog: two choices, and what each one sends."""
+"""The Add-a-device dialog: no sides to choose, one password, and an outcome.
+
+Reported: adding was "not fully user friendly", the dashes in the password left
+it unclear whether to type them, and after entering a name and a password "I
+don't see peer connected or not". These pin down that the dialog opens on the
+devices it found, asks for one password, and follows the attempt to
+"connected" or to the reason not - never closing on its own and leaving the
+person guessing.
+"""
 import os
 import sys
+import time
 
 import pytest
 
@@ -14,7 +23,7 @@ import tkinter as tk                                       # noqa: E402
 sys.path.insert(0, os.path.dirname(__file__))
 
 from link import config, control_api, pairing, ui_pair, ui_theme  # noqa: E402
-from link.desk import simple                              # noqa: E402
+from link.desk import Desk                                  # noqa: E402
 from link.node import Node, NodeCore                        # noqa: E402
 from link.runtime import RunLog                             # noqa: E402
 from test_node_live import FakeCapture, FakeInjector        # noqa: E402
@@ -31,173 +40,133 @@ def root(tk_session):
 
 @pytest.fixture
 def api(tmp_path):
-    cfg = config.merge(config.DEFAULTS, {"node": "laptop", "port": 8770})
-    core = NodeCore("laptop", simple("laptop", (1366, 768), "peer", (1366, 768),
-                                     "right"), cfg["policy"], is_hub=False,
-                    side="right")
-    node = Node(core, FakeCapture(), FakeInjector(), port=8770)
+    """A fresh install: a device on its own, with a password of its own."""
+    cfg = config.merge(config.DEFAULTS, {"node": "laptop", "port": 8770,
+                                         "hub": True, "pin": "k7qm-2xvp-9hdt"})
+    d = Desk("laptop")
+    d.add("laptop", 1366, 768)
+    node = Node(NodeCore("laptop", d, cfg["policy"], is_hub=True),
+                FakeCapture(), FakeInjector(), port=8770, pin=cfg["pin"])
     node.capture.start(node)
     a = control_api.ControlAPI(node, cfg, RunLog(tmp_path / "l.log", echo=False),
                                cfg_path=tmp_path / "c.json", port=0)
+    a.sent = []
+    real = a.command
+
+    def command(path, body):
+        # Starting an attempt is recorded, not run: the tests play its progress
+        # through node.adding, the way the real one reports it.
+        if path in ("/api/invite", "/api/join"):
+            a.sent.append((path, dict(body)))
+            return {"ok": True, "started": True}
+        return real(path, body)
+    a.command = command
     yield a
     node.stop()
 
 
 FOUND = {"devices": [
-    {"name": "aio", "id": "a1", "addr": "192.168.1.20", "waiting": True},
-    {"name": "desk-pc", "id": "d9", "addr": "192.168.1.40", "waiting": False},
+    {"name": "aio", "id": "a1", "waiting": True, "alone": True, "group": "aio"},
+    {"name": "desk-pc", "id": "d9", "waiting": True, "alone": False,
+     "group": "desk-pc"},
+    {"name": "tablet", "id": "t1", "waiting": False, "group": "desk-pc"},
 ]}
 
 
-def dialog(root, api, found=None):
+def dialog(root, api, found=None, **kw):
     """The dialog, with the network search replaced by a canned answer."""
     return ui_pair.AddDevice(root, api, ui_theme.palette(root),
-                             search=lambda: FOUND if found is None else found)
+                             search=lambda: FOUND if found is None else found, **kw)
 
 
 def settle(d, until, timeout=3.0):
     """Let the background search land, pumping Tk the way mainloop would."""
-    import time
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         d.top.update()
         if until():
             return
         time.sleep(0.02)
-    raise AssertionError("the search result never reached the dialog")
+    raise AssertionError("never happened")
 
 
-def listed(d):
-    return [d.devices.get(i) for i in range(d.devices.size())]
+def texts(w, out=None):
+    out = [] if out is None else out
+    try:
+        t = w.cget("text")
+        if t:
+            out.append(str(t))
+    except tk.TclError:
+        pass
+    for c in w.winfo_children():
+        texts(c, out)
+    return out
 
 
-# ------------------------------------------------------------- the choice
-def test_it_opens_on_the_choice_between_two_sides(root, api):
+def buttons(w):
+    from link.ui_kit import Button
+    out = [w] if isinstance(w, Button) else []
+    for c in w.winfo_children():
+        out += buttons(c)
+    return out
+
+
+def progress(api, phase, reason=None, detail=None, mode="invite", since=None):
+    api.node.adding = {"mode": mode, "phase": phase, "reason": reason,
+                       "detail": detail, "target": "aio",
+                       "since": time.time() if since is None else since}
+
+
+# --------------------------------------------------------------- the list
+def test_it_opens_on_the_devices_found_not_a_choice_of_sides(root, api):
     d = dialog(root, api)
     try:
-        texts = _all_text(d.top)
-        assert any("Let another device connect" in t for t in texts)
-        assert any("Connect to another device" in t for t in texts)
-        assert any("does not matter which" in t for t in texts)
+        settle(d, lambda: "aio" in texts(d.rows))
+        t = texts(d.top)
+        assert not any("Let another device connect" in x for x in t)
+        assert {"aio", "desk-pc", "tablet"} <= set(t)
     finally:
         d.close()
 
 
-def test_you_can_go_back_to_the_choice(root, api):
+def test_each_device_says_what_adding_it_means(root, api):
     d = dialog(root, api)
     try:
-        d._enter()
-        d._choice()
-        assert any("Let another device connect" in t for t in _all_text(d.top))
+        settle(d, lambda: "aio" in texts(d.rows))
+        t = texts(d.rows)
+        assert "  On its own" in t and "  Has its own group" in t
+        assert "  In desk-pc's group" in t
+        actions = [b.cget("text") for b in buttons(d.rows)]
+        assert actions == ["Add", "Join its group", "Join that group"]
     finally:
         d.close()
 
 
-# --------------------------------------------- letting the other one connect
-def test_it_shows_a_name_and_a_generated_password_not_an_address(root, api):
+@pytest.mark.parametrize("found,me,want", [
+    ({"name": "aio", "waiting": True, "alone": True}, {"role": "alone"},
+     ("Add", "invite", "aio")),
+    ({"name": "desk", "waiting": True, "alone": False, "group": "desk"},
+     {"role": "alone"}, ("Join its group", "join", "desk")),
+    ({"name": "tab", "waiting": False, "group": "desk"}, {"role": "alone"},
+     ("Join that group", "join", "desk")),
+    ({"name": "aio2", "waiting": False, "group": "laptop"},
+     {"role": "hub", "group": "laptop"}, (None, None, None)),
+    ({"name": "desk", "waiting": True, "alone": False, "group": "desk"},
+     {"role": "hub", "group": "laptop"}, (None, None, None)),
+    ({"name": "off", "waiting": False}, {"role": "alone"}, (None, None, None)),
+])
+def test_what_each_kind_of_device_offers(found, me, want):
+    """A device with devices of its own may add, never join - they would be
+    stranded. One in this group already needs nothing."""
+    assert ui_pair.row_action(found, me)[2:] == want
+
+
+def test_the_other_way_round_is_always_on_screen(root, api):
+    """This device's own name and password, for adding it from there."""
     d = dialog(root, api)
     try:
-        d._show()
-        assert d.f_name.get() == "laptop"
-        assert pairing.problem(d.f_pin.get()) is None, "a sound password"
-        assert not any("192.168." in t for t in _all_text(d.top))
-    finally:
-        d.close()
-
-
-def test_the_password_shown_is_the_one_that_waits(root, api):
-    """Otherwise the other device types in something this one never uses."""
-    d = dialog(root, api)
-    try:
-        d._show()
-        shown = d.f_pin.get()
-        d._do_wait()
-        assert api.node.pin == shown
-        assert config.load(api.cfg_path)["pin"] == shown
-    finally:
-        d.close()
-
-
-def test_a_new_password_replaces_the_one_shown(root, api):
-    d = dialog(root, api)
-    try:
-        d._show()
-        old = d.f_pin.get()
-        d._new_password()
-        assert d.f_pin.get() != old
-        assert api.node.pin == d.f_pin.get()
-        assert "paired again" in d.msg.cget("text")
-    finally:
-        d.close()
-
-
-def test_waiting_pairs_this_device_as_the_listener(root, api):
-    d = dialog(root, api)
-    try:
-        d._show()
-        d._do_wait()
-        assert d.status and d.status.get("waiting") is True
-        assert api.node.core.is_hub is True
-        assert config.load(api.cfg_path)["hub"] is True
-    finally:
-        d.close()
-
-
-def test_waiting_stays_open_because_the_details_are_still_needed(root, api):
-    """Closing it would take the name and password off screen at exactly the
-    moment someone is typing them on the other machine."""
-    d = dialog(root, api)
-    try:
-        d._show()
-        d._do_wait()
-        assert d.top.winfo_exists()
-        assert "Leave this open" in d.msg.cget("text")
-    finally:
-        d.close()
-
-
-def test_ports_and_addresses_are_tucked_away(root, api):
-    d = dialog(root, api)
-    try:
-        d._enter()
-        assert d.advanced.get() is False
-        assert not d.f_addr.winfo_ismapped()
-    finally:
-        d.close()
-
-
-# -------------------------------------------------- connecting to another
-def test_devices_on_the_network_are_listed(root, api):
-    d = dialog(root, api)
-    try:
-        d._enter()
-        settle(d, lambda: d.devices.size() == 2)
-        rows = listed(d)
-        assert "aio" in rows[0] and "waiting" in rows[0]
-        assert "desk-pc" in rows[1] and "not accepting" in rows[1]
-    finally:
-        d.close()
-
-
-def test_the_only_waiting_device_is_picked_for_you(root, api):
-    d = dialog(root, api)
-    try:
-        d._enter()
-        settle(d, lambda: d.f_name.get() == "aio")
-    finally:
-        d.close()
-
-
-def test_picking_a_device_that_is_not_waiting_says_what_to_do(root, api):
-    d = dialog(root, api)
-    try:
-        d._enter()
-        settle(d, lambda: d.devices.size() == 2)
-        d.devices.selection_clear(0, "end")
-        d.devices.selection_set(1)
-        d._picked()
-        assert d.f_name.get() == "desk-pc"
-        assert "not waiting" in d.msg.cget("text")
+        t = texts(d.top)
+        assert "laptop" in t and "k7qm-2xvp-9hdt" in t
     finally:
         d.close()
 
@@ -205,82 +174,173 @@ def test_picking_a_device_that_is_not_waiting_says_what_to_do(root, api):
 def test_finding_nothing_explains_why_rather_than_showing_an_empty_box(root, api):
     d = dialog(root, api, found={"devices": []})
     try:
-        d._enter()
-        settle(d, lambda: "Nothing found" in d.found_note.cget("text"))
-        assert "UDP 8770" in d.found_note.cget("text")
+        settle(d, lambda: any("No devices found" in x for x in texts(d.rows)))
+        assert any("UDP 8770" in x for x in texts(d.rows))
     finally:
         d.close()
 
 
 def test_a_search_that_fails_says_so(root, api):
-    def broken():
+    def boom():
         raise OSError("network is unreachable")
-    d = ui_pair.AddDevice(root, api, ui_theme.palette(root), search=broken)
+    d = ui_pair.AddDevice(root, api, ui_theme.palette(root), search=boom)
     try:
-        d._enter()
-        settle(d, lambda: "failed" in d.found_note.cget("text"))
+        settle(d, lambda: any("search failed" in x for x in texts(d.rows)))
     finally:
         d.close()
 
 
-def test_dialling_pairs_this_device_by_name(root, api):
-    d = dialog(root, api)
-    try:
-        d._enter()
-        settle(d, lambda: d.f_name.get() == "aio")
-        d.f_pin.insert(0, "k7qm-2xvp-9hdt")
-        d._do_dial()
-        assert d.status and d.status.get("waiting") is False
-        assert api.node.peer_name == "aio"
-        assert api.node.peer_addr is None, "no address was typed, none is kept"
-    finally:
-        d.close()
-
-
-def test_a_refusal_is_shown_in_the_dialog_not_swallowed(root, api):
-    d = dialog(root, api)
-    try:
-        d._enter()
-        settle(d, lambda: d.f_name.get() == "aio")
-        d.f_pin.insert(0, "abc")            # too short
-        d._do_dial()
-        assert d.status is None
-        assert "8 characters" in d.msg.cget("text")
-        assert d.top.winfo_exists(), "and the dialog stays up to be corrected"
-    finally:
-        d.close()
-
-
-def test_dialling_without_a_name_says_so(root, api):
+def test_a_name_typed_by_hand_goes_straight_to_the_password(root, api):
     d = dialog(root, api, found={"devices": []})
     try:
-        d._enter()
-        d.f_pin.insert(0, "k7qm-2xvp-9hdt")
-        d._do_dial()
-        assert "name" in d.msg.cget("text")
+        d.f_name.insert(0, "kitchen-pc")
+        d._by_name()
+        assert (d.mode, d.target) == ("invite", "kitchen-pc")
     finally:
         d.close()
+
+
+def test_its_own_name_is_refused(root, api):
+    d = dialog(root, api, found={"devices": []})
+    try:
+        d.f_name.insert(0, "LAPTOP")
+        d._by_name()
+        assert d.mode is None and "this device" in d.found_note.cget("text")
+    finally:
+        d.close()
+
+
+# ----------------------------------------------------------- the password
+def test_one_password_field_and_the_dashes_explained(root, api):
+    d = dialog(root, api)
+    try:
+        d._password("invite", "aio")
+        assert "Capitals and dashes don't matter." in texts(d.top)
+        assert [x for x in texts(d.steps)] == ["○", "Find aio", "○",
+                                               "Check the password", "○",
+                                               "aio joins this group", "○",
+                                               "Connected"]
+    finally:
+        d.close()
+
+
+def test_a_short_password_is_caught_before_anything_is_sent(root, api):
+    d = dialog(root, api)
+    try:
+        d._password("invite", "aio")
+        d.f_pin.insert(0, "abc")
+        d._go()
+        assert api.sent == [] and "too short" in d.msg.cget("text")
+    finally:
+        d.close()
+
+
+def test_the_attempt_is_followed_to_connected(root, api):
+    done = []
+    d = dialog(root, api, on_done=done.append)
+    try:
+        d._password("invite", "aio")
+        d.f_pin.insert(0, "B3NR 8WZC 4TYH")
+        d._go()
+        assert api.sent == [("/api/invite", {"name": "aio",
+                                             "pin": "B3NR 8WZC 4TYH"})]
+        progress(api, "verifying")
+        settle(d, lambda: d.steps.winfo_children()
+               and texts(d.steps)[2] == "●")
+        assert texts(d.steps)[0] == "✓", "found it"
+        progress(api, "connected", detail="aio")
+        settle(d, lambda: d.outcome == "connected")
+        assert "aio is connected" in texts(d.top)
+        assert done and done[0]["name"] == "aio"
+    finally:
+        d.close()
+
+
+def test_a_wrong_password_says_so_and_lets_you_try_again(root, api):
+    d = dialog(root, api)
+    try:
+        d._password("invite", "aio")
+        d.f_pin.insert(0, "b3nr-8wzc-4tyh")
+        d._go()
+        progress(api, "failed", reason="wrong_password")
+        settle(d, lambda: d.outcome == "wrong_password")
+        assert "did not accept that password" in d.msg.cget("text")
+        assert d.btn_go.cget("text") == "Try again" and d.btn_go.enabled
+        assert str(d.f_pin.cget("state")) == "normal"
+        assert "✖" in texts(d.steps), "the step that failed is marked"
+    finally:
+        d.close()
+
+
+def test_an_earlier_attempts_result_is_not_taken_for_this_one(root, api):
+    """A "connected" left over from adding another device a minute ago."""
+    progress(api, "connected", since=time.time() - 60)
+    d = dialog(root, api)
+    try:
+        d._password("invite", "aio")
+        d.f_pin.insert(0, "b3nr-8wzc-4tyh")
+        d._go()
+        for _ in range(10):
+            d.top.update()
+            time.sleep(0.02)
+        assert d.outcome is None
+    finally:
+        d.close()
+
+
+def test_a_device_with_its_own_group_offers_to_join_that_instead(root, api):
+    """The password was right - it is just not on its own. Offered, not done
+    behind the person's back."""
+    d = dialog(root, api)
+    try:
+        d._password("invite", "desk-pc")
+        d.f_pin.insert(0, "b3nr-8wzc-4tyh")
+        d._go()
+        progress(api, "failed", reason="busy", detail="tablet")
+        settle(d, lambda: d.outcome == "busy")
+        offer = [b for b in buttons(d.extra)
+                 if b.cget("text") == "Join desk-pc's group instead"]
+        assert offer
+        offer[0].invoke()
+        assert api.sent[-1] == ("/api/join", {"name": "desk-pc",
+                                              "pin": "b3nr-8wzc-4tyh"})
+    finally:
+        d.close()
+
+
+def test_connected_offers_to_arrange(root, api):
+    went = []
+    d = dialog(root, api, on_arrange=lambda: went.append(True))
+    try:
+        d._password("join", "desk-pc")
+        d._done({"detail": "desk-pc"})
+        assert "Connected to desk-pc's group" in texts(d.top)
+        d._arrange()
+        assert went == [True]
+    finally:
+        d.close()
+
+
+def test_it_can_open_straight_on_the_password(root, api):
+    """For a password that stopped working: the Devices page opens it here."""
+    d = dialog(root, api, start=("join", "desk"))
+    try:
+        assert (d.mode, d.target) == ("join", "desk")
+        assert "Join desk's group" in texts(d.top)
+    finally:
+        d.close()
+
+
+@pytest.mark.parametrize("reason", [
+    "wrong_password", "not_found", "unreachable", "busy", "in_group", "paused",
+    "version", "timeout", "name_taken", "impostor", "not_connected", "refused"])
+def test_every_failure_is_said_in_words(reason):
+    text = ui_pair.failure("invite", reason, "aio", "desk")
+    assert not text.startswith("That did not work") and len(text) > 15
+    assert "_" not in text, "no codes like wrong_password in what people read"
 
 
 def test_closing_during_a_search_is_harmless(root, api):
-    import threading
-    gate = threading.Event()
-    d = ui_pair.AddDevice(root, api, ui_theme.palette(root),
-                          search=lambda: gate.wait(2) and FOUND)
-    d._enter()
+    d = dialog(root, api)
     d.close()
-    gate.set()                              # the result lands after the close
-    root.update()
-
-
-def _all_text(widget, out=None):
-    out = [] if out is None else out
-    try:
-        t = widget.cget("text")
-        if t:
-            out.append(str(t))
-    except tk.TclError:
-        pass
-    for child in widget.winfo_children():
-        _all_text(child, out)
-    return out
+    time.sleep(0.2)                                  # the search lands on nothing

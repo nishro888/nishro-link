@@ -24,7 +24,17 @@ Message shapes:
               "proof":..,"nonce":..,"resume":<session id>}
              {"t":"welcome","v":2,"node":..,"epoch":N,"holder":..,"layout":{..},
               "screen":..,"x":..,"y":..,"resumed":bool,"session":..}
-             {"t":"err","msg":..}
+             {"t":"err","msg":..,"code":..}   code: auth | removed | busy | name
+  joining    hello with "join":true      a pairing someone just asked for, not a
+                                         reconnect - lets a removed device back in
+  inviting   hello with "invite":true    "join MY group": answered by
+             {"t":"invite_ok","node":..,"proof":..}, then
+             {"t":"invite","hub":..,"hub_id":..,"addr":..,"port":N,"secret":{..}}
+             {"t":"invite_done","ok":bool}
+  leaving    {"t":"leave"}   peer -> hub          {"t":"removed","by":..} hub -> peer
+  checking   hello with "probe":true    "is this the password?" - answered by
+             {"t":"probe_ok","node":..,"proof":..} and nothing else: nobody
+             joins, so a wrong guess changes nothing on either side
   baton      {"t":"claim","node":..,"reason":"motion"|"click"|"hotkey"}
              {"t":"baton","holder":..,"epoch":N,"screen":..,"x":..,"y":..,
               "held":[..],"toggles":{..}}
@@ -49,7 +59,10 @@ import secrets
 import socket
 import threading
 
-VERSION = 3
+VERSION = 4
+# v4: passwords are compared without their dashes (pairing.normalise), and a
+# device can be added from either side (invite). A v3 peer would prove a
+# different secret and fail as "wrong password" - refused as a version instead.
 # v3: the layout is machines with POSITIONS and displays (desk.py), and the
 # pointer crosses wherever displays touch. A v2 peer would read that layout as
 # screens with no links and could never cross, so it is refused outright, with
@@ -165,7 +178,8 @@ def auth(node: str, chal: str, dev_id: str = None) -> dict:
 # --------------------------------------------------------------- handshake
 def hello(node: str, screens, policy: dict = None, pin: str = "",
           resume: str = None, proof: str = None, chal: str = None,
-          dev_id: str = None) -> dict:
+          dev_id: str = None, join: bool = False, invite: bool = False,
+          probe: bool = False) -> dict:
     """Both peers send this; neither is 'the client'.
 
     `proof` answers the listener's challenge; `chal` is our own challenge for it
@@ -190,6 +204,12 @@ def hello(node: str, screens, policy: dict = None, pin: str = "",
         ev["pin"] = pin
     if resume:
         ev["resume"] = resume
+    if join:
+        ev["join"] = True
+    if invite:
+        ev["invite"] = True
+    if probe:
+        ev["probe"] = True
     return ev
 
 
@@ -206,8 +226,88 @@ def welcome(node: str, epoch: int, holder: str, layout: dict, screen: str,
     return ev
 
 
-def err(msg: str) -> dict:
-    return {"t": "err", "msg": msg}
+def err(msg: str, code: str = None) -> dict:
+    """A refusal. `code` is for the program - "auth" is a wrong password, which
+    the dialling side must stop retrying and ask a person about - and `msg` is
+    for the person."""
+    ev = {"t": "err", "msg": msg}
+    if code:
+        ev["code"] = code
+    return ev
+
+
+# ----------------------------------------------------- joining and leaving
+# Adding a device from EITHER side. "Join" is the simple one: the new device
+# types the group's password and dials the hub. "Invite" is the other way
+# round: a device already in a group types the NEW device's password, proves
+# it, and tells the new device where the group is and what its password is.
+#
+# That password must not cross the network in the clear - anything that heard
+# it could join the group. So it is wrapped under a key only the two ends can
+# make: the new device's password, which both know and never send, mixed with
+# both challenges from this handshake. An eavesdropper has the challenges and
+# the proofs, which let it guess the new device's password offline - the same
+# exposure every handshake has, and the reason passwords are generated (59
+# bits). HMAC-SHA256 as a keystream and as a MAC: the standard library only.
+
+def _wrap_key(pin: str, chal_a: str, chal_b: str) -> bytes:
+    msg = f"nishro-link wrap|{chal_a}|{chal_b}".encode()
+    return hmac.new((pin or "").encode(), msg, hashlib.sha256).digest()
+
+
+def _stream(key: bytes, n: int) -> bytes:
+    out, i = b"", 0
+    while len(out) < n:
+        out += hmac.new(key, b"ks" + i.to_bytes(4, "big"), hashlib.sha256).digest()
+        i += 1
+    return out[:n]
+
+
+def wrap(secret: str, pin: str, chal_a: str, chal_b: str) -> dict:
+    """`secret` sealed under `pin` and this handshake's two challenges."""
+    key = _wrap_key(pin, chal_a, chal_b)
+    data = (secret or "").encode("utf-8")
+    ct = bytes(x ^ y for x, y in zip(data, _stream(key, len(data))))
+    tag = hmac.new(key, b"tag" + ct, hashlib.sha256).hexdigest()
+    return {"ct": ct.hex(), "tag": tag}
+
+
+def unwrap(box: dict, pin: str, chal_a: str, chal_b: str) -> str:
+    """The secret, or ValueError if it was not sealed with this pin."""
+    try:
+        ct = bytes.fromhex(str(box["ct"]))
+        tag = str(box["tag"])
+    except (KeyError, TypeError, ValueError) as e:
+        raise ValueError(f"not a wrapped secret: {e}") from None
+    key = _wrap_key(pin, chal_a, chal_b)
+    want = hmac.new(key, b"tag" + ct, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(want, tag):
+        raise ValueError("the secret was not sealed with this password")
+    return bytes(x ^ y for x, y in zip(ct, _stream(key, len(ct)))).decode("utf-8")
+
+
+def invite_ok(node: str, proof: str) -> dict:
+    return {"t": "invite_ok", "v": VERSION, "node": node, "proof": proof}
+
+
+def invite(hub: str, hub_id: str, addr: str, port: int, secret: dict) -> dict:
+    return {"t": "invite", "hub": hub, "hub_id": hub_id, "addr": addr,
+            "port": int(port), "secret": secret}
+
+
+def invite_done(ok: bool, msg: str = "") -> dict:
+    ev = {"t": "invite_done", "ok": bool(ok)}
+    if msg:
+        ev["msg"] = msg
+    return ev
+
+
+def removed(by: str) -> dict:
+    return {"t": "removed", "by": by}
+
+
+def leave() -> dict:
+    return {"t": "leave"}
 
 
 # ------------------------------------------------------------------- baton
@@ -316,7 +416,8 @@ def geom(screens) -> dict:
 # Messages only the hub may originate. A peer that sends one is not relayed
 # and not believed: every member of the group knows the password, but only the
 # hub decides who holds control, what the arrangement is and who is here.
-HUB_ONLY = frozenset({"baton", "layout", "roster", "welcome"})
+HUB_ONLY = frozenset({"baton", "layout", "roster", "welcome", "removed",
+                      "rekey"})
 
 # Answered on the link they arrived on, never routed or relayed.
 HOP_LOCAL = frozenset({"ping", "pong", "err"})
@@ -439,9 +540,16 @@ class LineChannel:
         except (ValueError, UnicodeDecodeError) as e:
             raise ProtocolError(f"undecodable frame: {e}") from None
 
-    def close(self) -> None:
+    def close(self, flush: float = 0.0) -> None:
+        """Close. With `flush`, first give what is queued up to that many
+        seconds to go out - a last "you were removed" or "I am leaving" is
+        worthless if the socket closes under it."""
         try:
-            self._q.put_nowait(None)   # best-effort: wake the sender thread to exit
+            if flush:
+                self._q.put(None, timeout=flush)
+                self._sender.join(flush)
+            else:
+                self._q.put_nowait(None)   # best-effort: wake the sender to exit
         except queue.Full:
             pass
         try:

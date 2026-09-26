@@ -17,16 +17,18 @@ there is no fixed "server with the keyboard".
 
 - **Any machine drives.** Whichever mouse you touch takes control. The others
   follow. Keyboards follow the pointer.
-- **Several devices in one group.** One device lets the others connect; any
-  number can join it, and it relays between them - so one desktop's mouse can
-  drive another desktop's screen through it.
-- **Pair by name, not IP address.** One device shows its name and a generated
-  password; the other picks it from a list of devices found on the network.
-  If DHCP gives a device a new address, it is found again automatically.
+- **Several devices in one group.** Any number can join, and the hub relays
+  between them - so one desktop's mouse can drive another desktop's screen
+  through it.
+- **Add a device by name and one password - from either side.** Every device
+  shows its name and a generated password. Pick the other one from the list of
+  devices found on the network, type the password it shows, and watch each
+  step until it says connected - or says why not, and what to do. No IP
+  addresses: if DHCP moves a device, it is found again automatically.
 - **A real arrangement editor.** Every machine is drawn as its actual monitors.
   Drag them to match your desk - beside, above, below, against a particular
-  monitor - and bright lines show exactly where the pointer will cross. The
-  arrangement is shared with every device the moment you press Apply.
+  monitor - and bright lines show exactly where the pointer will cross. A
+  change reaches every device the moment you drop it; Ctrl+Z undoes.
 - **Monitors plugged in or out** are noticed within seconds and the arrangement
   updates everywhere.
 - **Shared clipboard** (text).
@@ -38,6 +40,10 @@ there is no fixed "server with the keyboard".
 | Devices | Arrangement |
 |---|---|
 | ![Devices](docs/screenshots/devices.png) | ![Arrangement](docs/screenshots/arrange.png) |
+
+| Adding a device |
+|---|
+| ![Add a device](docs/screenshots/add.png) |
 
 ## Install
 
@@ -65,11 +71,11 @@ powershell -ExecutionPolicy Bypass -File link\packaging\install-windows.ps1 -Aut
 
 ### Ubuntu, Debian and derivatives (Wayland and X11)
 
-Download `nishro-link_0.9.1-beta_all.deb` from the [Releases](../../releases)
+Download `nishro-link_0.10.0-beta_all.deb` from the [Releases](../../releases)
 page and open it in the App Center (Software Install), or:
 
 ```bash
-sudo apt install ./nishro-link_0.9.1-beta_all.deb
+sudo apt install ./nishro-link_0.10.0-beta_all.deb
 ```
 
 It installs what it needs (`python3-tk`, `python3-evdev`), adds **Nishro Link**
@@ -104,14 +110,20 @@ where that needs `sudo` it prints the exact commands. For the window:
 
 ## Getting started
 
-1. On the device the others will connect to: **Devices → Add a device → Let
-   another device connect.** It shows its name and a password.
-2. On each other device: **Add a device → Connect to another device**, pick it
-   from the list, type the password.
-3. Open **Arrangement**, drag the machines to match your desk, press **Apply**.
+1. Open Nishro Link on both computers. Each one shows its name and password on
+   the **Devices** page.
+2. On either one: **Add a device**, pick the other from the list, and type the
+   password it shows. Capitals and dashes don't matter. The dialog follows it
+   step by step until it says **connected**, or says why not.
+3. Open **Arrangement** and drag the machines to match your desk. Changes apply
+   straight away, on every device (Ctrl+Z undoes).
 
 Push the pointer across a bright line to cross. Move any machine's own mouse to
-take control from there.
+take control from there. To add a third device, do the same from any device
+already in the group. **Remove** (on the hub) and **Leave this group** (on the
+others) take a device out again.
+
+**Sharing** in the top right pauses everything, without losing the group.
 
 ## Limitations
 
@@ -150,7 +162,7 @@ Python 3.10+. No dependencies on Windows beyond the standard library; `evdev`
 on Linux (`pip install -r link/requirements-linux.txt`, or `python3-evdev`).
 
 ```bash
-python -m pytest link/tests          # 669 tests, about a minute and a half
+python -m pytest link/tests          # 713 tests, about two minutes
 python -m link.nishro_link           # run from source
 python link/packaging/build-deb.py   # the .deb, into dist/ (pure Python; builds on Windows too)
 ```
@@ -167,7 +179,7 @@ link/
   baton.py           who holds control; the safety watchdog
   protocol.py        the wire format
   discovery.py       finding a device by name on the network
-  pairing.py         generated passwords
+  pairing.py         generated passwords (dashes, spaces and case do not count)
   capture_*.py       reading the local mouse and keyboard (Windows hooks / evdev)
   inject.py          moving the pointer and typing (SendInput / uinput)
   control_api.py     the local control API the window and web page use

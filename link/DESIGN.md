@@ -278,7 +278,9 @@ screen.
 ### The arrangement is shared
 
 **The hub keeps the one true arrangement** and sends it (`layout`) after the
-handshake and on every change. A peer that rearranges in its own window sends
+handshake and on every change. The window applies a change the moment a box is
+dropped - there is no Apply button - so every device shows it within a poll;
+Undo (Ctrl+Z) walks back through what was applied. A peer that rearranges in its own window sends
 `arrange` to the hub, which applies it and sends it back, so both machines change
 together or neither does. The machine holding the baton decides crossings with
 its own copy, so an arrangement that reached only one machine - as it once did -
@@ -446,7 +448,7 @@ misses, it searches (`discovery.py`):
 
 ```
 who   {"app":"nishro-link","t":"who","q":<name|id|*>,"from":<id>}
-here  {"app":"nishro-link","t":"here","name","id","port","waiting"}
+here  {"app":"nishro-link","t":"here","name","id","port","waiting","group","alone"}
 ```
 
 Questions go out on UDP to the broadcast address, each local /24's broadcast
@@ -463,9 +465,47 @@ and searches.
 **An answer is not trusted and need not be:** anything on the network can claim
 to be "aio", but the handshake still requires proof of the password, and nothing
 is injected into a machine that has not proved it. What a fake *can* do is take
-one proof away and guess offline — so the waiting side **generates** the
-password (`pairing.py`, 12 characters from 31 unambiguous ones, ~59 bits), and a
-chosen one must be at least 8 characters.
+one proof away and guess offline — so every device **generates** its password
+(`pairing.py`, 12 characters from 31 unambiguous ones, ~59 bits), and a chosen
+one must be at least 8 characters. Dashes, spaces and capitals do not count:
+they are there to make it readable, and whether someone types them is a coin
+toss.
+
+### Groups: adding, joining, leaving, removing
+
+Every device is always in a group. A fresh install is a **group of one**: it
+listens, and shows its name and a generated password on the Devices page. There
+is no "which side are you" step - that choice, made twice by two people, was
+the least friendly part of pairing.
+
+Adding a device is typing **the password shown on the device you picked**, and
+what happens depends on what it is (`here` says: `group` = its hub's name,
+`alone` = a group of one):
+
+- **on its own** → *invite*: this device proves the new one's password, then
+  hands it the group's hub and the group's password - **sealed under the new
+  device's own password** (`protocol.wrap`: HMAC-SHA256 keystream and MAC, keyed
+  by that password and both handshake challenges), so it never crosses the
+  network in the clear. The new device then dials the hub like any member. Any
+  member can invite, not only the hub.
+- **in another group** → *join*: this device checks the password with that
+  group's hub first (`probe`: both sides prove it, nothing is registered), and
+  only then switches over. A wrong password changes nothing on either side.
+
+A device with devices of its own never joins another group - they would be
+stranded; it can only add. Leaving (a member) or being removed (by the hub)
+makes a group of one again, **with a new password of its own**: the old group's
+password stays with the old group.
+
+A removed device that was switched off still knows the password, so the hub
+keeps its ID and refuses it (`err` code `removed`) until someone pairs it again
+on purpose (`hello` with `join`). The dialling side stops retrying on anything a
+retry cannot fix - a wrong password, removed, a name already taken - and says
+so, instead of retrying forever while the window said "looking for it".
+
+A new password on the hub goes to every member connected at that moment,
+sealed under the old one (`rekey`). One that was switched off is refused on
+return and asks for the new one.
 
 ### What resume actually means
 

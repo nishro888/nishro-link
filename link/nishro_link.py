@@ -32,7 +32,7 @@ import socket
 import sys
 import threading
 
-from . import access, config, control_api, desk, desktop
+from . import access, config, control_api, desk, desktop, pairing
 from .inject import make_injector
 from .node import Node, NodeCore
 from .runtime import RunLog, SingleInstance, log_path
@@ -297,10 +297,20 @@ def main() -> int:
     cfg["peer"] = peer_name(cfg)
     peer_label = cfg["peer"] or "peer"
     if not cfg["hub"] and not cfg["peer_addr"] and not cfg["peer"]:
-        # Not an error any more: a fresh install has nothing paired and must
-        # still come up, or there is no window to pair FROM. The link simply
-        # waits until something is paired.
-        log("no device paired yet - open the window and use 'Add a device'")
+        # Nothing paired: a group of one, listening, with a password of its own
+        # - so another device can add this one straight away, and nobody has to
+        # first choose to "let another device connect".
+        cfg["hub"] = True
+        log("not in a group yet - other devices can add this one by its name "
+            "and password (Devices page)")
+    if cfg["hub"] and pairing.problem(cfg.get("pin") or ""):
+        cfg["pin"] = pairing.new_password()
+        try:
+            stored = config.load(args.config)
+            stored.update(hub=True, pin=cfg["pin"])
+            config.save(stored, args.config)
+        except OSError:
+            pass
 
     here = desktop.detect()
     screen = parse_size(cfg["screen"], here.size)

@@ -31,7 +31,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import protocol, runtime
+from . import pairing, protocol, runtime
 from .baton import Arbiter, BatonState, ClaimDetector, Grant, now_ms
 from .clip import ClipboardSync
 from .motion import Cursor, exits, to_pixels
@@ -216,6 +216,16 @@ class NodeCore:
         else:
             self.arbiter = None
             self.baton.lost()            # P2: nothing suppressed until told again
+
+    def alone(self) -> None:
+        """Only this machine left on the arrangement - after leaving a group or
+        being removed from one. The cursor comes home if it was elsewhere."""
+        for m in list(self.layout.machines()):
+            if m.owner != self.node:
+                self.layout.remove(m.name)
+        self.online.clear()
+        self.devices = []
+        self.adopt_layout(self.layout, keep_cursor=True)
 
     def set_placement(self, boxes, keep_cursor: bool = True) -> None:
         """Replace the arrangement."""
@@ -771,7 +781,8 @@ class Node:
         self.capture = capture
         self.injector = injector
         self.port = port
-        self.pin = pin
+        # Compared without dashes, spaces or capitals - see pairing.py.
+        self.pin = pairing.normalise(pin)
         # Who we dial, as a NAME and a permanent ID. peer_addr is only where it
         # was last found: DHCP moves machines, so it is tried first because it
         # is usually still right, and looked up again when it is not.
@@ -807,6 +818,25 @@ class Node:
         self.rtt_ms = None
         self.trusted_peer = None      # the last to prove itself, for the UI
         self.on_placement = None      # called with the hub's new arrangement
+
+        # What dialling is doing, for the window - so that pairing ends in
+        # "connected" or in the reason it is not, rather than in a dialog that
+        # closed itself and left the person guessing. phase: idle, searching,
+        # connecting, verifying, connected, retrying (why) or failed (why).
+        self.dial = {"phase": "idle"}
+        # Set when trying again cannot help: a wrong password, removed from the
+        # group, a name already taken. Dialling waits until the next pairing
+        # instead of hammering the hub with the same refusal forever.
+        self.blocked = None
+        self.joining = False          # the next hello is a pairing someone asked for
+        self.removed_ids = set()      # hub: devices removed from the group
+        self._leaving = set()         # hub: forget these when they disconnect
+        self.on_event = None          # (kind, info) - for the window's notices
+        self.on_invited = None        # (hub, hub_id, addr, port, secret, by) -> bool
+        self.on_removed = None        # (by) - this device was removed from its group
+        # Adding a device, either way - invite() or probe() - for the window.
+        self.adding = {"phase": "idle"}
+        self._miss = None             # why the last search found nothing usable
 
         self._stop = False
         self._reconfig = False
@@ -980,8 +1010,32 @@ class Node:
     def identity(self) -> dict:
         """What this device says when asked who it is. Read fresh every time,
         so a rename or a change of role is answered correctly at once."""
+        hub = self.core.is_hub
         return {"name": self.core.node, "id": self.device_id, "port": self.port,
-                "waiting": bool(self.core.is_hub and self.enabled)}
+                "waiting": bool(hub and self.enabled),
+                "group": self.core.node if hub else (self.trusted_peer
+                                                     or self.peer_name),
+                "alone": bool(hub and not self.members())}
+
+    def members(self) -> list:
+        """The hub's other machines: everyone on the arrangement but us."""
+        if not self.core.is_hub:
+            return []
+        return sorted(m.owner for m in self.core.layout.machines()
+                      if m.owner != self.core.node)
+
+    def _event(self, kind: str, **info) -> None:
+        cb = self.on_event
+        if cb is not None:
+            try:
+                cb(kind, info)
+            except Exception as e:
+                self._log_async(f"event {kind} not delivered: {e!r}")
+
+    def _dial_state(self, phase: str, reason: str = None, detail=None) -> None:
+        self.dial = {"phase": phase, "reason": reason, "detail": detail,
+                     "target": self.peer_name or self.peer_addr,
+                     "attempts": self.backoff.failures, "since": time.time()}
 
     def _start_responder(self) -> None:
         from . import discovery
@@ -1001,7 +1055,7 @@ class Node:
                               broadcast=self.discover_broadcast)
 
     def reconfigure(self, hub=KEEP, peer_addr=KEEP, port=KEEP, pin=KEEP,
-                    peer_name=KEEP, peer_id=KEEP) -> None:
+                    peer_name=KEEP, peer_id=KEEP, joining=KEEP) -> None:
         """Apply new connection settings now, not on the next restart.
 
         Drops whatever is in progress and lets run() pick the right loop again.
@@ -1012,7 +1066,9 @@ class Node:
         paired while the node carried on believing it was.
         """
         if pin is not KEEP:
-            self.pin = pin
+            self.pin = pairing.normalise(pin)
+        if joining is not KEEP:
+            self.joining = bool(joining)
         if peer_addr is not KEEP:
             self.peer_addr = peer_addr or None
         if peer_name is not KEEP:
@@ -1028,6 +1084,8 @@ class Node:
             self.core.set_hub(bool(hub))
         self._reconfig = True
         self.backoff.reset()
+        self.blocked = None                # a new pairing deserves a new try
+        self.dial = {"phase": "idle"}
         self._close_links()
         srv = self._srv_sock
         if srv is not None:
@@ -1050,6 +1108,8 @@ class Node:
         if on == self.enabled:
             return
         self.enabled = on
+        if on:
+            self.blocked = None            # switching it on again means "try again"
         self._log_async(f"linking {'enabled' if on else 'DISABLED'}")
         if not on:
             self._close_links()          # the read loops notice and clean up
@@ -1229,6 +1289,74 @@ class Node:
                             "Link on this machine for the pointer to use them")
         self._act(self.core.own_geom, d.w, d.h, d.parts)
 
+    def remove(self, name: str):
+        """From the hub's window: take a device out of the group. Connected, it
+        is told first and forgets the group; switched off, it is refused when it
+        next comes back. Returns an error to show, or None."""
+        if not self.core.is_hub:
+            return "only the hub can remove devices - ask it, or leave the group"
+        if name == self.core.node or name not in self.core.layout.names():
+            return f"{name} is not another device in this group"
+        owner = self.core.layout.get(name).owner
+        with self._links_lock:
+            link = self.links.get(owner)
+        if link is None:
+            self._act(self.core.forget_machine, name)
+            return None
+        self._leaving.add(owner)           # forgotten once its link is gone
+        link.ch.send(protocol.removed(self.core.node))
+        threading.Thread(target=link.ch.close, kwargs={"flush": 1.0},
+                         daemon=True).start()
+        return None
+
+    def leave(self) -> None:
+        """From a peer's window: tell the hub, then go. The caller resets this
+        device to a group of its own."""
+        with self._links_lock:
+            chans = [l.ch for l in self.links.values()]
+        for ch in chans:
+            ch.send(protocol.leave())
+            ch.close(flush=1.0)
+
+    def go_alone(self, pin: str) -> None:
+        """Become a group of one: listening, with its own new password and only
+        its own screens on the arrangement."""
+        with self._links_lock:
+            chans = [l.ch for l in self.links.values()]
+        for ch in chans:
+            ch.close()
+        self.reconfigure(hub=True, peer_addr=None, peer_name=None, peer_id=None,
+                         pin=pin, joining=False)
+        with self._lock:
+            self.core.alone()
+        self.removed_ids = set()
+        self.trusted_peer = None
+
+    def rekey(self, pin: str) -> int:
+        """The hub's new password, to every device connected now - sealed under
+        the old one, which they all know and nobody else does. Devices that are
+        switched off miss it and will have to be given it by hand. Returns how
+        many were told."""
+        old, new = self.pin, pairing.normalise(pin)
+        with self._links_lock:
+            links = list(self.links.values())
+        for l in links:
+            a, b = protocol.nonce(), protocol.nonce()
+            l.ch.send({"t": "rekey", "to": l.name, "a": a, "b": b,
+                       "secret": protocol.wrap(new, old, a, b)})
+        self.pin = new
+        return len(links)
+
+    def _removed_by(self, by: str) -> None:
+        """The hub removed this device, now or while it was switched off."""
+        self.blocked = "removed"
+        self._dial_state("failed", "removed", by)
+        self._log(f"{by} removed this device from its group")
+        self._event("removed", name=by)
+        cb = self.on_removed
+        if cb is not None:
+            threading.Thread(target=cb, args=(by,), daemon=True).start()
+
     def forget_machine(self, name: str):
         """From the window: take an offline machine off the arrangement."""
         if not self.core.is_hub:
@@ -1359,7 +1487,10 @@ class Node:
         except OSError as e:
             self._log(f"link to {addr} lost during the handshake: {e}")
         finally:
-            ch.close()
+            # Flushed: a refusal ("wrong password", "removed") is queued just
+            # before this, and closing under it lost it - the other side then
+            # saw a hang-up and retried forever instead of saying why.
+            ch.close(flush=1.0)
 
     def _greet(self, ch, addr):
         """The hub's side of the handshake. The peer's name if it proved itself,
@@ -1373,14 +1504,38 @@ class Node:
             return None
         protocol.check_version(hello)
         who = hello.get("node", str(addr))
+        if hello.get("invite"):
+            return self._invited(ch, addr, chal, hello)
 
         if not protocol.verify(self.pin, chal, who, self.core.node,
                                hello.get("proof", "")):
-            ch.send(protocol.err("authentication failed"))
+            ch.send(protocol.err("wrong password", code="auth"))
             self._log(f"rejected {who} at {addr}: wrong password"
                       + ("" if hello.get("proof") else
                          " (it sent no proof at all - older build?)"))
+            self._event("rejected", name=who, reason="wrong_password")
             return None
+        if hello.get("probe"):
+            # Only checking the password before switching groups. Answer, prove
+            # ourselves back, and change nothing - not even
+            # a removed device's standing: only joining does that.
+            if hello.get("nonce"):
+                ch.send({"t": "probe_ok", "v": protocol.VERSION,
+                         "node": self.core.node,
+                         "proof": protocol.proof(self.pin, hello["nonce"],
+                                                 self.core.node, who)})
+            return None
+        their_id = hello.get("id")
+        if their_id and their_id in self.removed_ids:
+            if not hello.get("join"):
+                # Removed while it was switched off. It still knows the password,
+                # so the password cannot keep it out; this does, until someone
+                # pairs it again on purpose.
+                ch.send(protocol.err(f"removed from {self.core.node}'s group",
+                                     code="removed"))
+                self._log(f"refused {who}: it was removed from this group")
+                return None
+            self.removed_ids.discard(their_id)
 
         # ...and prove ourselves back, so a machine never accepts injected
         # keystrokes from something that cannot prove it knows the password.
@@ -1390,7 +1545,8 @@ class Node:
             self._log(f"rejected {who}: it did not challenge us (older build?)")
             return None
         if who == self.core.node:
-            ch.send(protocol.err(f"this group already has a machine called {who!r}"))
+            ch.send(protocol.err(f"this group already has a machine called {who!r}",
+                                 code="name"))
             self._log(f"rejected a machine calling itself {who!r} - that is our name")
             return None
         my_proof = protocol.proof(self.pin, their_chal, self.core.node, who)
@@ -1440,6 +1596,7 @@ class Node:
             except Exception as e:
                 self._log(f"could not save the device list: {e!r}")
         self._broadcast_group()          # everyone learns who joined, and the desk
+        self._event("joined", name=who, first=bool(hello.get("join")))
         self._log(f"peer connected: {who} (password verified both ways)"
                   + ("  (resumed)" if resumed else "")
                   + (f" - {len(self.links)} connected" if len(self.links) > 1 else ""))
@@ -1448,9 +1605,237 @@ class Node:
                       "that speaks the protocol can connect and type here")
         return who
 
+    def _invited(self, ch, addr, chal, hello):
+        """Another device typed OUR password and asks us to join ITS group.
+
+        Only a device on its own accepts: one with devices of its own would
+        strand them. Both sides prove the password before anything changes, and
+        the group's password arrives sealed under ours (protocol.wrap)."""
+        who = hello.get("node", "?")
+        if not protocol.verify(self.pin, chal, who, self.core.node,
+                               hello.get("proof", "")):
+            ch.send(protocol.err("wrong password", code="auth"))
+            self._log(f"{who} tried to add this device with the wrong password")
+            self._event("rejected", name=who, reason="wrong_password")
+            return None
+        their_chal = hello.get("nonce")
+        if not their_chal:
+            ch.send(protocol.err("challenge us back", code="auth"))
+            return None
+        if self.members():
+            ch.send(protocol.err(
+                f"{self.core.node} already has devices in its own group "
+                f"({', '.join(self.members())})", code="busy"))
+            return None
+        if self.on_invited is None:
+            ch.send(protocol.err("this device cannot be added from elsewhere",
+                                 code="busy"))
+            return None
+        ch.send(protocol.invite_ok(
+            self.core.node, protocol.proof(self.pin, their_chal, self.core.node,
+                                           who)))
+        msg = ch.recv()
+        if not msg or msg.get("t") != "invite":
+            return None
+        try:
+            secret = protocol.unwrap(msg.get("secret") or {}, self.pin, chal,
+                                     their_chal)
+            hub, port = str(msg["hub"]), int(msg.get("port") or self.port)
+        except (KeyError, TypeError, ValueError) as e:
+            ch.send(protocol.invite_done(False, f"could not read the invitation: {e}"))
+            return None
+        where = msg.get("addr") or (addr[0] if addr else None)
+        ok = False
+        try:
+            ok = bool(self.on_invited(hub, msg.get("hub_id"), where, port, secret,
+                                      who))
+        except Exception as e:
+            self._log(f"could not join {hub}'s group: {e!r}")
+        ch.send(protocol.invite_done(ok))
+        ch.close(flush=1.0)
+        if ok:
+            self._log(f"{who} added this device to {hub}'s group")
+            self._event("invited", name=who, group=hub)
+        return None
+
+    # ------------------------------------------------------- adding, inviting
+    def invite(self, name: str, pin: str, addr: str = None, port: int = None) -> dict:
+        """Add a device that is on its own to THIS group, using the password it
+        shows. Blocks for a few seconds; progress is in `adding`.
+
+        {"ok": True} once it has joined, else {"ok": False, "reason", "detail"}.
+        """
+        pin = pairing.normalise(pin)
+
+        def state(phase, reason=None, detail=None):
+            self.adding = {"mode": "invite", "phase": phase, "reason": reason,
+                           "detail": detail, "target": name, "since": time.time()}
+            return {"ok": phase == "connected", "reason": reason, "detail": detail}
+
+        if self.core.is_hub:
+            hub, hub_id, hub_addr, hub_port = (self.core.node, self.device_id, None,
+                                               self.port)
+        elif self.connected():
+            hub = self.trusted_peer or self.peer_name
+            hub_id, hub_addr, hub_port = self.peer_id, self.peer_addr, self.port
+        else:
+            return state("failed", "not_connected",
+                         "this device is not connected to its group right now")
+        if not self.pin:
+            return state("failed", "no_password", "this group has no password")
+
+        state("searching")
+        if addr is None:
+            found = [f for f in self.find(name)
+                     if f.name.casefold() == name.casefold() or f.id == name]
+            if not found:
+                return state("failed", "not_found", name)
+            f = found[0]
+            if not f.waiting:
+                return state("failed", "in_group", f.group)
+            if not f.alone:
+                return state("failed", "busy", f.name)
+            addr, port = f.addr, f.port or self.port
+        port = port or self.port
+
+        state("connecting", detail=addr)
+        try:
+            sock = socket.create_connection((addr, port), timeout=3)
+        except OSError as e:
+            return state("failed", "unreachable", str(e))
+        ch = protocol.LineChannel(sock)
+        try:
+            sock.settimeout(8)
+            greet = ch.recv()
+            if not greet or greet.get("t") != "auth" or not greet.get("nonce"):
+                return state("failed", "refused",
+                             (greet or {}).get("msg") or "it did not answer")
+            protocol.check_version(greet)
+            them = greet.get("node") or name
+            state("verifying", detail=them)
+            mine = protocol.nonce()
+            ch.send(protocol.hello(
+                self.core.node, [], proof=protocol.proof(pin, greet["nonce"],
+                                                         self.core.node, them),
+                chal=mine, dev_id=self.device_id, invite=True))
+            reply = ch.recv()
+            if not reply:
+                return state("failed", "refused", "it hung up")
+            if reply.get("t") == "err":
+                code = reply.get("code")
+                return state("failed", {"auth": "wrong_password",
+                                        "busy": "busy"}.get(code, "refused"),
+                             reply.get("msg"))
+            if reply.get("t") != "invite_ok" or not protocol.verify(
+                    pin, mine, them, self.core.node, reply.get("proof", "")):
+                return state("failed", "impostor", them)
+            ch.send(protocol.invite(hub, hub_id, hub_addr, hub_port,
+                                    protocol.wrap(self.pin, pin, greet["nonce"],
+                                                  mine)))
+            done = ch.recv()
+            if not done or not done.get("ok"):
+                return state("failed", "refused",
+                             (done or {}).get("msg") or f"{them} did not accept")
+        except protocol.ProtocolError as e:
+            return state("failed", "version", str(e))
+        except OSError as e:
+            return state("failed", "unreachable", str(e))
+        finally:
+            ch.close()
+
+        # It accepted and is now dialling the group. Say "connected" only when
+        # it is: here, if this is the hub; in the roster, if not.
+        state("joining", detail=them)
+        end = time.monotonic() + 20
+        while time.monotonic() < end and not self._stop:
+            with self._links_lock:
+                here = them in self.links
+            if here or them in self.core.online:
+                self._log(f"added {them} to the group")
+                return state("connected", detail=them)
+            time.sleep(0.1)
+        return state("failed", "timeout", them)
+
+    def probe(self, name: str, pin: str, addr: str = None, port: int = None) -> dict:
+        """Before joining a group: find its hub and check the password with it,
+        both ways, without joining. Blocks for a few seconds; progress is in
+        `adding`. {"ok": True, "hub", "hub_id", "addr", "port"} or a reason.
+
+        `name` may be any device in the group: one that is not the hub says
+        which group it is in, and the hub is looked for instead.
+        """
+        pin = pairing.normalise(pin)
+        target = name
+
+        def state(phase, reason=None, detail=None, **extra):
+            self.adding = {"mode": "join", "phase": phase, "reason": reason,
+                           "detail": detail, "target": target, "since": time.time()}
+            return dict({"ok": phase == "checked", "reason": reason,
+                         "detail": detail}, **extra)
+
+        state("searching")
+        hub_id = None
+        if addr is None:
+            for _ in range(2):             # the device itself, then its hub
+                found = [f for f in self.find(target)
+                         if f.name.casefold() == target.casefold() or f.id == target]
+                if not found:
+                    return state("failed", "not_found", target)
+                f = found[0]
+                if f.waiting:
+                    addr, port, hub_id = f.addr, f.port or self.port, f.id
+                    break
+                if not f.group or f.group.casefold() == target.casefold():
+                    return state("failed", "paused", f.name)
+                target = f.group
+            else:
+                return state("failed", "not_found", target)
+        port = port or self.port
+
+        state("connecting", detail=addr)
+        try:
+            sock = socket.create_connection((addr, port), timeout=3)
+        except OSError as e:
+            return state("failed", "unreachable", str(e))
+        ch = protocol.LineChannel(sock)
+        try:
+            sock.settimeout(8)
+            greet = ch.recv()
+            if not greet or greet.get("t") != "auth" or not greet.get("nonce"):
+                return state("failed", "refused",
+                             (greet or {}).get("msg") or "it did not answer")
+            protocol.check_version(greet)
+            hub = greet.get("node") or target
+            target = hub
+            state("verifying", detail=hub)
+            mine = protocol.nonce()
+            ch.send(protocol.hello(
+                self.core.node, [], proof=protocol.proof(pin, greet["nonce"],
+                                                         self.core.node, hub),
+                chal=mine, dev_id=self.device_id, join=True, probe=True))
+            reply = ch.recv()
+            if not reply:
+                return state("failed", "refused", "it hung up")
+            if reply.get("t") == "err":
+                return state("failed", {"auth": "wrong_password",
+                                        "name": "name_taken"}.get(
+                                            reply.get("code"), "refused"),
+                             reply.get("msg"))
+            if reply.get("t") != "probe_ok" or not protocol.verify(
+                    pin, mine, hub, self.core.node, reply.get("proof", "")):
+                return state("failed", "impostor", hub)
+        except protocol.ProtocolError as e:
+            return state("failed", "version", str(e))
+        except OSError as e:
+            return state("failed", "unreachable", str(e))
+        finally:
+            ch.close()
+        return state("checked", detail=hub, hub=hub,
+                     hub_id=greet.get("id") or hub_id, addr=addr, port=port)
+
     def _connect_loop(self) -> None:
         while not self._stop and not self._reconfig:
-            if not self.enabled:
+            if not self.enabled or self.blocked:
                 time.sleep(0.2)
                 continue
             delay = self.backoff.next_delay_ms() / 1000.0
@@ -1459,11 +1844,13 @@ class Node:
                           f"(attempt {self.backoff.failures + 1}, "
                           f"via {self.backoff.target()})")
                 time.sleep(delay)
-            if self._stop:
-                return
+            if self._stop or self._reconfig or self.blocked:
+                continue
             target = self._target()
             if target is None:
                 self.backoff.on_failure()
+                reason, detail = self._miss or ("not_found", None)
+                self._dial_state("retrying", reason, detail)
                 if self.backoff.failures in (1, 4) or self.backoff.failures % 10 == 0:
                     self._log(f"cannot find '{self.peer_name or self.peer_id}' on this "
                               f"network - is it switched on and waiting for a "
@@ -1471,10 +1858,12 @@ class Node:
                               f"the search (UDP {self.port}).")
                 continue
             addr, port = target
+            self._dial_state("connecting", detail=addr)
             try:
                 sock = socket.create_connection((addr, port), timeout=2)
             except OSError as e:
                 self.backoff.on_failure()
+                self._dial_state("retrying", "unreachable", str(e))
                 self._log(f"connect to {addr} failed: {e}")
                 if self.backoff.failures == 3:
                     # Three in a row is not a blip. Name the usual cause once,
@@ -1493,11 +1882,16 @@ class Node:
                 self.backoff.on_connected()
                 sock.settimeout(None)
                 hub = self.trusted_peer or self.peer_name or "hub"
+                self._dial_state("connected", detail=hub)
                 self._register(hub, ch, (addr, port))
                 self._pump(ch, hub, (addr, port))
                 self.backoff.on_disconnected()
+                if not (self._stop or self._reconfig or self.blocked):
+                    self._dial_state("retrying", "lost", hub)
             except protocol.ProtocolError as e:
                 self._log(f"protocol error: {e}")
+                self._dial_state("retrying", "version" if "version" in str(e)
+                                 else "protocol", str(e))
                 self.backoff.on_disconnected()
             finally:
                 ch.close()
@@ -1514,10 +1908,17 @@ class Node:
         if self.peer_addr and self.backoff.target() == "address":
             return self.peer_addr, self.port
         q = self.peer_id or self.peer_name
-        found = [f for f in self.find(q) if f.waiting]
+        self._dial_state("searching")
+        every = self.find(q)
+        found = [f for f in every if f.waiting]
         self.last_found = found[0] if found else None
         if not found:
+            # Found but not listening means it is in some other group now - a
+            # different thing to tell a person than "switched off".
+            self._miss = (("not_waiting", every[0].group) if every
+                          else ("not_found", q))
             return None
+        self._miss = None
         f = found[0]
         if f.addr != self.peer_addr:
             self._log(f"found '{f.name}' at {f.addr}")
@@ -1538,6 +1939,7 @@ class Node:
             return False
         if greet.get("t") == "err":
             self._log(f"refused by the other machine: {greet.get('msg')}")
+            self._dial_state("retrying", "refused", greet.get("msg"))
             return False
         protocol.check_version(greet)
         if greet.get("t") != "auth" or not greet.get("nonce"):
@@ -1555,6 +1957,7 @@ class Node:
             self.peer_addr = None
             return False
         mine = protocol.nonce()
+        self._dial_state("verifying", detail=hub)
 
         screens = []
         for n in self.core.layout.mine():
@@ -1565,13 +1968,25 @@ class Node:
         ch.send(protocol.hello(
             self.core.node, screens, self.core.policy,
             proof=protocol.proof(self.pin, greet["nonce"], self.core.node, hub),
-            chal=mine, resume=self.session, dev_id=self.device_id))
+            chal=mine, resume=self.session, dev_id=self.device_id,
+            join=self.joining))
 
         reply = ch.recv()
         if reply is None:
             return False
         if reply.get("t") == "err":
+            code = reply.get("code")
             self._log(f"refused by {hub}: {reply.get('msg')}")
+            if code == "removed":
+                self._removed_by(hub)
+            elif code in ("auth", "name"):
+                # The same attempt would get the same answer. Stop, and say so,
+                # until someone pairs again or switches sharing off and on.
+                self.blocked = "wrong_password" if code == "auth" else "name_taken"
+                self._dial_state("failed", self.blocked, hub)
+                self._event("dial_failed", name=hub, reason=self.blocked)
+            else:
+                self._dial_state("retrying", "refused", reply.get("msg"))
             return False
         protocol.check_version(reply)
 
@@ -1581,6 +1996,7 @@ class Node:
                                reply.get("proof", "")):
             self._log(f"{hub} could not prove it knows the password - refusing to "
                       f"be driven by it")
+            self._dial_state("retrying", "impostor", hub)
             return False
         self.trusted_peer = hub
         with self._lock:
@@ -1630,6 +2046,9 @@ class Node:
                     self.on_paired(*learned)
                 except Exception as e:
                     self._log(f"could not save the pairing: {e!r}")
+        first = self.joining
+        self.joining = False
+        self._event("connected", name=hub, first=first)
         self._log(f"connected to {hub} at {addr}:{self.port} "
                   f"(password verified both ways)"
                   + ("  (session resumed)" if reply.get("resumed") else ""))
@@ -1662,6 +2081,25 @@ class Node:
                 if t in protocol.HOP_LOCAL:
                     self._hop_local(ch, name, msg, t)
                     continue
+                if not hub and t == "removed":
+                    self._removed_by(msg.get("by") or name)
+                    break
+                if not hub and t == "rekey":
+                    try:
+                        new = protocol.unwrap(msg.get("secret") or {}, self.pin,
+                                              msg.get("a", ""), msg.get("b", ""))
+                    except ValueError as e:
+                        self._log(f"ignored a new password from {name}: {e}")
+                        continue
+                    self.pin = pairing.normalise(new)
+                    self._log(f"{name} changed the group's password - saved")
+                    self._event("rekeyed", name=name, pin=new)
+                    continue
+                if hub and t == "leave":
+                    self._leaving.add(name)   # forgotten as its link closes
+                    self._event("left_group", name=name)
+                    self._log(f"{name} left the group")
+                    continue
                 if hub:
                     if t in protocol.HUB_ONLY:
                         continue          # only the hub says these; see protocol
@@ -1692,6 +2130,16 @@ class Node:
             if mine:
                 if hub:
                     self._act(self.core.peer_lost, name)
+                    if name in self._leaving:
+                        # Removed, or left on its own: off the arrangement and
+                        # out of the list, now that its link is gone.
+                        self._leaving.discard(name)
+                        self._act(self.core.forget_machine, name)
+                        if self.on_devices:
+                            try:
+                                self.on_devices("forgotten", name, {})
+                            except Exception:
+                                pass
                     if self.trusted_peer == name:
                         with self._links_lock:
                             self.trusted_peer = next(iter(self.links), None)
@@ -1708,6 +2156,8 @@ class Node:
                     self.trusted_peer = None
                     self._act(self.core.link_lost)
                     self._log("disconnected - local input restored")
+                    if not (self._stop or self._reconfig or self.blocked):
+                        self._event("disconnected", name=name)
 
     def _hop_local(self, ch, name, msg, t) -> None:
         """Keep-alives answer on the link they came from - routed, a pong would

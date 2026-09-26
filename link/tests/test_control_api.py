@@ -52,6 +52,14 @@ def api(tmp_path):
         node.stop()
 
 
+def alone(a):
+    """The fixture's hub has "aio" on its arrangement. A device with devices of
+    its own cannot join another group (they would be stranded), so the tests
+    of joining start from a device on its own."""
+    a.node.core.alone()
+    return a
+
+
 def get(a, path, token=None):
     tok = a.token if token is None else token
     with urllib.request.urlopen(f"http://127.0.0.1:{a.port}{path}?t={tok}",
@@ -201,10 +209,11 @@ def test_settings_are_written_to_disk(api):
 
 
 def test_things_needing_a_reconnect_say_so(api):
-    """Rather than pretending to have taken effect."""
+    """Rather than pretending to have taken effect. A new password does not:
+    the hub hands it to the devices connected now."""
     r = post(api, "/api/config", {"pin": "k7qm-2xvp-9hdt", "side": "top"})[1]
-    assert any("password" in x for x in r["needs_reconnect"])
     assert "side" in r["needs_reconnect"]
+    assert not any("password" in x for x in r["needs_reconnect"])
 
 
 def test_a_refused_password_changes_nothing_else(api):
@@ -226,8 +235,8 @@ def test_nonsense_settings_are_refused(api, bad):
 
 def test_a_new_pin_reaches_the_node(api):
     post(api, "/api/config", {"pin": "k7qm-2xvp-9hdt"})
-    assert api.node.pin == "k7qm-2xvp-9hdt"
-    assert config.load(api.cfg_path)["pin"] == "k7qm-2xvp-9hdt"
+    assert api.node.pin == "k7qm2xvp9hdt", "compared without its dashes"
+    assert config.load(api.cfg_path)["pin"] == "k7qm2xvp9hdt"
 
 
 def test_stopping_releases_the_port(api):
@@ -352,11 +361,12 @@ def test_a_new_password_can_be_made(api):
     old = post(api, "/api/password", {})[1]["pin"]
     new = post(api, "/api/password", {"new": True})[1]["pin"]
     assert new != old
-    assert api.node.pin == new
+    assert api.node.pin == pairing.normalise(new)
     assert config.load(api.cfg_path)["pin"] == new
 
 
 def test_dialling_by_name(api):
+    alone(api)
     r = post(api, "/api/pair", {"mode": "dial", "peer": "aio",
                                 "pin": "K7QM 2XVP 9HDT"})[1]
     assert r["ok"] is True and r["waiting"] is False
@@ -369,6 +379,7 @@ def test_dialling_by_name(api):
 def test_a_new_pairing_forgets_the_old_devices_id(api):
     """The ID belongs to whatever was paired before; keeping it would make the
     new name look for the old machine."""
+    alone(api)
     api.cfg["peer_id"] = "old-device"
     api.node.peer_id = "old-device"
     post(api, "/api/pair", {"mode": "dial", "peer": "desk-pc", "pin": "abcd1234"})
@@ -384,6 +395,7 @@ def test_what_a_dial_learns_is_saved(api):
 
 
 def test_status_carries_names_and_ids_but_never_the_password(api):
+    alone(api)
     post(api, "/api/pair", {"mode": "dial", "peer": "aio", "pin": "abcd1234"})
     code, body = get(api, "/api/status")
     s = json.loads(body)
@@ -392,6 +404,7 @@ def test_status_carries_names_and_ids_but_never_the_password(api):
 
 
 def test_pairing_as_the_dialling_side(api):
+    alone(api)
     r = post(api, "/api/pair", {"mode": "dial", "pin": "amber-cedar-rowan-42",
                                 "peer_addr": "192.168.1.20"})[1]
     assert r["ok"] is True and r["waiting"] is False
@@ -404,6 +417,7 @@ def test_pairing_applies_without_a_restart(api):
     """A pairing flow that ended in "now restart the program" would not be a
     pairing flow."""
     assert api.node.core.is_hub is True
+    alone(api)
     post(api, "/api/pair", {"mode": "dial", "pin": "abcd1234",
                             "peer_addr": "10.0.0.5"})
     assert api.node.core.is_hub is False, "the role flipped live"
@@ -414,6 +428,7 @@ def test_pairing_applies_without_a_restart(api):
 
 
 def test_switching_back_to_waiting_restores_the_arbiter(api):
+    alone(api)
     post(api, "/api/pair", {"mode": "dial", "pin": "abcd1234",
                             "peer_addr": "10.0.0.5"})
     post(api, "/api/pair", {"mode": "wait", "pin": "abcd1234"})
@@ -441,22 +456,34 @@ def test_a_short_password_is_refused_because_it_is_the_only_defence(api):
     assert "8 characters" in r["error"]
 
 
-def test_forgetting_a_device_leaves_nothing_paired(api):
+def test_a_device_with_its_own_group_cannot_join_another(api):
+    """It would strand the devices connected to it."""
+    r = post(api, "/api/pair", {"mode": "dial", "peer": "desk-pc",
+                                "pin": "abcd1234"})[1]
+    assert "aio" in r["error"] and "Add the other device from here" in r["error"]
+    assert api.node.core.is_hub is True
+
+
+def test_leaving_a_group_makes_a_group_of_one_with_a_new_password(api):
+    alone(api)
     post(api, "/api/pair", {"mode": "dial", "pin": "abcd1234",
                             "peer_addr": "10.0.0.5"})
     r = post(api, "/api/forget", {})[1]
     assert r["ok"] is True
     saved = config.load(api.cfg_path)
     assert saved["peer_addr"] is None and saved["peer"] is None
-    assert api.node.enabled is False
+    assert saved["hub"] is True, "on its own, ready to be added again"
+    assert pairing.normalise(saved["pin"]) != "abcd1234", \
+        "the old group's password stays with the old group"
+    assert api.node.enabled is True
     # The live node has to agree with the file. It did not: reconfigure() used
     # None as its "leave this alone" sentinel, so asking it to clear peer_addr -
     # which is literally what forgetting a device is - did nothing, and status
     # went on reporting a paired device that the config no longer had. Caught by
     # driving the shipped binary rather than by any of the unit tests.
     assert api.node.peer_addr is None
-    assert api.node.core.is_hub is False
-    assert json.loads(get(api, "/api/status")[1])["paired"] is False
+    assert api.node.core.is_hub is True
+    assert json.loads(get(api, "/api/status")[1])["role"] == "alone"
 
 
 def test_status_says_whether_anything_is_paired(api):
@@ -627,13 +654,50 @@ def test_a_device_that_is_offline_can_be_forgotten(api):
     assert all(d["name"] != "aio" for d in config.load(api.cfg_path)["devices"])
 
 
-def test_a_connected_device_is_not_forgotten(api):
-    api.node.links["aio"] = object()                 # as if connected
+class FakeChannel:
+    def __init__(self):
+        self.sent, self.closed = [], False
+
+    def send(self, msg):
+        self.sent.append(msg)
+
+    def close(self, flush=0.0):
+        self.closed = True
+
+
+def test_a_connected_device_is_told_it_was_removed(api):
+    """It forgets the group; and until it is paired again on purpose, the hub
+    refuses it even though it still knows the password."""
+    from link.node import _Link
+    ch = FakeChannel()
+    api.cfg["devices"] = [{"name": "aio", "id": "aio-1"}]
+    api.node.links["aio"] = _Link("aio", ch, ("10.0.0.9", 1))
     try:
-        r = post(api, "/api/device/forget", {"name": "aio"})[1]
-        assert "connected" in r["error"] and "new password" in r["error"]
+        r = post(api, "/api/remove", {"name": "aio"})[1]
+        assert r["ok"] is True
+        for _ in range(100):
+            if ch.closed:
+                break
+            time.sleep(0.01)
+        assert ch.sent[-1] == {"t": "removed", "by": "laptop"} and ch.closed
+        assert "aio" in api.node._leaving, "forgotten once its link is gone"
+        assert "aio-1" in api.node.removed_ids
+        assert config.load(api.cfg_path)["removed"] == ["aio-1"]
     finally:
         api.node.links.clear()
+
+
+def test_only_the_hub_removes_devices(api):
+    api.node.core.is_hub = False
+    r = post(api, "/api/remove", {"name": "aio"})[1]
+    assert "only the hub" in r["error"]
+
+
+def test_a_member_cannot_change_the_groups_password(api):
+    api.node.core.is_hub = False
+    api.node.peer_name = "laptop2"
+    r = post(api, "/api/password", {"new": True})[1]
+    assert "only laptop2" in r["error"]
 
 
 def test_a_peer_keeps_the_hubs_picture_of_the_group(api):

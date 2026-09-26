@@ -12,7 +12,13 @@ called or whether it runs Nishro Link, which is the only thing worth knowing.
 Only the device itself can say that, so each one answers a short question:
 
     who   {"t":"who","q":"aio","from":<our id>}      broadcast + multicast
-    here  {"t":"here","name":"aio","id":..,"port":8770,"waiting":true}  unicast
+    here  {"t":"here","name":"aio","id":..,"port":8770,"waiting":true,
+           "group":"laptop","alone":false}                      unicast
+
+`group` is the name of the hub of the group the device is in (its own name if
+it is the hub), and `alone` says it is a group of one - which is what decides
+what "add this device" means: one on its own is invited into this group; one
+already in a group is joined.
 
 `q` is a name (case does not matter), a device ID, or "*" for everyone. The
 question goes to the broadcast address, to each local /24's broadcast address,
@@ -59,6 +65,8 @@ class Found:
     addr: str
     port: int
     waiting: bool
+    group: str = None                 # its hub's name; its own if it is the hub
+    alone: bool = False               # a group of one: it can be invited
 
 
 # ---------------------------------------------------------------- messages
@@ -66,9 +74,13 @@ def question(q: str, sender_id: str) -> bytes:
     return _pack({"t": "who", "app": APP, "q": str(q), "from": str(sender_id)})
 
 
-def answer(name: str, dev_id: str, port: int, waiting: bool) -> bytes:
-    return _pack({"t": "here", "app": APP, "name": str(name), "id": str(dev_id),
-                  "port": int(port), "waiting": bool(waiting)})
+def answer(name: str, dev_id: str, port: int, waiting: bool, group: str = None,
+           alone: bool = False) -> bytes:
+    d = {"t": "here", "app": APP, "name": str(name), "id": str(dev_id),
+         "port": int(port), "waiting": bool(waiting), "alone": bool(alone)}
+    if group:
+        d["group"] = str(group)
+    return _pack(d)
 
 
 def parse(data: bytes):
@@ -207,7 +219,8 @@ class Responder:
         if len(self._last) > 256:
             self._last = {k: v for k, v in self._last.items() if now - v < 5}
         try:
-            s.sendto(answer(me["name"], me["id"], me["port"], me["waiting"]), src)
+            s.sendto(answer(me["name"], me["id"], me["port"], me["waiting"],
+                            me.get("group"), me.get("alone", False)), src)
         except OSError:
             pass
 
@@ -266,7 +279,9 @@ def _record(found: dict, msg: dict, addr: str, my_id: str) -> None:
         return
     try:
         f = Found(str(msg["name"]), str(msg["id"]), addr,
-                  int(msg.get("port") or 0), bool(msg.get("waiting")))
+                  int(msg.get("port") or 0), bool(msg.get("waiting")),
+                  str(msg["group"]) if msg.get("group") else None,
+                  bool(msg.get("alone")))
     except (KeyError, TypeError, ValueError):
         return
     found.setdefault(f.id, f)

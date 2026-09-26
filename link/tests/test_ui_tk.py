@@ -176,14 +176,25 @@ def test_the_overview_says_who_has_control(app):
     assert "online" in app.m_online.caption.cget("text")
 
 
-def test_the_header_says_whether_linking_is_on(app):
+def test_the_header_says_whether_sharing_is_on(app):
+    """A switch showing the state, not a button naming its opposite."""
     app._render(app.api.status())
     assert app.chip.cget("text") == "WAITING"
-    assert app.btn_toggle.cget("text") == "Stop linking"
+    assert app.sharing.get() is True
+    assert app.sharing_label.cget("text") == "Sharing on"
     app.api.node.set_enabled(False)
     app._render(app.api.status())
-    assert app.chip.cget("text") == "LINKING OFF"
-    assert app.btn_toggle.cget("text") == "Start linking"
+    assert app.chip.cget("text") == "PAUSED"
+    assert app.sharing.get() is False
+    assert app.sharing_label.cget("text") == "Sharing off"
+
+
+def test_flipping_the_switch_turns_sharing_off_and_on(app):
+    app._render(app.api.status())
+    app.sharing_switch._flip()
+    assert app.api.node.enabled is False
+    app.sharing_switch._flip()
+    assert app.api.node.enabled is True
 
 
 def test_the_preview_is_a_picture_not_an_editor(app):
@@ -192,28 +203,83 @@ def test_the_preview_is_a_picture_not_an_editor(app):
 
 
 # ---------------------------------------------------------------- devices
-def test_every_machine_gets_a_card_with_its_displays(app):
+def test_every_other_machine_gets_a_card_with_its_displays(app):
     app.show_page("devices")
     app._render(app.api.status())
     text = all_text(app.dev_list)
-    assert "laptop" in text and "aio" in text
-    assert "THIS DEVICE" in text and "HUB" in text
+    assert "aio" in text and "laptop" not in text, "this device has its own card"
     assert any("1920×1080" in t for t in text)
     assert any("offline" in t for t in text), "the AIO is not connected here"
 
 
-def test_only_an_offline_device_can_be_forgotten_from_its_card(app):
+def test_this_device_shows_what_another_needs_to_add_it(app):
+    """Its name and its password, big - with the dashes, and a note that they
+    do not matter. Reported: "password contains -, not sure that has to be
+    entered or not"."""
+    app.show_page("devices")
+    app._render(app.api.status())
+    assert app.me_name.cget("text") == "laptop"
+    assert app.me_pill.cget("text") == "HUB"
+    assert app.me_password.cget("text") == app.api.command("/api/password", {})["pin"]
+    assert "dashes don't matter" in app.me_hint.cget("text")
+
+
+def test_the_hub_can_remove_any_other_device(app):
     app._render(app.api.status())
     buttons = [w for w in _walk(app.dev_list)
-               if isinstance(w, Button) and w.cget("text") == "Forget"]
-    assert len(buttons) == 1, "the AIO's card only - never this device's"
+               if isinstance(w, Button) and w.cget("text") == "Remove"]
+    assert len(buttons) == 1, "the AIO's card - this device is not in the list"
 
 
-def test_forgetting_a_device_takes_it_off_the_page(app):
+def test_removing_a_device_asks_first_then_takes_it_off_the_page(app):
     app._render(app.api.status())
-    app._forget_device("aio")
+    asked = []
+    app._confirm = lambda title, text: asked.append(text) or False
+    app._remove_device("aio")
+    assert asked and "aio" in app.api.node.core.layout.names(), "declined: kept"
+    app._confirm = lambda title, text: True
+    app._remove_device("aio")
     assert "aio" not in app.api.node.core.layout.names()
     assert "aio" not in all_text(app.dev_list)
+
+
+def test_a_device_on_its_own_says_how_to_add_one(app):
+    app.api.node.core.alone()
+    app.show_page("overview")
+    app._render(app.api.status())
+    assert app.chip.cget("text") == "READY"
+    assert app.start_card.winfo_manager() == "pack", "the first thing on Overview"
+    assert "No other devices yet" in all_text(app.dev_list)
+
+
+def test_a_member_can_leave_but_not_change_the_password(app):
+    app.api.node.core.set_hub(False)
+    app.api.node.peer_name = "desk"
+    app._render(app.api.status())
+    assert app.btn_leave.winfo_manager() == "pack"
+    assert app.btn_new_pw.enabled is False
+    assert "Only desk can change it" in app.me_hint.cget("text")
+
+
+def test_a_rejected_password_is_shown_with_the_way_to_fix_it(app):
+    app.api.node.core.set_hub(False)
+    app.api.node.peer_name = "desk"
+    app.api.node.dial = {"phase": "failed", "reason": "wrong_password"}
+    app._render(app.api.status())
+    assert app.me_problem.winfo_manager() == "pack"
+    assert "did not accept" in app.me_problem_text.cget("text")
+    assert app.me_problem_btn.winfo_manager() == "pack"
+    assert app.chip.cget("text") == "NOT CONNECTED"
+
+
+def test_what_happens_is_shown_once_as_a_notice(app):
+    app._render(app.api.status())                  # the first look: nothing old
+    app.api._on_event("joined", {"name": "aio", "first": True})
+    app._render(app.api.status())
+    assert len(app._toasts) == 1
+    assert "aio joined the group" in all_text(app.toasts)
+    app._render(app.api.status())
+    assert len(app._toasts) == 1, "once"
 
 
 def test_cards_are_not_rebuilt_every_poll(app):
@@ -224,37 +290,53 @@ def test_cards_are_not_rebuilt_every_poll(app):
 
 
 # ------------------------------------------------------------ arrangement
-def test_a_moved_screen_stays_put_until_apply_and_then_applies(app):
-    """The whole round trip, through the window's own refresh: drag, a poll
-    lands, Apply - and what was dragged is what is in force."""
-    app._render(app.api.status())
+def _move_aio_left(app):
     a = app.arranger
     aio, lap = a.desk.get("aio"), a.desk.get("laptop")
     a.desk.move("aio", lap.x - aio.w, lap.y)       # to the laptop's LEFT
     a.dirty = True
-    wanted = {b["name"]: (b["x"], b["y"]) for b in a.boxes}
-    assert wanted["aio"] != (aio.x, aio.y), "the move must really have happened"
+    return {b["name"]: (b["x"], b["y"]) for b in a.boxes}
 
-    app._render(app.api.status())                  # the 700ms poll
-    assert {b["name"]: (b["x"], b["y"]) for b in a.boxes} == wanted
 
+def test_a_drop_is_in_force_at_once_with_no_apply(app):
+    """Reported: "changing arrangement in one device instantly isn't synced".
+    A drop reaches the program - and so every device - straight away."""
+    app._render(app.api.status())
+    wanted = _move_aio_left(app)
+    app._arranged(app.arranger.boxes)
+    assert app._apply_id is not None, "applied after a short pause, not on Apply"
     app._apply_arrangement()
-    assert a.dirty is False
     sides = {(c.a, c.side) for c in app.api.node.core.layout.crossings()}
     assert sides == {("laptop", "left")} or sides == {("aio", "right")}, sides
+    assert "Applied" in app.arr_saved.cget("text")
+    app._render(app.api.status())                  # the echo
+    assert {b["name"]: (b["x"], b["y"]) for b in app.arranger.boxes} == wanted
+    assert app.arranger.dirty is False, "following the program again"
 
 
-def test_revert_goes_back_to_what_is_in_use(app):
+def test_undo_puts_back_the_arrangement_before(app):
     app._render(app.api.status())
+    before = {b["name"]: (b["x"], b["y"]) for b in app.arranger.boxes}
+    _move_aio_left(app)
+    app._apply_arrangement()
+    assert app.btn_undo.enabled
+    app._undo_arrangement()
+    app._render(app.api.status())
+    assert {b["name"]: (b["x"], b["y"])
+            for b in app.api.node.core.placement} == before
+    assert not app.btn_undo.enabled
+
+
+def test_a_refused_arrangement_snaps_back_and_says_why(app):
+    app._render(app.api.status())
+    before = app.api.node.core.placement
     a = app.arranger
-    before = {b["name"]: (b["x"], b["y"]) for b in a.boxes}
-    m = a.desk.get("aio")
-    a.desk.move("aio", m.x + 5000, m.y)
+    a.desk.move("aio", a.desk.get("laptop").x, a.desk.get("laptop").y)  # on top
     a.dirty = True
-    assert {b["name"]: (b["x"], b["y"]) for b in a.boxes} != before
-    app._revert_arrangement()
-    app._render(app.api.status())
-    assert {b["name"]: (b["x"], b["y"]) for b in a.boxes} == before
+    app._apply_arrangement()
+    assert app.api.node.core.placement == before
+    assert app.arr_saved.cget("text")
+    assert a.dirty is False
 
 
 def test_problems_with_the_arrangement_are_spelled_out(app):

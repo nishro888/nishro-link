@@ -50,7 +50,7 @@ def test_matching_versions_pass():
     assert p.check_version(p.hello("aio", [])) == p.VERSION
 
 
-@pytest.mark.parametrize("bad", [1, 2, 4, None, "3"])
+@pytest.mark.parametrize("bad", [1, 2, 3, 5, None, "4"])
 def test_a_version_mismatch_is_a_clean_error(bad):
     """Not a puzzling parse failure three messages later."""
     with pytest.raises(p.ProtocolError) as e:
