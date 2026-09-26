@@ -433,12 +433,12 @@ class Desk:
         m = self.get(name)
         n = len(m.displays())
         sizes = ", ".join(f"{r.w}×{r.h}" for r in m.displays())
-        what = f"{name}: {n} display{'s' if n != 1 else ''} ({sizes})"
+        what = f"{name}  ·  {n} display{'s' if n != 1 else ''} ({sizes})"
         t = self.touching(name)
         if not t:
-            return what + " - touches nothing yet, so the pointer cannot reach it"
-        return what + " - the pointer crosses to " + ", ".join(
-            f"{o} along {length} px" for o, length in sorted(t.items()))
+            return what + "  ·  touches nothing - unreachable"
+        return what + "  ·  crosses to " + ", ".join(
+            f"{o} ({length} px)" for o, length in sorted(t.items()))
 
     # ---- to and from the wire and the config ----
     def boxes(self) -> list:

@@ -337,10 +337,8 @@ class ControlAPI:
             return {"error": "mode must be 'wait' or 'dial'"}
         if mode == "dial" and self.node.members():
             # Joining another group would strand this one's devices.
-            return {"error": (
-                f"this device already has devices in its group "
-                f"({', '.join(self.node.members())}). Add the other device from "
-                f"here instead, or remove these first.")}
+            return {"error": ("this device has its own group - add the other "
+                              "device from here instead")}
         if mode == "wait" and not body.get("pin"):
             # The waiting side does not choose: it uses the password it is
             # already showing, or makes one. See pairing.py for why.
@@ -466,10 +464,8 @@ class ControlAPI:
         if bad:
             return {"error": bad}
         if self.node.members():
-            return {"error": (
-                f"this device already has devices in its group "
-                f"({', '.join(self.node.members())}). Add the other device from "
-                f"here instead, or remove these first.")}
+            return {"error": ("this device has its own group - add the other "
+                              "device from here instead")}
         if self._inviting:
             return {"error": "already adding a device - one at a time"}
         self._inviting = True
@@ -531,14 +527,11 @@ class ControlAPI:
         n = self.node
         if name == n.core.node:
             if n.core.is_hub:
-                return {"error": "this device is the hub - it keeps the group, "
-                                 "so remove the others instead"}
+                return {"error": "the hub keeps the group and can't be removed"}
             return self._leave()
         if not n.core.is_hub:
             if name == self.group():
-                return {"error": f"{name} is the hub - it keeps the group, so it "
-                                 f"cannot be removed from it. Leave the group "
-                                 f"instead."}
+                return {"error": "the hub keeps the group and can't be removed"}
             return n.request("remove", name=name)
         dev = next((d for d in self.cfg.get("devices") or []
                     if d.get("name") == name), {})
@@ -709,40 +702,39 @@ class ControlAPI:
         name = info.get("name") or "a device"
         text, tone = None, "dim"
         if kind == "joined":
-            text = (f"{name} joined the group" if info.get("first")
-                    else f"{name} connected")
+            text = f"{name} joined" if info.get("first") else f"{name} connected"
             tone = "ok"
         elif kind == "connected":
-            text = (f"Connected to {name}'s group" if info.get("first")
+            text = (f"Joined {name}'s group" if info.get("first")
                     else f"Connected to {name}")
             tone = "ok"
         elif kind == "rejected":
-            text = f"{name} tried to connect with the wrong password"
-            tone = "warn"
+            text, tone = f"{name}: wrong password", "warn"
         elif kind == "dial_failed":
-            text = (f"{name} did not accept the password"
+            text = (f"{name} rejected the password"
                     if info.get("reason") == "wrong_password" else
-                    f"{name} refused: there is already a device called "
-                    f"{self.node.core.node} in its group")
+                    f"Name already used in {name}'s group")
             tone = "bad"
         elif kind == "removed":
-            text = f"{name} removed this device from its group"
-            tone = "warn"
+            text, tone = f"Removed from {name}'s group", "warn"
         elif kind == "left_group":
             text = f"{name} left the group"
         elif kind == "invited":
-            text = f"{name} added this device to {info.get('group')}'s group"
-            tone = "ok"
+            text, tone = f"Added to {info.get('group')}'s group", "ok"
         elif kind == "disconnected":
-            text = f"Lost the connection to {name} - reconnecting"
-            tone = "warn"
+            text, tone = f"Lost {name} - reconnecting", "warn"
         elif kind == "went_offline":
             text = f"{name} disconnected"
+        elif kind == "renamed":
+            text = f"{info.get('old')} is now {name}"
+        elif kind == "renamed_by_hub":
+            text, tone = f"Renamed to {name}", "ok"
+        elif kind == "rights_set":
+            text = f"Control rights changed by {name}"
         elif kind == "rekeyed":
             self.cfg["pin"] = pairing.display(info.get("pin"))
             config.save(self.cfg, self.cfg_path)
-            text = f"{name} changed the group's password - this device has it"
-            tone = "ok"
+            text, tone = f"Group password updated by {name}", "ok"
         if text:
             self._event_seq += 1
             self.events.append({"id": self._event_seq, "at": time.time(),

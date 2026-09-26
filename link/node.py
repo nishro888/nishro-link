@@ -1500,7 +1500,7 @@ class Node:
         with self._links_lock:
             link = self.links.get(name)
         if link is None:
-            return f"{name} is switched off - change its rights when it is on"
+            return f"{name} is offline - rights can change when it's online"
         link.ch.send(dict({"t": "set_policy", "to": name}, **rights))
         return None
 
@@ -1510,8 +1510,7 @@ class Node:
         if self.core.is_hub:
             return {"error": "this device is the hub"}
         if not self.connected():
-            return {"error": f"not connected to {self.peer_name or 'the hub'} "
-                             f"right now - try again once it is"}
+            return {"error": f"not connected to {self.peer_name or 'the hub'}"}
         rid = secrets.token_hex(6)
         box = [threading.Event(), None]
         self._asked[rid] = box

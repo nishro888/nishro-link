@@ -30,7 +30,7 @@ from tkinter import messagebox
 
 from . import autostart, ui_arrange, ui_device, ui_pair, ui_theme
 from .ui_kit import (Button, Card, Dot, Kit, Metric, Monitors, Pill, Scroll,
-                     Segmented, Toggle, ago, field, label)
+                     Segmented, Toggle, Tooltip, ago, field, info, keys, label)
 
 POLL_MS = 700
 WM_CLASS = "nishro-link"      # Tk shows the class as "Nishro-link"
@@ -186,25 +186,27 @@ class App:
         self.msg.pack(fill="x", padx=26)
         self.fw_box = tk.Frame(self.main, bg=C["bad_bg"], highlightthickness=1,
                                highlightbackground=C["bad"])
-        self.fw_text = self._wrap(tk.Label(
-            self.fw_box, bg=C["bad_bg"], fg=C["ink"], font=F["small"],
-            justify="left", anchor="w",
-            text="Windows Firewall is blocking Nishro Link, so other devices "
-                 "cannot find or reach this one. That happens when a Windows "
-                 "Security prompt about it is dismissed."))
-        self.fw_text.pack(side="left", fill="x", expand=True, padx=12, pady=10)
-        self.fw_btn = Button(self.fw_box, kit, "Allow through the firewall",
-                             self._fix_firewall, kind="danger", small=True)
+        self.fw_text = tk.Label(
+            self.fw_box, bg=C["bad_bg"], fg=C["ink"], font=F["h3"], anchor="w",
+            text="Windows Firewall is blocking Nishro Link")
+        self.fw_text.pack(side="left", padx=(12, 6), pady=10)
+        info(self.fw_box, kit, "Other devices can't find or reach this one. It "
+                               "happens when a Windows Security prompt is "
+                               "dismissed.").pack(side="left")
+        self.fw_btn = Button(self.fw_box, kit, "Allow", self._fix_firewall,
+                             kind="danger", small=True)
         self.fw_btn.pack(side="right", padx=12)
 
         # Linux, first run: the keyboard and mouse are not ours to use yet.
         self.setup_box = tk.Frame(self.main, bg=C["warn_bg"], highlightthickness=1,
                                   highlightbackground=C["warn"])
-        self.setup_text = self._wrap(tk.Label(
-            self.setup_box, bg=C["warn_bg"], fg=C["ink"], font=F["small"],
-            justify="left", anchor="w", text=""))
-        self.setup_text.pack(side="left", fill="x", expand=True, padx=12, pady=10)
-        self.setup_btn = Button(self.setup_box, kit, "Set up permissions",
+        self.setup_text = tk.Label(
+            self.setup_box, bg=C["warn_bg"], fg=C["ink"], font=F["h3"],
+            anchor="w", text="")
+        self.setup_text.pack(side="left", padx=(12, 6), pady=10)
+        self.setup_info = info(self.setup_box, kit, "")
+        self.setup_info.pack(side="left")
+        self.setup_btn = Button(self.setup_box, kit, "Grant access",
                                 self._fix_setup, kind="primary", small=True)
         self.setup_btn.pack(side="right", padx=12)
 
@@ -288,6 +290,17 @@ class App:
                     lb.configure(wraplength=width)
                 except tk.TclError:
                     pass
+        wide = self.main.winfo_width() >= 780
+        if wide != self._ov_wide:
+            self._ov_wide = wide
+            self.hero_card.pack_forget()
+            self.stat_card.pack_forget()
+            if wide:
+                self.hero_card.pack(side="left", fill="both", expand=True)
+                self.stat_card.pack(side="left", fill="y", padx=(12, 0))
+            else:
+                self.hero_card.pack(fill="x")
+                self.stat_card.pack(fill="x", pady=(12, 0))
         cols = 2 if self.main.winfo_width() >= 760 else 1
         if getattr(self, "_dev_cols", None) != cols:
             self._dev_cols = cols
@@ -310,11 +323,10 @@ class App:
         inner.pack(fill="x")
         words = tk.Frame(inner, bg=C["card"])
         words.pack(side="left", fill="x", expand=True)
-        tk.Label(words, text="Connect another computer", font=F["h2"],
+        tk.Label(words, text="Add your first device", font=F["h2"],
                  bg=C["card"], fg=C["ink"], anchor="w").pack(anchor="w")
-        hint = label(words, kit, "Open Nishro Link on it, then add it from here - "
-                                 "or add this one from there. Either way it takes "
-                                 "one password.", "body", "dim")
+        hint = label(words, kit, "Share one mouse and keyboard across your "
+                                 "computers.", "body", "dim")
         hint.configure(bg=C["card"], justify="left")
         hint.pack(anchor="w", fill="x", pady=(4, 0))
         words.bind("<Configure>", lambda e: hint.configure(
@@ -323,8 +335,9 @@ class App:
                kind="primary").pack(side="right", padx=(14, 0))
         self.overview_box = box
 
-        hero = Card(box, kit, "Control")
-        hero.pack(fill="x")
+        self.top_row = tk.Frame(box, bg=C["panel"])
+        self.top_row.pack(fill="x")
+        hero = Card(self.top_row, kit, "Control")
         self.hero_card = hero
         top = tk.Frame(hero.body, bg=C["card"])
         top.pack(fill="x")
@@ -338,7 +351,7 @@ class App:
         self.hero_sub.pack(anchor="w", pady=(4, 0))
 
         grid = tk.Frame(box, bg=C["panel"])
-        grid.pack(fill="x", pady=12)
+        self._metrics = grid
         self.m_online = Metric(grid, kit, "devices online")
         self.m_rtt = Metric(grid, kit, "round trip")
         self.m_mouse = Metric(grid, kit, "your mouse")
@@ -348,20 +361,34 @@ class App:
             grid.columnconfigure(i, weight=1, uniform="m")
 
         prev = Card(box, kit, "Arrangement")
-        prev.pack(fill="x")
+        self._prev_card = prev
         Button(prev.head, kit, "Open  →", lambda: self.show_page("arrange"),
                kind="ghost", small=True).pack(side="right")
         self.preview = ui_arrange.Arranger(prev.body, [], "?", palette=C,
                                            height=150, readonly=True)
 
-        now = Card(box, kit, "What is happening")
-        now.pack(fill="x", pady=(12, 0))
-        self.explain = self._wrap(label(now.body, kit, "", "body", "ink"))
-        self.explain.configure(bg=C["card"])
-        self.explain.pack(anchor="w", fill="x")
-        self.trust = self._wrap(label(now.body, kit, "", "small", "dim"))
-        self.trust.configure(bg=C["card"])
-        self.trust.pack(anchor="w", fill="x", pady=(8, 0))
+        # Status as a few labelled values - the reasons are one hover away.
+        # Beside Control on a wide window, under it on a narrow one (_reflow).
+        stat = Card(self.top_row, kit, "Status")
+        self.stat_card = stat
+        self._ov_wide = None
+        self.status_rows = {}
+        for key, name in (("sharing", "Sharing"), ("connection", "Connection"),
+                          ("security", "Security"), ("control", "Control")):
+            row = tk.Frame(stat.body, bg=C["card"])
+            row.pack(fill="x", pady=4)
+            dot = Dot(row, kit, size=8)
+            dot.pack(side="left", padx=(0, 12))
+            tk.Label(row, text=name, font=F["body"], bg=C["card"], fg=C["dim"],
+                     width=12, anchor="w").pack(side="left")
+            value = tk.Label(row, text="", font=F["h3"], bg=C["card"], fg=C["ink"],
+                             anchor="w", justify="left", wraplength=230)
+            value.pack(side="left")
+            tip = info(row, kit, "")
+            tip.pack(side="left", padx=(8, 0))
+            self.status_rows[key] = (dot, value, tip)
+        self._metrics.pack(fill="x", pady=12)
+        self._prev_card.pack(fill="x")
         return page
 
     # ============================================================== Devices
@@ -394,21 +421,22 @@ class App:
                                     kind="ghost", small=True)
         self.btn_rename_me.pack(side="right")
         self.me_role = label(words, kit, "", "body", "dim")
-        self.me_role.configure(bg=C["card"], justify="left")
-        self.me_role.pack(anchor="w", fill="x", pady=(4, 0))
-        # Beside the picture, so it wraps to what is left of the card - the
-        # page-wide wrap ran it off the right edge.
-        words.bind("<Configure>", lambda e: self.me_role.configure(
-            wraplength=max(160, e.width - 8)))
+        self.me_role.configure(bg=C["card"])
+        self.me_role.pack(anchor="w", pady=(4, 0))
 
         cred = tk.Frame(me.body, bg=C["surface"], highlightthickness=1,
                         highlightbackground=C["line"])
         cred.pack(fill="x", pady=(14, 0))
         g = tk.Frame(cred, bg=C["surface"], padx=16, pady=12)
         g.pack(fill="x")
-        for col, text in ((0, "NAME"), (1, "PASSWORD")):
-            tk.Label(g, text=text, font=F["caps"], bg=C["surface"], fg=C["faint"]
-                     ).grid(row=0, column=col, sticky="w", padx=(0 if col == 0 else 32, 0))
+        tk.Label(g, text="NAME", font=F["caps"], bg=C["surface"], fg=C["faint"]
+                 ).grid(row=0, column=0, sticky="w")
+        pw_head = tk.Frame(g, bg=C["surface"])
+        pw_head.grid(row=0, column=1, sticky="w", padx=(32, 0))
+        tk.Label(pw_head, text="PASSWORD", font=F["caps"], bg=C["surface"],
+                 fg=C["faint"]).pack(side="left")
+        self.me_hint = info(pw_head, kit, "")
+        self.me_hint.pack(side="left", padx=(6, 0))
         self.me_cred_name = tk.Label(g, text="", font=F["h2"], bg=C["surface"],
                                      fg=C["ink"])
         self.me_cred_name.grid(row=1, column=0, sticky="w")
@@ -422,38 +450,36 @@ class App:
         self.btn_new_pw = Button(tools, kit, "New password", self._new_password,
                                  kind="ghost", small=True)
         self.btn_new_pw.pack(side="left", padx=(6, 0))
+        self.new_pw_tip = Tooltip(self.btn_new_pw, kit, "")
         g.columnconfigure(2, weight=1)
-        self.me_hint = self._wrap(label(me.body, kit, "", "small", "faint"))
-        self.me_hint.configure(bg=C["card"])
-        self.me_hint.pack(anchor="w", fill="x", pady=(8, 0))
 
         # What is wrong with this device's connection, and the way out.
         self.me_problem = tk.Frame(me.body, bg=C["bad_bg"], highlightthickness=1,
                                    highlightbackground=C["bad"])
-        self.me_problem_text = self._wrap(tk.Label(
-            self.me_problem, text="", font=F["small"], bg=C["bad_bg"], fg=C["ink"],
-            justify="left", anchor="w"))
-        self.me_problem_text.pack(side="left", fill="x", expand=True, padx=12,
-                                  pady=9)
-        self.me_problem_btn = Button(self.me_problem, kit, "Enter the password",
+        self.me_problem_text = tk.Label(
+            self.me_problem, text="", font=F["h3"], bg=C["bad_bg"], fg=C["ink"],
+            anchor="w")
+        self.me_problem_text.pack(side="left", padx=(12, 6), pady=9)
+        self.me_problem_info = info(self.me_problem, kit, "")
+        self.me_problem_info.pack(side="left")
+        self.me_problem_btn = Button(self.me_problem, kit, "Update password",
                                      self._repair, kind="primary", small=True)
         self.me_problem_btn.pack(side="right", padx=12)
 
         self.me_actions = tk.Frame(me.body, bg=C["card"])
         self.me_actions.pack(fill="x", pady=(12, 0))
-        self.btn_leave = Button(self.me_actions, kit, "Leave this group",
+        self.btn_leave = Button(self.me_actions, kit, "Leave group",
                                 self._leave, kind="danger", small=True)
-        self.my_addr = self._wrap(label(self.me_actions, kit, "", "small", "faint"))
-        self.my_addr.configure(bg=C["card"])
-        self.my_addr.pack(side="right")
 
         # ---- the others
         bar = tk.Frame(box, bg=C["panel"])
         bar.pack(fill="x", pady=(22, 10))
         self._devices_box = box
-        self.dev_head = tk.Label(bar, text="OTHER DEVICES IN THIS GROUP",
-                                 font=F["caps"], bg=C["panel"], fg=C["dim"])
+        self.dev_head = tk.Label(bar, text="DEVICES", font=F["caps"],
+                                 bg=C["panel"], fg=C["dim"])
         self.dev_head.pack(side="left", anchor="s")
+        self.dev_count = Pill(bar, kit, "")
+        self.dev_count.pack(side="left", anchor="s", padx=(8, 0))
         self.btn_add = Button(bar, kit, "+  Add a device", self._add_device,
                               kind="primary")
         self.btn_add.pack(side="right")
@@ -463,16 +489,19 @@ class App:
         # ---- nearby: on the network, not in this group - one click to add
         nb = tk.Frame(box, bg=C["panel"])
         nb.pack(fill="x", pady=(22, 10))
-        tk.Label(nb, text="NEARBY - NOT IN THIS GROUP", font=F["caps"],
+        tk.Label(nb, text="NEARBY", font=F["caps"],
                  bg=C["panel"], fg=C["dim"]).pack(side="left", anchor="s")
-        self.btn_nearby = Button(nb, kit, "Search again",
+        info(nb, kit, "Computers on this network running Nishro Link that are "
+                      "not in this group.").pack(side="left", anchor="s",
+                                                 padx=(6, 0))
+        self.btn_nearby = Button(nb, kit, "Refresh",
                                  lambda: self._search_nearby(force=True),
                                  kind="ghost", small=True)
         self.btn_nearby.pack(side="right")
         self.nearby_list = tk.Frame(box, bg=C["card"], highlightthickness=1,
                                     highlightbackground=C["line"])
         self.nearby_list.pack(fill="x")
-        tk.Label(self.nearby_list, text="  Looking for devices nearby…",
+        tk.Label(self.nearby_list, text="  Searching…",
                  font=F["body"], bg=C["card"], fg=C["dim"]).pack(anchor="w",
                                                                  pady=10)
         return page
@@ -507,7 +536,7 @@ class App:
                 row["state"].configure(text=_device_state(d))
 
     def _empty_group(self, s) -> None:
-        """No other devices yet: say how to get one, both ways."""
+        """No other devices yet: one line, one button."""
         C, F, kit = self.C, self.F, self.kit
         for c in range(3):
             self.dev_list.columnconfigure(c, weight=0, uniform="")
@@ -517,21 +546,15 @@ class App:
         self.dev_list.columnconfigure(0, weight=1)
         inner = tk.Frame(card, bg=C["card"], padx=18, pady=16)
         inner.pack(fill="x")
-        tk.Label(inner, text="No other devices yet", font=F["h2"], bg=C["card"],
-                 fg=C["ink"]).pack(anchor="w")
-        steps = (
-            "Open Nishro Link on the other computer.",
-            "Here, choose Add a device, pick it, and type the password it shows -",
-            f"or there, choose Add a device, pick {s['node']}, and type the "
-            f"password shown above.")
-        for i, text in enumerate(steps, start=1):
-            row = tk.Frame(inner, bg=C["card"])
-            row.pack(fill="x", pady=(8 if i == 1 else 3, 0))
-            tk.Label(row, text=str(i) if i < 3 else "", font=F["h3"], bg=C["card"],
-                     fg=C["accent"], width=2, anchor="w").pack(side="left")
-            self._wrap(tk.Label(row, text=text, font=F["body"], bg=C["card"],
-                                fg=C["dim"], justify="left", anchor="w")
-                       ).pack(side="left", fill="x", expand=True)
+        words = tk.Frame(inner, bg=C["card"])
+        words.pack(side="left", fill="x", expand=True)
+        tk.Label(words, text="No other devices yet", font=F["h2"], bg=C["card"],
+                 fg=C["ink"], anchor="w").pack(anchor="w")
+        tk.Label(words, text="Add a computer to share this mouse and keyboard.",
+                 font=F["body"], bg=C["card"], fg=C["dim"], anchor="w"
+                 ).pack(anchor="w", pady=(3, 0))
+        Button(inner, kit, "+  Add a device", self._add_device,
+               kind="secondary").pack(side="right")
 
     def _device_card(self, d, s):
         C, F, kit = self.C, self.F, self.kit
@@ -566,7 +589,7 @@ class App:
             tk.Label(text, text=limits, font=F["small"], bg=C["card"], fg=C["warn"],
                      anchor="w").pack(fill="x")
         if d.get("rename_to"):
-            tk.Label(text, text="takes the new name when it is next on",
+            tk.Label(text, text="renamed · applies when online",
                      font=F["small"], bg=C["card"], fg=C["faint"],
                      anchor="w").pack(fill="x")
         self._dev_rows[d["name"]] = {"state": state}
@@ -665,16 +688,19 @@ class App:
         self.arr_problems = self._wrap(label(info, kit, "", "small", "bad"))
         self.arr_problems.configure(bg=C["panel"])
         self.arr_problems.pack(anchor="w", fill="x", pady=(4, 0))
-        self._wrap(label(
-            info, kit, "Drag a machine to where it sits - it snaps to edges and "
-                       "lines up with them. Changes apply as you make them, on "
-                       "every device in the group (Ctrl+Z undoes). The pointer "
-                       "crosses only along the bright lines, and a machine that "
-                       "is not connected is a wall. Arrow keys nudge the selected "
-                       "one (Shift for bigger steps).",
-            "small", "faint")).pack(anchor="w", fill="x", pady=(8, 0))
         for w in info.winfo_children():
             w.configure(bg=C["panel"])
+        hints = keys(info, kit, (("Drag", "move"), ("← ↑ → ↓", "nudge"),
+                                 ("Shift", "bigger steps"), ("Ctrl+Z", "undo")))
+        hints.pack(side="left", pady=(10, 0))
+        legend = tk.Frame(info, bg=C["panel"])
+        legend.pack(side="right", pady=(10, 0))
+        line = tk.Canvas(legend, width=22, height=8, bg=C["panel"],
+                         highlightthickness=0)
+        line.create_line(2, 4, 20, 4, fill=C["cross"], width=3)
+        line.pack(side="left")
+        tk.Label(legend, text="pointer crosses here", font=F["small"],
+                 bg=C["panel"], fg=C["dim"]).pack(side="left", padx=(6, 0))
         return page
 
     # ============================================================= Activity
@@ -735,10 +761,8 @@ class App:
         self.may_drive = tk.BooleanVar(value=True)
         self.may_be_driven = tk.BooleanVar(value=True)
         for var, text, key in (
-                (self.may_drive, "This device may take control of the others",
-                 "may_drive"),
-                (self.may_be_driven, "The others may take control of this device",
-                 "may_be_driven")):
+                (self.may_drive, "Can control other devices", "may_drive"),
+                (self.may_be_driven, "Can be controlled", "may_be_driven")):
             row = tk.Frame(ctl.body, bg=C["card"])
             row.pack(fill="x", pady=3)
             Toggle(row, kit, var, command=lambda k=key: self.touched.add(k)
@@ -758,24 +782,21 @@ class App:
             self.autostart = tk.BooleanVar(value=False)
             Toggle(row, kit, self.autostart, command=self._set_autostart
                    ).pack(side="left")
-            tk.Label(row, text="Start Nishro Link when I log in", font=F["body"],
+            tk.Label(row, text="Start at login", font=F["body"],
                      bg=C["card"], fg=C["ink"]).pack(side="left", padx=10)
-            self.autostart_note = self._wrap(label(st.body, kit, "", "small", "dim"))
+            self.autostart_note = label(row, kit, "", "small", "dim")
             self.autostart_note.configure(bg=C["card"])
-            self.autostart_note.pack(anchor="w", fill="x", pady=(8, 0))
+            self.autostart_note.pack(side="left", padx=(8, 0))
 
         sec = Card(box, kit, "Security")
         sec.pack(fill="x", pady=(12, 0))
         g = tk.Frame(sec.body, bg=C["card"])
         g.pack(fill="x")
-        self.password = self._row_field(g, "Password", 0, "pin", show="•")
+        self.password = self._row_field(g, "Group password", 0, "pin", show="•")
         g.columnconfigure(1, weight=1)
-        self._wrap(label(
-            sec.body, kit, "Every device in the group uses the same password. It is "
-                           "never sent over the network: each side proves it knows "
-                           "it by answering the other's challenge. Leave it empty "
-                           "to keep the current one.", "small", "dim")
-        ).pack(anchor="w", fill="x", pady=(8, 0))
+        info(g, kit, "Shared by every device in the group, and never sent over "
+                     "the network - each side proves it knows it. Leave empty to "
+                     "keep the current one.").grid(row=0, column=2, padx=(8, 0))
         for w in sec.body.winfo_children():
             if isinstance(w, tk.Label):
                 w.configure(bg=C["card"])
@@ -838,10 +859,10 @@ class App:
         elif not setup and shown:
             self.setup_box.pack_forget()
         if setup:
-            head = ("Almost ready." if setup.get("relogin") else
-                    "Nishro Link needs permission to use this computer's "
-                    "keyboard and mouse.")
-            self.setup_text.configure(text=head + " " + " ".join(setup["problems"]))
+            self.setup_text.configure(text=(
+                "Almost ready - log out and back in once" if setup.get("relogin")
+                else "Keyboard and mouse access needed"))
+            self.setup_info.tip.set(" ".join(setup["problems"]))
             if setup.get("fixable"):
                 if not self.setup_btn.winfo_manager():
                     self.setup_btn.pack(side="right", padx=12)
@@ -866,9 +887,8 @@ class App:
                            "accent" if s["holds"] else "dim")
         cur = s["cursor"]
         self.hero_sub.configure(text=(
-            f"{holder.capitalize()} has control. The pointer is on "
-            f"{cur['screen']}" + ("." if not cur["remote"] else
-                                  " - your keyboard types there.")))
+            f"Pointer on {cur['screen']}"
+            + ("  ·  keyboard follows it" if cur["remote"] else "")))
         self.m_online.set(f"{online} / {len(devs)}",
                           "ok" if online > 1 else "dim")
         rtts = [p["rtt_ms"] for p in s.get("peers") or [] if p.get("rtt_ms")]
@@ -877,9 +897,15 @@ class App:
                          "accent" if s["suppress"]["mouse"] else "ink")
         self.m_kbd.set("forwarded" if s["suppress"]["keyboard"] else "local",
                        "accent" if s["suppress"]["keyboard"] else "ink")
-        self.explain.configure(text=_explain(s))
-        text, tone = _trust(s)
-        self.trust.configure(text=text, fg=C[tone])
+        for key, (value, tone, tip) in _status(s).items():
+            dot, lb, tipw = self.status_rows[key]
+            dot.set(C.get(tone, C["dim"]) if tone != "dim" else C["faint"])
+            lb.configure(text=value)
+            tipw.tip.set(tip or "")
+            if tip and not tipw.winfo_manager():
+                tipw.pack(side="left", padx=(8, 0))
+            elif not tip and tipw.winfo_manager():
+                tipw.pack_forget()
         live = [d["name"] for d in devs if d["online"]] or [s["node"]]
         placement = s.get("placement") or []
         if self._pending is not None:
@@ -900,7 +926,7 @@ class App:
         alone = s.get("role") == "alone"
         shown = self.start_card.winfo_manager() == "pack"
         if alone and not shown:
-            self.start_card.pack(fill="x", pady=(0, 12), before=self.hero_card)
+            self.start_card.pack(fill="x", pady=(0, 12), before=self.top_row)
         elif not alone and shown:
             self.start_card.pack_forget()
 
@@ -977,22 +1003,15 @@ class App:
         others = [d for d in devs if not d["me"]]
         if role == "alone":
             self.me_pill.set("ON ITS OWN", "dim")
-            self.me_role.configure(text=(
-                "Not connected to any other device yet. Other devices can add "
-                "this one with the name and password below."))
+            meta = "Not in a group yet"
         elif role == "hub":
             self.me_pill.set("HUB", "accent2")
-            self.me_role.configure(text=(
-                f"The hub of a group of {len(others) + 1}: the other devices "
-                f"connect through this one. Anyone with the name and password "
-                f"below can add a device to the group."))
+            meta = f"Hub  ·  {len(others) + 1} devices"
         else:
-            self.me_pill.set(f"IN {str(group).upper()}'S GROUP", "accent")
-            self.me_role.configure(text=(
-                f"In {group}'s group - "
-                + ("connected." if s["connected"] else "not connected right now.")
-                + " The password below is the group's: the same on every device "
-                  "in it."))
+            self.me_pill.set("MEMBER", "accent")
+            meta = (f"In {group}'s group  ·  "
+                    + ("connected" if s["connected"] else "not connected"))
+        self.me_role.configure(text=meta)
         if self.page == "devices" or not self.me_password.cget("text") or \
                 time.monotonic() - self._pw_at > 5:
             self._pw_at = time.monotonic()
@@ -1000,30 +1019,29 @@ class App:
             if self.me_password.cget("text") != pw:
                 self.me_password.configure(text=pw)
         self.btn_new_pw.set_enabled(role != "member")
-        self.me_hint.configure(text=(
-            "Capitals, spaces and dashes don't matter when it is typed. "
-            + (f"Only {group} can change it." if role == "member" else
-               "" if role == "alone" else
-               "A new password goes straight to the devices connected now; any "
-               "that are switched off will ask for it.")))
+        self.me_hint.tip.set("Enter this name and password on the other device to "
+                             "pair. Case, spaces and dashes are ignored.")
+        self.new_pw_tip.set(
+            f"Only {group}, the hub, can change the group's password."
+            if role == "member" else
+            "Make a new password. Connected devices receive it automatically.")
         if role == "member":
             if not self.btn_leave.winfo_manager():
                 self.btn_leave.pack(side="left")
         elif self.btn_leave.winfo_manager():
             self.btn_leave.pack_forget()
-        addrs = s.get("addresses") or _addresses()
-        self.my_addr.configure(text=("This device is at " + ", ".join(addrs))
-                               if addrs else "This device has no network address.")
-        self.dev_head.configure(text="OTHER DEVICES IN THIS GROUP")
+        n = len(others)
+        self.dev_count.set(str(n) if n else "", "dim")
 
-        problem, fix = _connection_problem(s)
+        headline, detail, fix = _connection_problem(s)
         shown = self.me_problem.winfo_manager() == "pack"
-        if problem and not shown:
+        if headline and not shown:
             self.me_problem.pack(fill="x", pady=(12, 0), before=self.me_actions)
-        elif not problem and shown:
+        elif not headline and shown:
             self.me_problem.pack_forget()
-        if problem:
-            self.me_problem_text.configure(text=problem)
+        if headline:
+            self.me_problem_text.configure(text=headline)
+            self.me_problem_info.tip.set(detail or "")
             if fix and not self.me_problem_btn.winfo_manager():
                 self.me_problem_btn.pack(side="right", padx=12)
             elif not fix and self.me_problem_btn.winfo_manager():
@@ -1143,9 +1161,7 @@ class App:
         for w in self.nearby_list.winfo_children():
             w.destroy()
         if not rows:
-            tk.Label(self.nearby_list,
-                     text="  No other devices nearby. Open Nishro Link on another "
-                          "computer and it appears here.",
+            tk.Label(self.nearby_list, text="  No devices found nearby",
                      font=F["body"], bg=C["card"], fg=C["dim"]).pack(anchor="w",
                                                                      pady=10)
             return
@@ -1171,8 +1187,7 @@ class App:
         if me["role"] == "hub" and any(r[3] is None and r[1] != "Sharing is off"
                                        for r in rows):
             tk.Label(self.nearby_list,
-                     text="  This device has a group of its own, so it can add "
-                          "devices that are on their own - not join another group.",
+                     text="  A hub can add devices, but can't join another group.",
                      font=F["small"], bg=C["card"], fg=C["faint"]
                      ).pack(anchor="w", pady=(0, 8))
 
@@ -1529,11 +1544,6 @@ class App:
 
 
 # ------------------------------------------------------------------ helpers
-def _addresses() -> list:
-    from .control_api import my_addresses
-    return my_addresses()
-
-
 def _log_path() -> str:
     from .runtime import log_path
     return str(log_path())
@@ -1556,13 +1566,10 @@ def _tone(line: str) -> str:
 
 def _autostart_note(a: dict) -> str:
     if not a.get("on"):
-        return "Off. Nishro Link starts only when you open it."
+        return ""
     if not a.get("current"):
-        return ("On, but set to start a different copy of Nishro Link - one that "
-                "has since moved or been replaced. Switch this off and on again "
-                "to start this one.")
-    return ("It starts in the background with this window hidden. Open Nishro "
-            "Link again to bring the window back.")
+        return "points to an older copy - switch off and on to update"
+    return "starts hidden"
 
 
 def _parts(d) -> list:
@@ -1610,29 +1617,69 @@ def _chip(s: dict):
 
 
 def _connection_problem(s: dict):
-    """(what is wrong, whether a password fixes it) for a member that cannot
-    get in - or (None, False)."""
+    """(headline, detail, whether a new password fixes it) for a member that
+    cannot get in - or (None, None, False)."""
     if s.get("role") != "member" or s["connected"] or not s["enabled"]:
-        return None, False
+        return None, None, False
     d = s.get("dial") or {}
     g = s.get("group") or "the hub"
     reason, phase = d.get("reason"), d.get("phase")
     if reason == "wrong_password":
-        return (f"{g} did not accept this device's password - it has probably been "
-                f"changed there. Enter the new one to reconnect.", True)
+        return (f"{g} rejected this device's password",
+                "It has probably been changed there.", True)
     if reason == "name_taken":
-        return (f"{g}'s group already has a device called {s['node']}. Rename this "
-                f"device in Settings.", False)
+        return (f"Name already used in {g}'s group",
+                "Rename this device, then it reconnects.", False)
     if phase == "retrying" and (d.get("attempts") or 0) >= 3:
         if reason == "not_waiting":
-            return (f"{g} is on the network but not accepting connections - sharing "
-                    f"may be switched off there.", False)
+            return (f"{g} isn't accepting connections",
+                    "Sharing may be switched off there.", False)
         if reason == "unreachable":
-            return (f"{g} was found but cannot be reached - its firewall may be "
-                    f"blocking Nishro Link.", False)
-        return (f"{g} is not answering. Is it switched on, with Nishro Link "
-                f"open? This device keeps trying.", False)
-    return None, False
+            return (f"Can't reach {g}",
+                    "Its firewall may be blocking Nishro Link (port 8770).", False)
+        return (f"{g} isn't responding",
+                "Is it switched on, with Nishro Link open? Still trying.", False)
+    return None, None, False
+
+
+def _status(s: dict) -> dict:
+    """The Overview's status rows: key -> (value, tone, hover detail)."""
+    devs = s.get("devices") or []
+    live = [d["name"] for d in devs if d["online"] and not d["me"]]
+    role, group = s.get("role"), s.get("group")
+    out = {"sharing": ("On", "ok", None) if s["enabled"] else
+           ("Off", "bad", "Every computer uses its own mouse and keyboard.")}
+    if not s["enabled"]:
+        conn = ("Paused", "dim", None)
+    elif role == "alone":
+        conn = ("Not in a group", "dim", "Add a device on the Devices page.")
+    elif role == "hub":
+        conn = ((f"{len(live)} device{'s' if len(live) != 1 else ''} connected",
+                 "ok", None) if live else
+                ("Waiting for devices", "warn",
+                 "If a device can't reach this one, check the firewall."))
+    elif s["connected"]:
+        conn = (f"Connected to {group}", "ok", None)
+    else:
+        head, detail, _ = _connection_problem(s)
+        conn = (head, "bad", detail) if head else (f"Connecting to {group}…",
+                                                   "warn", None)
+    out["connection"] = conn
+    note = ("Devices prove the password to each other without sending it. "
+            "Input is not encrypted - use a network you trust.")
+    if not s["pin_set"]:
+        out["security"] = ("No password", "bad",
+                           "Anything on this network could connect.")
+    elif s["connected"]:
+        out["security"] = ("Verified", "ok", note)
+    else:
+        out["security"] = ("Password set", "dim", note)
+    holder = s.get("holder")
+    tip = ("Move any computer's mouse to take control. Press both Ctrl keys to "
+           "release everything.")
+    out["control"] = (("This device", "accent", tip) if s.get("holds") else
+                      (holder, "accent", tip) if holder else ("Idle", "dim", tip))
+    return out
 
 
 def _limits(d) -> str:
@@ -1642,7 +1689,7 @@ def _limits(d) -> str:
         out.append("cannot take control")
     if d.get("may_be_driven") is False:
         out.append("cannot be controlled")
-    return "  ·  ".join(out)
+    return "  Â·  ".join(out)
 
 
 def _device_state(d) -> str:
@@ -1653,56 +1700,6 @@ def _device_state(d) -> str:
         where = f"  ·  {d['addr']}" if d.get("addr") else ""
         return f"● online{f'  ·  {rtt:.1f} ms' if rtt else ''}{where}"
     return f"○ offline  ·  last seen {ago(d.get('last_seen'))}"
-
-
-def _peer(s: dict) -> str:
-    """The other device, by name - by address only if that is all there is."""
-    return s.get("group") or s.get("peer") or s.get("peer_addr") or "the other device"
-
-
-def _trust(s: dict):
-    """What to say about how far the connections can be relied on - blunt
-    about the half that is not done: devices verify each other, but the stream
-    itself is not encrypted yet."""
-    live = [d["name"] for d in s.get("devices") or [] if d["online"] and not d["me"]]
-    if not s["connected"] or not live:
-        return "Not connected.", "dim"
-    if not s["pin_set"]:
-        return ("Connected, but NO PASSWORD IS SET - anything on this network that "
-                "speaks the protocol can connect and type here.", "bad")
-    return (f"Verified both ways with {', '.join(live)}. The password was never "
-            f"sent - each side answered the other's challenge. Keystrokes are not "
-            f"encrypted yet, so use this on a network you trust.", "ok")
-
-
-def _explain(s: dict) -> str:
-    """Plain English for the state. "suppress(mouse=1,kbd=0)" is correct and
-    unreadable, and this window exists so nobody has to read it."""
-    if not s["enabled"]:
-        return ("Sharing is off. Every machine uses its own mouse and keyboard; "
-                "nothing is captured or forwarded. Switch Sharing on to connect "
-                "again.")
-    if s.get("role") == "alone":
-        return ("This device is on its own. Add another on the Devices page - or "
-                "add this one from the other device, with the name and password "
-                "shown there.")
-    if not s["connected"]:
-        if s["hub"]:
-            return ("Waiting for the other devices in the group to connect. If one "
-                    "says it cannot reach this device, a firewall here is "
-                    "blocking it.")
-        problem, _ = _connection_problem(s)
-        return problem or f"Connecting to {_peer(s)}…"
-    m, k = s["suppress"]["mouse"], s["suppress"]["keyboard"]
-    if m and k:
-        return ("Another device is driving and the pointer is on another screen, "
-                "so this mouse and keyboard are forwarded there. Move this mouse "
-                "to take control back.")
-    if m:
-        return ("Another device is driving, but the pointer is on this screen - "
-                "typing here stays here, and this mouse only takes control back.")
-    return ("This device is driving. Push the pointer off an edge where a bright "
-            "line joins another screen to cross.")
 
 
 def available() -> bool:

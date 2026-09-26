@@ -107,7 +107,7 @@ def test_the_hub_renames_another_device_from_here(root, api):
         d._save_rename()
         assert "kitchen" in api.node.core.layout.names()
         assert d.name == "kitchen", "it follows the device, not the old name"
-        assert any("next switched on" in x for x in texts(d.top))
+        assert any("next online" in x for x in texts(d.top))
     finally:
         d.close()
 
@@ -150,7 +150,7 @@ def test_another_devices_rights_go_to_it_while_it_is_on(root, api):
 def test_rights_that_cannot_be_changed_say_why(root, api):
     d = details(root, api, "aio")                     # switched off
     try:
-        assert any("switched off" in x and "applies them" in x
+        assert any("Available when aio is online" in x
                    for x in texts(d.top))
     finally:
         d.close()

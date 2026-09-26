@@ -175,7 +175,13 @@ def test_finding_nothing_explains_why_rather_than_showing_an_empty_box(root, api
     d = dialog(root, api, found={"devices": []})
     try:
         settle(d, lambda: any("No devices found" in x for x in texts(d.rows)))
-        assert any("UDP 8770" in x for x in texts(d.rows))
+
+        def tips(w):
+            out = [w.tip.text] if hasattr(w, "tip") else []
+            for c in w.winfo_children():
+                out += tips(c)
+            return out
+        assert any("UDP 8770" in t for t in tips(d.rows)), "one hover away"
     finally:
         d.close()
 
@@ -215,8 +221,9 @@ def test_one_password_field_and_the_dashes_explained(root, api):
     d = dialog(root, api)
     try:
         d._password("invite", "aio")
-        assert ("Usually four words. Capitals, spaces and dashes don't matter."
-                in texts(d.top))
+        assert "Enter the password shown on aio" in texts(d.top)
+        assert d.f_pin._placeholder.cget("text") == "word-word-word-word"
+        assert d.f_pin.get() == "", "the example is shown, never read"
         assert [x for x in texts(d.steps)] == ["○", "Find aio", "○",
                                                "Check the password", "○",
                                                "aio joins this group", "○",
@@ -265,7 +272,8 @@ def test_a_wrong_password_says_so_and_lets_you_try_again(root, api):
         d._go()
         progress(api, "failed", reason="wrong_password")
         settle(d, lambda: d.outcome == "wrong_password")
-        assert "did not accept that password" in d.msg.cget("text")
+        assert d.msg.cget("text") == "Wrong password"
+        assert "aio" in d.msg_detail.cget("text")
         assert d.btn_go.cget("text") == "Try again" and d.btn_go.enabled
         assert str(d.f_pin.cget("state")) == "normal"
         assert "✖" in texts(d.steps), "the step that failed is marked"
@@ -336,9 +344,10 @@ def test_it_can_open_straight_on_the_password(root, api):
     "wrong_password", "not_found", "unreachable", "busy", "in_group", "paused",
     "version", "timeout", "name_taken", "impostor", "not_connected", "refused"])
 def test_every_failure_is_said_in_words(reason):
-    text = ui_pair.failure("invite", reason, "aio", "desk")
-    assert not text.startswith("That did not work") and len(text) > 15
-    assert "_" not in text, "no codes like wrong_password in what people read"
+    head, detail = ui_pair.failure("invite", reason, "aio", "desk")
+    assert head != "That didn't work" and 4 < len(head) <= 40, "a short headline"
+    assert len(detail) <= 70, "and one short line, not a paragraph"
+    assert "_" not in head + detail, "no codes like wrong_password"
 
 
 def test_closing_during_a_search_is_harmless(root, api):

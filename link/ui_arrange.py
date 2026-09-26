@@ -95,7 +95,7 @@ class Arranger:
     def describe(self) -> str:
         if self.selected and self.selected in self.desk.names():
             return self.desk.describe(self.selected)
-        return "Click a machine to see what it touches; drag it to move it."
+        return "Select a screen to see where the pointer crosses"
 
     def set_boxes(self, boxes) -> None:
         """Adopt the arrangement in use - the window's 700ms refresh.

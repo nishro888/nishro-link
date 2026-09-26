@@ -131,7 +131,7 @@ def test_text_wraps_to_the_window_at_any_size(app, size):
     app.root.geometry(f"{w}x{h}")
     app.root.update()
     app._reflow()
-    for lb in (app.explain, app.hero_sub, app.arr_info):
+    for lb in (app.hero_sub, app.arr_info):
         wl = int(lb.cget("wraplength"))
         assert 0 < wl <= w, f"{wl} does not fit {w}"
 
@@ -222,7 +222,7 @@ def test_this_device_shows_what_another_needs_to_add_it(app):
     assert app.me_name.cget("text") == "laptop"
     assert app.me_pill.cget("text") == "HUB"
     assert app.me_password.cget("text") == app.api.command("/api/password", {})["pin"]
-    assert "dashes don't matter" in app.me_hint.cget("text")
+    assert "dashes are ignored" in app.me_hint.tip.text, "one hover away"
 
 
 def test_the_hub_can_remove_any_other_device(app):
@@ -259,7 +259,7 @@ def test_a_member_can_leave_but_not_change_the_password(app):
     app._render(app.api.status())
     assert app.btn_leave.winfo_manager() == "pack"
     assert app.btn_new_pw.enabled is False
-    assert "Only desk can change it" in app.me_hint.cget("text")
+    assert "Only desk" in app.new_pw_tip.text
 
 
 def test_a_rejected_password_is_shown_with_the_way_to_fix_it(app):
@@ -268,7 +268,8 @@ def test_a_rejected_password_is_shown_with_the_way_to_fix_it(app):
     app.api.node.dial = {"phase": "failed", "reason": "wrong_password"}
     app._render(app.api.status())
     assert app.me_problem.winfo_manager() == "pack"
-    assert "did not accept" in app.me_problem_text.cget("text")
+    assert app.me_problem_text.cget("text") == "desk rejected this device's password"
+    assert "changed" in app.me_problem_info.tip.text
     assert app.me_problem_btn.winfo_manager() == "pack"
     assert app.chip.cget("text") == "NOT CONNECTED"
 
@@ -278,7 +279,7 @@ def test_what_happens_is_shown_once_as_a_notice(app):
     app.api._on_event("joined", {"name": "aio", "first": True})
     app._render(app.api.status())
     assert len(app._toasts) == 1
-    assert "aio joined the group" in all_text(app.toasts)
+    assert "aio joined" in all_text(app.toasts)
     app._render(app.api.status())
     assert len(app._toasts) == 1, "once"
 
@@ -439,7 +440,8 @@ def test_missing_permissions_are_shown_with_the_fix(app):
                                "problems": ["It cannot read this computer's "
                                             "keyboard and mouse."]}))
     assert app.setup_box.winfo_manager() == "pack"
-    assert "needs permission" in app.setup_text.cget("text")
+    assert app.setup_text.cget("text") == "Keyboard and mouse access needed"
+    assert "cannot read" in app.setup_info.tip.text
     assert app.setup_btn.winfo_manager() == "pack"
     assert app.chip.cget("text") == "SETUP NEEDED"
     app._render(dict(s, setup=None))
@@ -451,7 +453,7 @@ def test_after_setup_it_asks_for_a_new_login_not_the_button_again(app):
     app._render(dict(s, setup={"ok": False, "relogin": True, "fixable": False,
                                "problems": ["Setup is done - log out and back "
                                             "in once to finish it."]}))
-    assert app.setup_text.cget("text").startswith("Almost ready.")
+    assert app.setup_text.cget("text").startswith("Almost ready")
     assert app.setup_btn.winfo_manager() == ""
 
 
@@ -482,14 +484,14 @@ def test_the_login_switch_applies_at_once(app, login_store):
     assert app.autostart is not None
     app._render(app.api.status())
     assert app.autostart.get() is False
-    assert app.autostart_note.cget("text").startswith("Off.")
+    assert app.autostart_note.cget("text") == ""
 
     app.autostart.set(True)
     app._set_autostart()
     assert "--background" in login_store["cmd"]
     app._render(app.api.status())
     assert app.autostart.get() is True
-    assert "in the background" in app.autostart_note.cget("text")
+    assert app.autostart_note.cget("text") == "starts hidden"
 
     app.autostart.set(False)
     app._set_autostart()
@@ -500,7 +502,7 @@ def test_a_login_entry_for_another_copy_is_pointed_out(app, login_store):
     login_store["cmd"] = ["C:/old/NishroLink.exe", "--background"]
     app._render(app.api.status())
     assert app.autostart.get() is True
-    assert "different copy" in app.autostart_note.cget("text")
+    assert "older copy" in app.autostart_note.cget("text")
 
 
 def test_the_login_command_keeps_this_runs_config_file(app, login_store):
@@ -600,3 +602,67 @@ def test_a_right_click_offers_everything_that_can_be_done(app):
     assert items["Remove from the group…"] == "normal"
     assert items["Control rights…"] == "disabled", "aio is switched off"
     assert card
+
+
+# ------------------------------------------------------------ the copy
+# Reported: "placing long sentence as description isn't good. Should be
+# optimal, professional and impressive." Labels are short; the reasons are
+# one hover away.
+
+def _labels(w, out=None):
+    out = [] if out is None else out
+    try:
+        t = w.cget("text")
+        if t and isinstance(w, tk.Label):
+            out.append(str(t))
+    except tk.TclError:
+        pass
+    for c in w.winfo_children():
+        _labels(c, out)
+    return out
+
+
+@pytest.mark.parametrize("page", ["overview", "devices", "arrange", "settings"])
+def test_no_page_reads_like_a_paragraph(app, page):
+    app.show_page(page)
+    app._render(app.api.status())
+    long = [t for t in _labels(app.pages[page]) if len(t) > 70]
+    assert long == [], long
+
+
+def test_the_overview_says_its_status_in_a_few_words(app):
+    app._render(app.api.status())
+    values = {k: row[1].cget("text") for k, row in app.status_rows.items()}
+    assert values == {"sharing": "On", "connection": "Waiting for devices",
+                      "security": "Password set", "control": "This device"}
+    assert "not encrypted" in app.status_rows["security"][2].tip.text
+
+
+def test_a_tooltip_shows_on_hover_and_goes(app):
+    app.show_page("devices")
+    app._render(app.api.status())
+    app.root.update()
+    tip = app.me_hint.tip
+    tip.show()
+    assert tip._tip is not None and tip._tip.winfo_exists()
+    tip.hide()
+    assert tip._tip is None
+
+
+def test_a_placeholder_is_shown_but_never_read(tk_root):
+    from link import ui_theme
+    from link.ui_kit import Kit, field, placeholder
+    top = tk.Toplevel(tk_root)
+    try:
+        kit = Kit(ui_theme.palette(top), ui_theme.fonts(top))
+        e = field(top, kit)
+        e.pack()
+        hint = placeholder(e, kit, "word-word-word-word")
+        top.update()
+        assert e.get() == "" and hint.winfo_manager() == "place"
+        e.insert(0, "tiger")
+        assert e.get() == "tiger" and hint.winfo_manager() == ""
+        e.delete(0, "end")
+        assert hint.winfo_manager() == "place"
+    finally:
+        top.destroy()

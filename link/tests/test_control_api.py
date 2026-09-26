@@ -305,7 +305,7 @@ def test_rights_are_set_and_kept(api):
 
 def test_another_devices_rights_need_it_switched_on(api):
     r = post(api, "/api/rights", {"name": "aio", "may_drive": False})[1]
-    assert "switched off" in r["error"]
+    assert "offline" in r["error"]
 
 
 def test_the_device_list_carries_the_details(api):
@@ -501,7 +501,7 @@ def test_a_device_with_its_own_group_cannot_join_another(api):
     """It would strand the devices connected to it."""
     r = post(api, "/api/pair", {"mode": "dial", "peer": "desk-pc",
                                 "pin": "abcd1234"})[1]
-    assert "aio" in r["error"] and "Add the other device from here" in r["error"]
+    assert "has its own group" in r["error"]
     assert api.node.core.is_hub is True
 
 

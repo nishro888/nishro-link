@@ -260,5 +260,5 @@ def test_saved_boxes_become_a_desk():
 
 def test_a_description_says_what_touches_what():
     text = desk((3286, 0)).describe("aio")
-    assert "1920×1080" in text and "laptop along 768 px" in text
+    assert "1920×1080" in text and "crosses to laptop (768 px)" in text
     assert "touches nothing" in desk((-3000, 0)).describe("aio")

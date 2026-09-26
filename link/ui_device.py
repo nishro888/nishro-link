@@ -141,11 +141,10 @@ class DeviceDetails:
             Button(line, kit, "Rename", self._start_rename, kind="ghost",
                    small=True).pack(side="right")
         elif not me:
-            self._note(f"Not connected to {s.get('group') or 'the hub'} right now, "
-                       f"so other devices cannot be changed from here.")
+            self._note(f"Not connected to {s.get('group') or 'the hub'} - "
+                       f"changes unavailable")
         if d.get("rename_to"):
-            self._note(f"Renamed while it was off - it takes the name when it is "
-                       f"next on.")
+            self._note("Renamed  ·  applies when it's next online")
 
         # ---- facts
         facts = tk.Frame(self.box, bg=C["panel"])
@@ -169,10 +168,8 @@ class DeviceDetails:
         editable, why = self._rights_editable(d, s)
         self.drive = tk.BooleanVar(value=bool(d.get("may_drive", True)))
         self.driven = tk.BooleanVar(value=bool(d.get("may_be_driven", True)))
-        who = "This device" if me else d["name"]
-        for var, text in ((self.drive, f"{who} may take control of the other devices"),
-                          (self.driven, f"{who} may be controlled from the other "
-                                        f"devices")):
+        for var, text in ((self.drive, "Can control other devices"),
+                          (self.driven, "Can be controlled")):
             r = tk.Frame(self.box, bg=C["panel"])
             r.pack(fill="x", pady=4)
             t = Toggle(r, kit, var, command=self._rights_changed)
@@ -190,8 +187,7 @@ class DeviceDetails:
         if why:
             self._note(why)
         if not d.get("may_be_driven", True):
-            self._note("The pointer stops at its edges, as if it were switched "
-                       "off.", tone="warn")
+            self._note("The pointer stops at its edges", tone="warn")
 
         # ---- actions
         tk.Frame(self.box, bg=C["line"], height=1).pack(fill="x", pady=(16, 12))
@@ -229,11 +225,10 @@ class DeviceDetails:
         if d["me"]:
             return True, None
         if not s.get("can_manage", s.get("role") == "hub"):
-            return False, (f"Not connected to {s.get('group') or 'the hub'} right "
-                           f"now - another device's rights are changed through it.")
+            return False, (f"Unavailable while disconnected from "
+                           f"{s.get('group') or 'the hub'}")
         if not d["online"]:
-            return False, (f"{d['name']} is switched off. Its rights can be changed "
-                           f"while it is on - it is the one that applies them.")
+            return False, f"Available when {d['name']} is online"
         return True, None
 
     # ------------------------------------------------------------ actions
@@ -275,8 +270,8 @@ class DeviceDetails:
         self._sig = None
         self._render()
         self.msg.configure(
-            text=("Renamed. It takes the name when it is next switched on."
-                  if r.get("pending") else "Renamed."), fg=self.C["ok"])
+            text=("Renamed  ·  applies when it's next online"
+                  if r.get("pending") else "Renamed"), fg=self.C["ok"])
         if self.on_change:
             self.on_change()
 
@@ -289,7 +284,7 @@ class DeviceDetails:
             self._sig = None
             self.top.after(1500, self._render)
             return
-        self.msg.configure(text="Changed.", fg=self.C["ok"])
+        self.msg.configure(text="Saved", fg=self.C["ok"])
         if self.on_change:
             self.on_change()
 

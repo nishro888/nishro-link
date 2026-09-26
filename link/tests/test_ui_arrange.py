@@ -173,7 +173,7 @@ def test_the_aio_can_be_put_above_the_laptops_second_monitor(root):
     lap, aio = a.desk.get("laptop"), a.desk.get("aio")
     assert aio.y + aio.h == lap.y, "flush on top"
     assert {c.a, c.b} == {"laptop", "aio"} and c.length == 1920
-    assert "laptop along 1920 px" in a.desk.describe("aio")
+    assert "laptop (1920 px)" in a.desk.describe("aio")
 
 
 # ---------------------------------------------------------------- keyboard
@@ -215,7 +215,7 @@ def test_a_machine_touching_nothing_is_reported(root):
 
 def test_the_selected_machine_is_described(root):
     a = arranger(root)
-    assert "Click a machine" in a.describe()
+    assert "Select a screen" in a.describe()
     a.select("aio")
     assert "aio" in a.describe() and "laptop" in a.describe()
 

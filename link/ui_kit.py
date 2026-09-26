@@ -327,3 +327,119 @@ def ago(ts) -> str:
     if d < 86400:
         return f"{d // 3600} h ago"
     return f"{d // 86400} day{'s' if d >= 172800 else ''} ago"
+
+
+# ----------------------------------------------------------- quiet detail
+class Tooltip:
+    """The detail a label does not need to carry, shown on hover.
+
+    Explanations belong here rather than in sentences on the page: the page
+    stays a set of short labels, and the reason is one hover away.
+    """
+
+    DELAY_MS = 350
+
+    def __init__(self, widget, kit: Kit, text: str = ""):
+        self.widget, self.kit, self.text = widget, kit, text
+        self._after = None
+        self._tip = None
+        widget.bind("<Enter>", self._arm, add="+")
+        widget.bind("<Leave>", self.hide, add="+")
+        widget.bind("<ButtonPress>", self.hide, add="+")
+
+    def set(self, text: str) -> None:
+        self.text = text
+
+    def _arm(self, _e=None) -> None:
+        self._cancel()
+        if self.text:
+            self._after = self.widget.after(self.DELAY_MS, self.show)
+
+    def _cancel(self) -> None:
+        if self._after is not None:
+            try:
+                self.widget.after_cancel(self._after)
+            except tk.TclError:
+                pass
+            self._after = None
+
+    def show(self) -> None:
+        self._after = None
+        if self._tip is not None or not self.text:
+            return
+        C, F = self.kit.C, self.kit.F
+        try:
+            x = self.widget.winfo_rootx() + 6
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+            tip = tk.Toplevel(self.widget)
+        except tk.TclError:
+            return
+        tip.wm_overrideredirect(True)
+        try:
+            tip.attributes("-topmost", True)
+        except tk.TclError:
+            pass
+        edge = tk.Frame(tip, bg=C["line_hi"], padx=1, pady=1)
+        edge.pack()
+        tk.Label(edge, text=self.text, font=F["small"], bg=C["card_hi"], fg=C["ink"],
+                 justify="left", wraplength=300, padx=10, pady=7).pack()
+        tip.geometry(f"+{x}+{y}")
+        self._tip = tip
+
+    def hide(self, _e=None) -> None:
+        self._cancel()
+        if self._tip is not None:
+            try:
+                self._tip.destroy()
+            except tk.TclError:
+                pass
+            self._tip = None
+
+
+def info(parent, kit: Kit, text: str) -> tk.Label:
+    """A small (i) that explains on hover."""
+    lb = tk.Label(parent, text="ⓘ", font=kit.F["small"], bg=parent.cget("bg"),
+                  fg=kit.C["faint"], cursor="question_arrow")
+    lb.tip = Tooltip(lb, kit, text)
+    return lb
+
+
+def placeholder(entry: tk.Entry, kit: Kit, text: str) -> tk.Label:
+    """Grey example text over an empty field. An overlay, not text in the
+    field: what the field holds - entry.get() - is only ever what was typed."""
+    var = tk.StringVar(master=entry, value=entry.get())
+    entry.configure(textvariable=var)
+    hint = tk.Label(entry, text=text, font=entry.cget("font"),
+                    bg=entry.cget("bg"), fg=kit.C["faint"], cursor="xterm")
+
+    def update(*_):
+        try:
+            if var.get():
+                hint.place_forget()
+            elif not hint.winfo_manager():
+                justify = str(entry.cget("justify"))
+                if justify == "center":
+                    hint.place(relx=0.5, rely=0.5, anchor="center")
+                else:
+                    hint.place(x=6, rely=0.5, anchor="w")
+        except tk.TclError:
+            pass
+    var.trace_add("write", update)
+    hint.bind("<Button-1>", lambda _e: entry.focus_set())
+    entry._placeholder = hint
+    entry._var = var
+    update()
+    return hint
+
+
+def keys(parent, kit: Kit, pairs) -> tk.Frame:
+    """A row of key hints: [("Drag", "move"), ("Ctrl+Z", "undo")]."""
+    C, F = kit.C, kit.F
+    bg = parent.cget("bg")
+    row = tk.Frame(parent, bg=bg)
+    for key, what in pairs:
+        tk.Label(row, text=key, font=F["caps"], bg=C["card_hi"], fg=C["ink"],
+                 padx=6, pady=1).pack(side="left")
+        tk.Label(row, text=what, font=F["small"], bg=bg, fg=C["dim"]
+                 ).pack(side="left", padx=(6, 16))
+    return row

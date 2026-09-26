@@ -288,7 +288,7 @@ def test_joining_through_the_window_ends_in_connected(tmp_path, running):
     assert (s["role"], s["group"]) == ("member", "laptop")
     saved = config.load(tmp_path / "c.json")
     assert (saved["peer"], saved["hub"]) == ("laptop", False)
-    assert any("Connected to laptop's group" in e["text"] for e in s["events"])
+    assert any(e["text"] == "Joined laptop's group" for e in s["events"])
 
 
 def test_a_failed_join_leaves_the_device_as_it_was(tmp_path, running):
