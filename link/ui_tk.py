@@ -46,9 +46,15 @@ PAGES = (("overview", "Overview", "◈"),
 
 
 class App:
-    def __init__(self, api, on_quit=None, root=None):
+    def __init__(self, api, on_quit=None, root=None, remote=False):
         self.api = api
         self.on_quit = on_quit
+        # A window onto the system service: closing it stops nothing.
+        self.remote = remote
+        try:
+            self._service = bool(api.status().get("service"))
+        except Exception:
+            self._service = remote
         self.touched: set = set()
         self._last = None
         self._alive = True
@@ -144,7 +150,8 @@ class App:
         row = tk.Frame(foot, bg=C["sidebar"])
         row.pack(fill="x", pady=(8, 0))
         Button(row, kit, "Hide", self.hide, kind="ghost", small=True).pack(side="left")
-        Button(row, kit, "Quit", self._quit, kind="ghost", small=True).pack(side="right")
+        Button(row, kit, "Close" if self.remote else "Quit", self._quit,
+               kind="ghost", small=True).pack(side="right")
 
         # ---- main
         self.main = tk.Frame(self.root, bg=C["panel"])
@@ -774,7 +781,18 @@ class App:
         # the running program, and a switch that waits for a button reads as
         # broken.
         self.autostart = self.autostart_note = None
-        if autostart.available():
+        if self._service:
+            st = Card(box, kit, "Startup")
+            st.pack(fill="x", pady=(12, 0))
+            row = tk.Frame(st.body, bg=C["card"])
+            row.pack(fill="x", pady=3)
+            Dot(row, kit, size=8, colour=C["ok"]).pack(side="left", padx=(2, 10))
+            tk.Label(row, text="Starts with the computer", font=F["body"],
+                     bg=C["card"], fg=C["ink"]).pack(side="left")
+            info(row, kit, "Nishro Link runs as a system service: before anyone "
+                           "logs in, on the lock screen, and with this window "
+                           "closed.").pack(side="left", padx=(8, 0))
+        elif autostart.available():
             st = Card(box, kit, "Startup")
             st.pack(fill="x", pady=(12, 0))
             row = tk.Frame(st.body, bg=C["card"])
@@ -1448,6 +1466,9 @@ class App:
             pass
 
     def _quit(self) -> None:
+        if self.remote:
+            self.close()              # the service goes on; so does sharing
+            return
         if not messagebox.askokcancel(
                 "Quit Nishro Link",
                 "Stop sharing and quit?\n\n"

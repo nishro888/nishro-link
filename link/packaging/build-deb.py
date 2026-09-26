@@ -57,6 +57,7 @@ FILES = (
     ("io.github.nishro888.nishro-link.policy",
      "usr/share/polkit-1/actions/io.github.nishro888.nishro-link.policy", 0o644),
     ("60-nishro-link.rules", "usr/lib/udev/rules.d/60-nishro-link.rules", 0o644),
+    ("nishro-link.service", "usr/lib/systemd/system/nishro-link.service", 0o644),
 )
 SCRIPTS = ("postinst", "prerm", "postrm")
 

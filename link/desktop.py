@@ -112,14 +112,17 @@ def _linux() -> Desktop:
     # Wayland session (through XWayland), which is as much of the compositor's
     # arrangement as an ordinary program can see. Failing that, one monitor
     # from the kernel's mode list.
+    # As the system service there is no display of our own: ask inside the
+    # logged-in session (session.py), and at the login screen fall through.
     try:
         import subprocess
-        r = subprocess.run(["xrandr", "--listmonitors"], capture_output=True,
-                           text=True, timeout=3)
+        from . import session
+        r = session.run(["xrandr", "--listmonitors"], capture_output=True,
+                        text=True, timeout=3)
         rects = parse_xrandr(r.stdout) if r.returncode == 0 else []
         if rects:
             return from_monitors(rects)
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, LookupError):
         pass
     for f in sorted(glob.glob("/sys/class/drm/*/modes")):
         try:

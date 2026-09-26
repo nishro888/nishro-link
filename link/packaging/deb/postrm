@@ -1,6 +1,7 @@
 #!/bin/sh
 # After removing: stop applying the udev rule. Group membership is left alone -
-# other software may rely on the `input` group too.
+# other software may rely on the `input` group too. Purging also removes the
+# service's settings and log.
 set -e
 
 case "$1" in
@@ -8,7 +9,13 @@ remove|purge)
     if command -v udevadm >/dev/null 2>&1; then
         udevadm control --reload-rules 2>/dev/null || true
     fi
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload 2>/dev/null || true
+    fi
     ;;
 esac
+if [ "$1" = purge ]; then
+    rm -rf /var/lib/nishro-link /var/log/nishro-link
+fi
 
 exit 0

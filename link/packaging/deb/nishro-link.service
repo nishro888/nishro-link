@@ -1,0 +1,21 @@
+[Unit]
+Description=Nishro Link - one mouse and keyboard across several computers
+Documentation=https://github.com/nishro888/nishro-link
+# From boot, before anyone logs in: that is what makes the login screen work.
+# Input is read and played at the device level (evdev, uinput), which reaches
+# the login screen, the lock screen and every session alike.
+After=network-online.target systemd-udevd.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/nishro-link --service
+Restart=always
+RestartSec=2
+RuntimeDirectory=nishro-link
+RuntimeDirectoryMode=0755
+StateDirectory=nishro-link
+StateDirectoryMode=0700
+LogsDirectory=nishro-link
+
+[Install]
+WantedBy=multi-user.target

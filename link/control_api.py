@@ -72,6 +72,7 @@ class ControlAPI:
         # Linux device access, from access.check(); None or ok means nothing
         # to do. Set by the program at startup.
         self.setup = None
+        self.service = False      # running as the system service (service.py)
 
     @property
     def url(self) -> str:
@@ -116,6 +117,11 @@ class ControlAPI:
                 u = urlsplit(self.path)
                 q = parse_qs(u.query)
                 if u.path == "/":
+                    if api.service and not self._authorised(q):
+                        # The service runs as root and its controls include the
+                        # group's password: the page hands its token only to
+                        # someone who already has it (service.py).
+                        return self._send(403, b'{"error":"bad token"}')
                     page = PAGE.replace("__TOKEN__", api.token)
                     return self._send(200, page.encode("utf-8"),
                                       "text/html; charset=utf-8")
@@ -245,6 +251,7 @@ class ControlAPI:
             "firewall_blocked": self.firewall_blocked or [],
             "setup": self.setup if self.setup and not self.setup.get("ok") else None,
             "autostart": self._autostart_state(),
+            "service": bool(self.service),
             "policy": dict(core.policy),
             "enabled": bool(n.enabled),
             "connected": n.ch is not None,
@@ -860,6 +867,10 @@ class ControlAPI:
                                  if self.cfg_path else [])
 
     def _autostart_state(self) -> dict:
+        if self.service:
+            # It starts with the computer; a per-user login entry would only
+            # start a second copy.
+            return {"available": False, "on": True, "current": True}
         try:
             return autostart.state(self._launch())
         except Exception:                  # never let the status call fail on it

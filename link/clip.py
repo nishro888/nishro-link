@@ -66,8 +66,28 @@ def order(env=None) -> list:
 
 
 @functools.lru_cache(maxsize=1)
-def _tools() -> tuple:
+def _user_tools() -> tuple:
     return tuple(t for t in order() if shutil.which(_BINARY[t]))
+
+
+def _tools() -> tuple:
+    """The tools to try, and - as the system service - the session they run
+    in. The service is root and outside every session; the clipboard belongs
+    to whoever is logged in (session.py)."""
+    from . import session
+    if not session.running_as_root():
+        return _user_tools()
+    s = session.active()
+    if s is None:
+        return ()                     # the login screen: no clipboard to share
+    env = dict(s["env"], XDG_CURRENT_DESKTOP="GNOME" if s["type"] == "wayland"
+               else "")
+    return tuple(t for t in order(env) if shutil.which(_BINARY[t]))
+
+
+def _run(cmd, **kw):
+    from . import session
+    return session.run(cmd, **kw)
 
 
 def get() -> str:
@@ -77,7 +97,7 @@ def get() -> str:
                                  capture_output=True, text=True, timeout=5)
             return out.stdout.rstrip("\r\n")
         for tool in _tools():
-            r = subprocess.run(READ[tool], capture_output=True, text=True, timeout=5)
+            r = _run(READ[tool], capture_output=True, text=True, timeout=5)
             if r.returncode == 0:
                 return r.stdout
     except Exception:
@@ -95,8 +115,8 @@ def set(text: str) -> bool:
             # Not captured: wl-copy and xclip stay behind to hold the clipboard,
             # and a pipe held open by that child made run() wait out the whole
             # timeout on every paste that arrived.
-            r = subprocess.run(WRITE[tool], input=text, text=True, timeout=5,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            r = _run(WRITE[tool], input=text, text=True, timeout=5,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if r.returncode == 0:
                 return True
     except Exception:

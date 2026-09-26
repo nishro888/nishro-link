@@ -1,6 +1,7 @@
 #!/bin/sh
-# After installing: load uinput, apply the udev rule, and - when it can be told
-# who is installing - add them to the `input` group.
+# After installing: load uinput, apply the udev rule, and start the system
+# service - which is what keeps Nishro Link connected from boot, at the login
+# screen and on the lock screen.
 set -e
 
 case "$1" in
@@ -13,15 +14,38 @@ configure)
         udevadm control --reload-rules 2>/dev/null || true
         udevadm trigger --subsystem-match=misc --sysname-match=uinput 2>/dev/null || true
     fi
-    # `sudo apt install ./nishro-link.deb` keeps SUDO_USER. The App Center does
-    # not say who asked; for that case the program's own window offers the same
-    # setup behind the desktop's password prompt.
+
+    # Who is installing: sudo keeps SUDO_USER, pkexec sets PKEXEC_UID. The App
+    # Center says neither; the window then offers the same access itself.
     u="${SUDO_USER:-}"
+    if [ -z "$u" ] && [ -n "${PKEXEC_UID:-}" ]; then
+        u="$(getent passwd "$PKEXEC_UID" | cut -d: -f1)"
+    fi
     if [ -n "$u" ] && [ "$u" != root ] && id "$u" >/dev/null 2>&1; then
+        # The window reaches the service through a handle only the input group
+        # can read: the people who can read every keyboard here already.
         if ! id -nG "$u" | tr ' ' '\n' | grep -qx input; then
             usermod -aG input "$u" || true
-            echo "Nishro Link: $u can use the keyboard and mouse after logging out and back in once."
+            echo "Nishro Link: log out and back in once to open its window as $u."
         fi
+        # First install as a service: carry this person's pairing across.
+        home="$(getent passwd "$u" | cut -d: -f6)"
+        mine="$home/.config/nishro-link/config.json"
+        mkdir -p /var/lib/nishro-link
+        chmod 700 /var/lib/nishro-link
+        if [ ! -f /var/lib/nishro-link/config.json ] && [ -f "$mine" ]; then
+            cp "$mine" /var/lib/nishro-link/config.json
+            chmod 600 /var/lib/nishro-link/config.json
+        fi
+    fi
+
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+        systemctl stop nishro-link.service 2>/dev/null || true
+        # A copy someone started by hand holds the ports and the devices.
+        pkill -f "link.nishro_link" 2>/dev/null || true
+        systemctl enable nishro-link.service || true
+        systemctl start nishro-link.service || true
     fi
     ;;
 esac

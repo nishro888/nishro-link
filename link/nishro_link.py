@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 import socket
 import sys
 import threading
@@ -168,6 +169,9 @@ def build_parser():
                     help="port for the local control UI (0 turns it off)")
     ap.add_argument("--no-window", action="store_true",
                     help="run without the application window (headless/service)")
+    ap.add_argument("--service", action="store_true",
+                    help="run as the system service: from boot, without a window "
+                         "(the window attaches to it)")
     ap.add_argument("--background", action="store_true",
                     help="start with the window hidden (how it starts at login); "
                          "launching it again shows the window")
@@ -243,6 +247,14 @@ def _my_addresses():
 def settings(argv=None):
     """Saved config with this run's flags on top."""
     args = build_parser().parse_args(argv)
+    if args.service:
+        from . import service
+        args.config = args.config or str(service.CONFIG)
+        args.no_window = True
+        # The log goes where system logs go, not into root's home.
+        os.environ["XDG_STATE_HOME"] = str(service.STATE)
+        if sys.platform == "win32":
+            os.environ["LOCALAPPDATA"] = str(service.STATE.parent)
     over = {
         "node": args.node, "peer": args.peer, "peer_addr": args.peer_addr,
         "hub": args.hub, "side": args.side, "screen": args.screen,
@@ -254,8 +266,67 @@ def settings(argv=None):
     return args, config.merge(config.load(args.config), over)
 
 
+def attach(args) -> int:
+    """A window for the service that is already running, or None if there is
+    none. The engine is the service's; this process is only the window."""
+    from . import service
+    try:
+        found = service.find()
+    except PermissionError:
+        return _no_access()
+    if found is None:
+        return None
+    if args.background:
+        return 0                      # the service is already running: nothing to do
+    only = SingleInstance(found[0] - 3)       # one window, not one engine
+    if not only.acquire():
+        SingleInstance.signal(found[0] - 3)
+        return 0
+    ui_tk = load_window(RunLog(echo=True))
+    if not ui_tk:
+        print(f"the service is running; its page: "
+              f"http://127.0.0.1:{found[0]}/?t={found[1]}")
+        return 0
+    window = ui_tk.App(service.RemoteAPI(*found), remote=True)
+    only.watch(window.show)
+    window.run()
+    return 0
+
+
+def _no_access() -> int:
+    """The service runs, and this account may not reach it: say so in a window
+    - someone who clicked the menu entry sees no terminal - and offer the fix."""
+    msg = ("Nishro Link is running on this computer, but this account can't "
+           "open its window yet.")
+    print(msg, file=sys.stderr)
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        if messagebox.askyesno("Nishro Link", msg + "\n\nGrant access now? You "
+                               "will be asked for your password."):
+            r = access.fix()
+            if r.get("ok"):
+                messagebox.showinfo("Nishro Link",
+                                    "Done. Log out and back in once, then open "
+                                    "Nishro Link again.")
+            elif not r.get("declined"):
+                messagebox.showerror("Nishro Link", r.get("error") or "It failed.")
+        root.destroy()
+    except Exception:
+        pass
+    return 3
+
+
 def main() -> int:
     args, cfg = settings()
+
+    if not args.service and not args.no_window and not args.show and \
+            not args.setup and not args.save:
+        attached = attach(args)
+        if attached is not None:
+            return attached
 
     log = RunLog()
 
@@ -397,9 +468,14 @@ def main() -> int:
     if args.ui_port:
         ui = control_api.ControlAPI(n, cfg, log, cfg_path=args.config, port=args.ui_port)
         ui.setup = setup
+        ui.service = bool(args.service)
         if ui.start():
             log(f"control UI: {ui.url}")
             log("  (that link carries a one-time token - it changes every run)")
+            if args.service:
+                from . import service
+                where = service.publish(ui.port, ui.token)
+                log(f"running as the system service - windows attach through {where}")
         if sys.platform == "win32":
             threading.Thread(target=ui.check_firewall, daemon=True).start()
 
@@ -439,6 +515,9 @@ def main() -> int:
         log("stopping")
     finally:
         n.stop()
+        if args.service:
+            from . import service
+            service.withdraw()
         if ui:
             ui.stop()
         only.release()

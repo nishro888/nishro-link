@@ -155,3 +155,17 @@ def test_xclip_is_recommended_not_wl_clipboard(deb):
     """On GNOME, wl-clipboard flashes a window in the dock at every read."""
     f = fields(deb)
     assert "xclip" in f["Recommends"] and "wl-clipboard" not in f["Recommends"]
+
+
+def test_the_service_starts_at_boot_and_the_window_attaches(deb):
+    """The engine runs from boot as a system service - the login and lock
+    screens need it - and the menu entry only opens a window onto it."""
+    unit = deb["data"]["./usr/lib/systemd/system/nishro-link.service"][1].decode()
+    assert "ExecStart=/usr/bin/nishro-link --service" in unit
+    assert "WantedBy=multi-user.target" in unit and "Restart=always" in unit
+    post = deb["control"]["./postinst"][1].decode()
+    assert "systemctl enable nishro-link.service" in post
+    assert "/var/lib/nishro-link/config.json" in post, "the pairing carried across"
+    assert "PKEXEC_UID" in post
+    pre = deb["control"]["./prerm"][1].decode()
+    assert "systemctl disable nishro-link.service" in pre

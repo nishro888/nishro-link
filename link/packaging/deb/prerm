@@ -1,10 +1,21 @@
 #!/bin/sh
-# Before removing or upgrading: drop the bytecode postinst compiled, which dpkg
-# does not know about and would otherwise leave behind.
+# Before removing or upgrading: stop the service, and drop the bytecode
+# postinst compiled, which dpkg does not know about.
 set -e
 
 case "$1" in
-remove|upgrade|deconfigure)
+remove|deconfigure)
+    if [ -d /run/systemd/system ]; then
+        systemctl stop nishro-link.service 2>/dev/null || true
+        systemctl disable nishro-link.service 2>/dev/null || true
+    fi
+    rm -rf /usr/lib/nishro-link/link/__pycache__
+    ;;
+upgrade)
+    # postinst of the new version restarts it.
+    if [ -d /run/systemd/system ]; then
+        systemctl stop nishro-link.service 2>/dev/null || true
+    fi
     rm -rf /usr/lib/nishro-link/link/__pycache__
     ;;
 esac
