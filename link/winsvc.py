@@ -55,6 +55,64 @@ if sys.platform == "win32":
         _fields_ = [("lpServiceName", wintypes.LPWSTR), ("lpServiceProc", _MAIN)]
 
 
+def _types() -> None:
+    """Every call's exact types. Without them ctypes passes a Python int as a
+    32-bit C int, and handles are 64-bit: the service's status handle was cut
+    in half, SetServiceStatus failed, and Windows waited for a start that had
+    in fact happened ("StartPending" for ever)."""
+    H, D, B = wintypes.HANDLE, wintypes.DWORD, wintypes.BOOL
+    advapi32.RegisterServiceCtrlHandlerExW.argtypes = [wintypes.LPCWSTR, _HANDLER,
+                                                       wintypes.LPVOID]
+    advapi32.RegisterServiceCtrlHandlerExW.restype = H
+    advapi32.SetServiceStatus.argtypes = [H, ctypes.POINTER(SERVICE_STATUS)]
+    advapi32.SetServiceStatus.restype = B
+    advapi32.StartServiceCtrlDispatcherW.argtypes = [ctypes.POINTER(SERVICE_TABLE_ENTRYW)]
+    advapi32.StartServiceCtrlDispatcherW.restype = B
+    advapi32.OpenProcessToken.argtypes = [H, D, ctypes.POINTER(H)]
+    advapi32.OpenProcessToken.restype = B
+    advapi32.DuplicateTokenEx.argtypes = [H, D, wintypes.LPVOID, ctypes.c_int,
+                                          ctypes.c_int, ctypes.POINTER(H)]
+    advapi32.DuplicateTokenEx.restype = B
+    advapi32.SetTokenInformation.argtypes = [H, ctypes.c_int, wintypes.LPVOID, D]
+    advapi32.SetTokenInformation.restype = B
+    advapi32.CreateProcessAsUserW.argtypes = [
+        H, wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.LPVOID, wintypes.LPVOID, B,
+        D, wintypes.LPVOID, wintypes.LPCWSTR, ctypes.POINTER(STARTUPINFOW),
+        ctypes.POINTER(PROCESS_INFORMATION)]
+    advapi32.CreateProcessAsUserW.restype = B
+    kernel32.GetCurrentProcess.restype = H
+    kernel32.GetCurrentThreadId.restype = D
+    kernel32.WTSGetActiveConsoleSessionId.restype = D
+    kernel32.CloseHandle.argtypes = [H]
+    kernel32.WaitForSingleObject.argtypes = [H, D]
+    kernel32.WaitForSingleObject.restype = D
+    kernel32.TerminateProcess.argtypes = [H, wintypes.UINT]
+    user32.GetThreadDesktop.argtypes = [D]
+    user32.GetThreadDesktop.restype = H
+    user32.OpenInputDesktop.argtypes = [D, B, D]
+    user32.OpenInputDesktop.restype = H
+    user32.CloseDesktop.argtypes = [H]
+    user32.GetUserObjectInformationW.argtypes = [H, ctypes.c_int, wintypes.LPVOID,
+                                                 D, ctypes.POINTER(D)]
+    user32.GetUserObjectInformationW.restype = B
+
+
+def _trace(what: str) -> None:
+    """A service has no console: what went wrong goes to a file next to its
+    log, where someone can find it."""
+    import os
+    import traceback
+    try:
+        base = os.path.join(os.environ.get("PROGRAMDATA") or r"C:\ProgramData",
+                            "NishroLink")
+        os.makedirs(base, exist_ok=True)
+        with open(os.path.join(base, "service-error.log"), "a",
+                  encoding="utf-8") as f:
+            f.write(f"--- {what}\n{traceback.format_exc()}\n")
+    except OSError:
+        pass
+
+
 def run_as_service(body, name: str = SERVICE_NAME) -> bool:
     """Hand this process to the Service Control Manager, which calls `body(stop)`
     on its own thread; `stop` is set when Windows asks the service to stop.
@@ -68,7 +126,8 @@ def run_as_service(body, name: str = SERVICE_NAME) -> bool:
                             SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN,
                             0, 0, keep.setdefault("check", 0) + 1, wait_ms)
         keep["check"] += 1
-        advapi32.SetServiceStatus(keep["handle"], ctypes.byref(st))
+        if not advapi32.SetServiceStatus(keep["handle"], ctypes.byref(st)):
+            raise ctypes.WinError(ctypes.get_last_error())
 
     def handler(control, _type, _data, _ctx):
         if control in (SERVICE_CONTROL_STOP, SERVICE_CONTROL_SHUTDOWN):
@@ -80,17 +139,25 @@ def run_as_service(body, name: str = SERVICE_NAME) -> bool:
         return ERROR_CALL_NOT_IMPLEMENTED
 
     def service_main(_argc, _argv):
-        keep["handler"] = _HANDLER(handler)
-        advapi32.RegisterServiceCtrlHandlerExW.restype = wintypes.HANDLE
-        keep["handle"] = advapi32.RegisterServiceCtrlHandlerExW(
-            name, keep["handler"], None)
-        report(SERVICE_START_PENDING, 10000)
-        report(SERVICE_RUNNING)
+        try:
+            keep["handler"] = _HANDLER(handler)
+            keep["handle"] = advapi32.RegisterServiceCtrlHandlerExW(
+                name, keep["handler"], None)
+            if not keep["handle"]:
+                raise ctypes.WinError(ctypes.get_last_error())
+            report(SERVICE_START_PENDING, 10000)
+            report(SERVICE_RUNNING)
+        except Exception:
+            _trace("starting the service")
+            return
         try:
             body(stop)
+        except Exception:
+            _trace("the service stopped with an error")
         finally:
             report(SERVICE_STOPPED)
 
+    _types()
     keep["main"] = _MAIN(service_main)
     table = (SERVICE_TABLE_ENTRYW * 2)(SERVICE_TABLE_ENTRYW(name, keep["main"]),
                                         SERVICE_TABLE_ENTRYW(None, _MAIN()))
@@ -118,14 +185,14 @@ def _name(handle) -> str:
 
 def own_desktop() -> str:
     """The desktop this process was started on."""
-    user32.GetThreadDesktop.restype = wintypes.HANDLE
+    _types()
     return _name(user32.GetThreadDesktop(kernel32.GetCurrentThreadId())) or "Default"
 
 
 def showing_desktop() -> str:
     """The desktop receiving input now: Default, Winlogon (lock, login, UAC),
     Screen-saver. "" if it cannot be opened."""
-    user32.OpenInputDesktop.restype = wintypes.HANDLE
+    _types()
     h = user32.OpenInputDesktop(0, False, DESKTOP_READOBJECTS)
     if not h:
         return ""
@@ -182,10 +249,10 @@ def console_session() -> int:
 
 def launch_in_console(cmdline: str, desktop: str = "Default") -> Proc:
     """Start `cmdline` as SYSTEM in the console session, on winsta0\\desktop."""
+    _types()
     session = console_session()
     if session == NO_SESSION:
         raise OSError("no console session yet")
-    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
     tok, dup = wintypes.HANDLE(), wintypes.HANDLE()
     if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), TOKEN_ALL_ACCESS,
                                      ctypes.byref(tok)):

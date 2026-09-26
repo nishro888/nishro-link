@@ -40,11 +40,14 @@ if (-not $me.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     if ($Uninstall) { $argv += "-Uninstall" }
     Write-Host "Nishro Link: Windows will ask for permission to install the service."
     $p = Start-Process powershell -Verb RunAs -ArgumentList $argv -Wait -PassThru
-    Write-Host "Nishro Link: details in $data\install.log"
+    Write-Host "Nishro Link: details in $data\install-*.log"
     exit $p.ExitCode
 }
 New-Item -ItemType Directory -Force -Path $data | Out-Null
-Start-Transcript -Path (Join-Path $data "install.log") -Force | Out-Null
+# A log per run: an earlier run still hanging on would otherwise hold the file,
+# and this one would stop at its first line.
+$log = Join-Path $data ("install-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
+Start-Transcript -Path $log -Force | Out-Null
 
 try {
     # ---------------------------------------------------------- uninstall
@@ -70,12 +73,18 @@ try {
     if (-not (Test-Path $src)) { throw "NishroLink.exe not found. Build it first: link\packaging\build-windows.ps1" }
 
     if (Get-Service $name -ErrorAction SilentlyContinue) {
-        Stop-Service $name -Force -ErrorAction SilentlyContinue
+        & sc.exe stop $name | Out-Null
+        Start-Sleep -Seconds 2
         Ok "stopped the running service"
     }
-    # A copy started by hand holds the ports and the devices.
+    # A copy started by hand - or a service that never finished starting -
+    # holds the ports, the devices and the file about to be replaced.
     $running = Get-Process NishroLink -ErrorAction SilentlyContinue
-    if ($running) { $running | Stop-Process -Force; Start-Sleep -Milliseconds 500; Ok "stopped the running copy" }
+    if ($running) {
+        & taskkill.exe /F /IM NishroLink.exe | Out-Null
+        Start-Sleep -Milliseconds 800
+        Ok "stopped the running copy"
+    }
 
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     Copy-Item (Resolve-Path $src) $exe -Force
@@ -102,7 +111,21 @@ try {
             -Description "One mouse and keyboard across several computers - from boot, on the lock and sign-in screens." | Out-Null
     }
     & sc.exe failure $name reset= 60 actions= restart/2000/restart/5000/restart/10000 | Out-Null
-    Start-Service $name
+    Remove-Item (Join-Path $data "service-error.log") -ErrorAction SilentlyContinue
+    & sc.exe start $name | Out-Null
+    # Waited for, but not for ever: a service that never says it is running
+    # would otherwise hold this window open with no explanation.
+    $state = ""
+    foreach ($i in 1..30) {
+        $state = (Get-Service $name).Status
+        if ($state -eq "Running") { break }
+        Start-Sleep -Seconds 1
+    }
+    if ($state -ne "Running") {
+        $err = Join-Path $data "service-error.log"
+        if (Test-Path $err) { Get-Content $err | Write-Host }
+        throw "the service did not start (it is '$state')"
+    }
     Ok "service running (starts with Windows)"
 
     $sh = New-Object -ComObject WScript.Shell

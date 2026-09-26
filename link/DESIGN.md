@@ -513,6 +513,30 @@ A new password on the hub goes to every member connected at that moment,
 sealed under the old one (`rekey`). One that was switched off is refused on
 return and asks for the new one.
 
+### From boot: running as a service
+
+A per-user program starts only after someone signs in, and on Windows cannot
+touch the lock or sign-in screen at all. So on both systems the engine runs as
+a system service, and the window only attaches to it (`service.py`: the
+control API's port and token in a handle file - readable by root and the
+`input` group on Linux; the service's own page then needs the token too, its
+controls including the password).
+
+- **Linux** (`nishro-link.service`, root, from boot). Input needs no session:
+  evdev and uinput work below the desktop, at the login screen, the lock screen
+  and every session alike. The monitor layout and the clipboard do need one,
+  so they run inside logind's active session on seat0, as its user
+  (`session.py`); at the login screen there is none, and the kernel's mode list
+  gives the screen size.
+- **Windows** (the `NishroLink` service, SYSTEM). Session 0 has no screen, and
+  the lock and sign-in screens live on the Winlogon desktop, which ordinary
+  programs cannot reach. The service keeps the link; a desk agent
+  (`agent.py`) runs in the console session as SYSTEM on whichever desktop is
+  showing - started with the service's own token moved into that session
+  (`winsvc.py`) - and relays input, the screens and the clipboard over a
+  loopback socket. When another desktop comes up the agent says where and
+  exits, and the service starts one there; the link never drops.
+
 ### Editing a device
 
 - **Rename.** A device's name is baked into the arrangement, the baton, the

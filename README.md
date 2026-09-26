@@ -66,8 +66,20 @@ It is a single file with Python built in; nothing else is needed.
   is dismissed, Windows blocks the program and other devices cannot find it -
   the window will say so and offer an *Allow through the firewall* button.
 
-To start it at sign-in: **Settings → Start when I log in**. It then starts in
-the background; open it again to bring the window back.
+**To use it on the lock screen and the sign-in screen**, install it as a
+service - it then starts with Windows, before anyone signs in, and stays
+connected through locks, sign-ins and sign-outs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File link\packaging\install-windows-service.ps1
+```
+
+It asks for administrator rights once, installs to Program Files and carries
+your pairing across. The Start Menu entry then opens a window onto the service;
+closing it stops nothing. `-Uninstall` removes it again.
+
+Without the service: **Settings → Start when I log in** starts it after you
+sign in.
 
 To build it yourself and install it for your user (Start Menu entry, optional
 start at sign-in):
@@ -87,20 +99,17 @@ sudo apt install ./nishro-link_0.10.0-beta_all.deb
 ```
 
 It installs what it needs (`python3-tk`, `python3-evdev`, and `xclip` for the
-clipboard), adds **Nishro Link** to the app menu, and lets the `input` group
-use `/dev/uinput`. Reading the
-keyboard and mouse needs your user in that group:
+clipboard) and runs Nishro Link as a **system service**: it starts with the
+computer - before anyone logs in - and works on the login screen and the lock
+screen. Your pairing is carried across. **Nishro Link** in the app menu opens a
+window onto the service; closing it stops nothing.
 
-- installed with `sudo apt`, it adds you;
-- installed from the App Center, the window shows **Set up permissions**, which
-  does the same behind your normal password prompt.
-
-Either way, **log out and back in once** afterwards. The window says when that
-is all that is left.
+The window needs your account in the `input` group: installed with `sudo apt`,
+it adds you; otherwise the window offers to. **Log out and back in once**
+afterwards.
 
 If a firewall (ufw) is running: `sudo ufw allow 8770` (the link is TCP 8770,
-finding devices by name is UDP 8770; that command opens both). To start at
-login: **Settings → Start when I log in**. To remove it:
+finding devices by name is UDP 8770; that command opens both). To remove it:
 `sudo apt remove nishro-link`.
 
 ### Other Linux, or without root
