@@ -16,9 +16,21 @@ us re-announcing it.
 NEVER ON THE HOOK THREAD. get() shells out - PowerShell on Windows takes roughly
 200ms - and P1 says a capture thread may not block for a microsecond longer than
 arithmetic. Everything here runs on Node's own clipboard worker.
+
+NO WINDOWS ON GNOME. GNOME under Wayland gives background programs no way to
+the clipboard, so wl-clipboard gets there by opening a tiny window for a moment
+- which the dock shows, every time. Read every 400ms, that was reported as the
+Ubuntu dock's Trash icon "jumping down and up repeatedly" while linked. So on
+GNOME the X11 tools come first: they reach the same clipboard through XWayland
+without a window. (Elsewhere wl-clipboard uses a proper protocol and is best.)
+And on Linux the clipboard is read only when the pointer has just left this
+machine, not on a timer - see Node._clipboard.
 """
 from __future__ import annotations
 
+import functools
+import os
+import shutil
 import subprocess
 import sys
 
@@ -29,17 +41,45 @@ from . import protocol
 MAX_BYTES = 1024 * 1024
 
 
+READ = {"wl": ["wl-paste", "-n", "--type", "text"],
+        "xclip": ["xclip", "-selection", "clipboard", "-o"],
+        "xsel": ["xsel", "-b", "-o"]}
+WRITE = {"wl": ["wl-copy", "--type", "text/plain"],
+         "xclip": ["xclip", "-selection", "clipboard", "-i"],
+         "xsel": ["xsel", "-b", "-i"]}
+_BINARY = {"wl": "wl-paste", "xclip": "xclip", "xsel": "xsel"}
+
+
+def order(env=None) -> list:
+    """The Linux clipboard tools to use, best first, for this session."""
+    env = os.environ if env is None else env
+    wayland = bool(env.get("WAYLAND_DISPLAY"))
+    x11 = bool(env.get("DISPLAY"))
+    gnome = "gnome" in env.get("XDG_CURRENT_DESKTOP", "").lower()
+    x = ["xclip", "xsel"] if x11 else []
+    wl = ["wl"] if wayland else []
+    if wayland and gnome:
+        return x + wl          # no window through XWayland; wl-clipboard flashes one
+    if wayland:
+        return wl + x
+    return x
+
+
+@functools.lru_cache(maxsize=1)
+def _tools() -> tuple:
+    return tuple(t for t in order() if shutil.which(_BINARY[t]))
+
+
 def get() -> str:
     try:
         if sys.platform == "win32":
             out = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
                                  capture_output=True, text=True, timeout=5)
             return out.stdout.rstrip("\r\n")
-        for cmd in (["wl-paste", "-n"], ["xclip", "-selection", "clipboard", "-o"], ["xsel", "-b"]):
-            try:
-                return subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
-            except FileNotFoundError:
-                continue
+        for tool in _tools():
+            r = subprocess.run(READ[tool], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                return r.stdout
     except Exception:
         pass
     return ""
@@ -51,12 +91,14 @@ def set(text: str) -> bool:
             subprocess.run(["powershell", "-NoProfile", "-Command", "$input | Set-Clipboard"],
                            input=text, text=True, timeout=5, capture_output=True)
             return True
-        for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "-b", "-i"]):
-            try:
-                subprocess.run(cmd, input=text, text=True, timeout=5, capture_output=True)
+        for tool in _tools():
+            # Not captured: wl-copy and xclip stay behind to hold the clipboard,
+            # and a pipe held open by that child made run() wait out the whole
+            # timeout on every paste that arrived.
+            r = subprocess.run(WRITE[tool], input=text, text=True, timeout=5,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if r.returncode == 0:
                 return True
-            except FileNotFoundError:
-                continue
     except Exception:
         pass
     return False
@@ -94,6 +136,13 @@ class ClipboardSync:
         self._last = None             # last text we know about, either direction
         self._offer = None            # (seq, text) we have announced
         self._incoming = {}           # seq -> {index: chunk}
+
+    def cheap(self) -> bool:
+        """Is looking at the clipboard nearly free here? True where the OS keeps
+        a change counter (Windows); False where a look runs a program (Linux)."""
+        if not hasattr(self, "_cheap"):
+            self._cheap = self._seq_fn() is not None
+        return self._cheap
 
     # ---- our side changed ----
     def poll(self) -> list:

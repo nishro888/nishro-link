@@ -918,6 +918,7 @@ class Node:
         # shell out (~200ms on Windows), which would stall input for as long as
         # it takes. The reader only ever enqueues.
         self._clip_q: queue.Queue = queue.Queue(maxsize=256)
+        self._was_remote = False      # where the cursor was at the last clipboard tick
         # Log lines go to one worker, not a thread each. Spawning a thread per
         # line is fine at one line a minute and ruinous during a fault, which is
         # exactly when logging matters: the oscillation bug would have created
@@ -1569,9 +1570,10 @@ class Node:
             except queue.Empty:
                 msg = None
             if not self.connected():
+                self._was_remote = False
                 continue                      # nobody to tell, nothing to fetch
             try:
-                out = self.clip.on_message(msg) if msg else self.clip.poll()
+                out = self.clip.on_message(msg) if msg else self._clip_look()
             except Exception as e:
                 self._log_async(f"clipboard error: {e!r}")
                 continue
@@ -1586,6 +1588,19 @@ class Node:
                     elif m.get("t") == "clipdata":
                         m["to"] = msg.get("from")
                 self._send(m)
+
+    def _clip_look(self) -> list:
+        """One tick of watching our own clipboard.
+
+        Where a look is nearly free (Windows' change counter), look every tick.
+        Where it runs a program (Linux), look only when the pointer has just
+        left this machine - the moment a copy made here can next be pasted
+        anywhere else. Looking every 400ms made GNOME's dock flicker (clip.py).
+        """
+        remote = self.core.cursor_is_remote()
+        left = remote and not self._was_remote
+        self._was_remote = remote
+        return self.clip.poll() if (self.clip.cheap() or left) else []
 
     # ----------------------------------------------------------- networking
     def _serve(self) -> None:

@@ -84,8 +84,9 @@ page and open it in the App Center (Software Install), or:
 sudo apt install ./nishro-link_0.10.0-beta_all.deb
 ```
 
-It installs what it needs (`python3-tk`, `python3-evdev`), adds **Nishro Link**
-to the app menu, and lets the `input` group use `/dev/uinput`. Reading the
+It installs what it needs (`python3-tk`, `python3-evdev`, and `xclip` for the
+clipboard), adds **Nishro Link** to the app menu, and lets the `input` group
+use `/dev/uinput`. Reading the
 keyboard and mouse needs your user in that group:
 
 - installed with `sudo apt`, it adds you;

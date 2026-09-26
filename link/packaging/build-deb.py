@@ -140,8 +140,10 @@ def control(ver: str, files: dict) -> bytes:
             f"Maintainer: {MAINTAINER}\n"
             f"Installed-Size: {(size + 1023) // 1024}\n"
             f"Depends: python3 (>= 3.10), python3-tk, python3-evdev\n"
-            f"Recommends: pkexec | policykit-1, x11-xserver-utils, "
-            f"wl-clipboard | xclip\n"
+            # xclip, not wl-clipboard: on GNOME, wl-clipboard can only reach
+            # the clipboard by flashing a window the dock shows (clip.py).
+            f"Recommends: pkexec | policykit-1, x11-xserver-utils, xclip\n"
+            f"Suggests: wl-clipboard\n"
             f"Section: utils\n"
             f"Priority: optional\n"
             f"Homepage: {HOMEPAGE}\n"

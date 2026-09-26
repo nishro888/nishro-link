@@ -1,7 +1,7 @@
 """Clipboard sharing: lazy, chunked, loop-free. See DESIGN.md section 6."""
 import pytest
 
-from link import protocol
+from link import clip, protocol
 from link.clip import ClipboardSync
 
 
@@ -240,3 +240,82 @@ def test_awkward_text_survives_the_round_trip(text):
                 protocol.encode(data)            # must be a legal frame, too
                 aio.on_message(data)
     assert ab.text == text
+
+
+# ------------------------------------------- Linux: no flicker, no polling
+# Reported: while linked, the Ubuntu dock's Trash icon "jumps down and up
+# repeatedly". wl-paste, run every 400ms, opens a tiny window on GNOME each time.
+
+def test_gnome_on_wayland_reads_through_xwayland_first():
+    env = {"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0",
+           "XDG_CURRENT_DESKTOP": "ubuntu:GNOME"}
+    assert clip.order(env) == ["xclip", "xsel", "wl"]
+
+
+def test_other_wayland_desktops_use_wl_clipboard_first():
+    env = {"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0",
+           "XDG_CURRENT_DESKTOP": "KDE"}
+    assert clip.order(env) == ["wl", "xclip", "xsel"]
+
+
+def test_x11_uses_the_x11_tools_only():
+    assert clip.order({"DISPLAY": ":0", "XDG_CURRENT_DESKTOP": "GNOME"}) == \
+        ["xclip", "xsel"]
+    assert clip.order({}) == []
+
+
+def test_writing_does_not_wait_for_the_tool_that_stays_behind(monkeypatch):
+    """wl-copy and xclip keep running to hold the clipboard; a captured pipe
+    made every write wait out its whole timeout."""
+    import subprocess
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append((cmd, kw))
+        return subprocess.CompletedProcess(cmd, 0)
+    monkeypatch.setattr(clip.sys, "platform", "linux")
+    monkeypatch.setattr(clip, "_tools", lambda: ("xclip",))
+    monkeypatch.setattr(clip.subprocess, "run", run)
+    assert clip.set("hello") is True
+    cmd, kw = calls[0]
+    assert cmd == clip.WRITE["xclip"]
+    assert kw["stdout"] is subprocess.DEVNULL and "capture_output" not in kw
+
+
+def test_a_counter_makes_looking_cheap_and_its_absence_does_not():
+    b = FakeBoard()
+    assert ClipboardSync("a", read=b.read, write=b.write, seq_fn=b.sequence).cheap()
+    assert not ClipboardSync("a", read=b.read, write=b.write,
+                             seq_fn=lambda: None).cheap()
+
+
+def test_without_a_counter_it_looks_only_when_the_pointer_leaves():
+    from link.desk import simple
+    from link.node import Node, NodeCore
+    from test_node_live import FakeCapture, FakeInjector
+    b = FakeBoard()
+    reads = []
+
+    def read():
+        reads.append(1)
+        return b.read()
+    core = NodeCore("aio", simple("aio", (1920, 1080), "laptop", (1366, 768),
+                                  "right"), {})
+    n = Node(core, FakeCapture(), FakeInjector())
+    n.clip = ClipboardSync("aio", read=read, write=b.write, seq_fn=lambda: None)
+    where = {"remote": False}
+    core.cursor_is_remote = lambda: where["remote"]
+    for _ in range(10):
+        n._clip_look()                    # the pointer is here: no look at all
+    assert reads == []
+    where["remote"] = True
+    n._clip_look()
+    assert reads == [1], "it just left: one look"
+    for _ in range(10):
+        n._clip_look()
+    assert reads == [1], "still away: no more"
+    where["remote"] = False
+    n._clip_look()
+    where["remote"] = True
+    n._clip_look()
+    assert reads == [1, 1], "left again: one more"

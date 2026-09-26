@@ -149,3 +149,9 @@ def test_the_dock_can_match_the_window_to_the_menu_entry(deb):
     entry = deb["data"]["./usr/share/applications/nishro-link.desktop"][1].decode()
     wm_class = ui_tk.WM_CLASS[:1].upper() + ui_tk.WM_CLASS[1:]
     assert f"\nStartupWMClass={wm_class}\n" in entry
+
+
+def test_xclip_is_recommended_not_wl_clipboard(deb):
+    """On GNOME, wl-clipboard flashes a window in the dock at every read."""
+    f = fields(deb)
+    assert "xclip" in f["Recommends"] and "wl-clipboard" not in f["Recommends"]
