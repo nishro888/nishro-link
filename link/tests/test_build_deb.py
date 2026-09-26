@@ -137,3 +137,12 @@ def test_the_same_tree_builds_the_same_bytes(tmp_path, monkeypatch):
     b = bd.build(tmp_path / "b.deb").read_bytes()
     assert a == b
 
+
+
+def test_the_dock_can_match_the_window_to_the_menu_entry(deb):
+    """Tk capitalises the first letter of the class it is given; the menu
+    entry's StartupWMClass must be that, or the dock shows a nameless app."""
+    from link import ui_tk
+    entry = deb["data"]["./usr/share/applications/nishro-link.desktop"][1].decode()
+    wm_class = ui_tk.WM_CLASS[:1].upper() + ui_tk.WM_CLASS[1:]
+    assert f"\nStartupWMClass={wm_class}\n" in entry

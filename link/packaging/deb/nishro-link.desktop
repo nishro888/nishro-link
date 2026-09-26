@@ -9,4 +9,4 @@ Terminal=false
 Categories=Utility;Network;
 Keywords=keyboard;mouse;kvm;share;screens;synergy;barrier;
 StartupNotify=true
-StartupWMClass=Nishro Link
+StartupWMClass=Nishro-link

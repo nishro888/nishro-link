@@ -32,6 +32,7 @@ from .ui_kit import (Button, Card, Dot, Kit, Metric, Monitors, Pill, Scroll,
                      Segmented, Toggle, ago, field, label)
 
 POLL_MS = 700
+WM_CLASS = "nishro-link"      # Tk shows the class as "Nishro-link"
 MIN_W, MIN_H = 560, 440            # small enough for a netbook
 WANT_W, WANT_H = 1040, 700         # clamped to the display before use
 NARROW = 820                       # below this the sidebar folds to icons
@@ -60,7 +61,11 @@ class App:
         # `root` lets the tests hand in a Toplevel: a fresh Tk() per test is a
         # fresh Tcl interpreter, and on Windows starting those one after another
         # fails now and then ("couldn't read file init.tcl: No error").
-        self.root = root if root is not None else tk.Tk()
+        #
+        # The class names the window to the desktop: GNOME's dock matches it to
+        # nishro-link.desktop and shows the app's name and icon. Tk's default
+        # class is "Tk", which the dock shows as an unknown program.
+        self.root = root if root is not None else tk.Tk(className=WM_CLASS)
         self.root.title("Nishro Link")
         self.root.protocol("WM_DELETE_WINDOW", self._quit)
         self.root.minsize(MIN_W, MIN_H)
