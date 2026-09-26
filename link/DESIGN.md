@@ -528,6 +528,11 @@ return and asks for the new one.
   is on - it is the one that applies them.
 - **Details**: each device's version travels in `hello`; the hub keeps when
   each joined and was last seen, and shares both in the roster.
+- **From any device.** A member renames, removes or sets the rights of
+  another device by asking the hub (`manage` / `manage_result`); the hub,
+  which keeps the group, carries it out exactly as if done there and answers.
+  Everyone in a group knows its password, so everyone is trusted to manage it.
+  While the hub is out of reach, a member can change only itself.
 
 ### What resume actually means
 

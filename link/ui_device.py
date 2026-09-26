@@ -3,10 +3,12 @@
 Opened from its card. Everything a person might want to know or change about
 one machine is here, and only what they are allowed to change is live:
 
-  rename          this device always; another one from the hub
-  control rights  this device always; another from the hub, while it is on -
-                  it is the one that applies them
-  remove / leave  the hub removes others; a member leaves
+  rename          any device, from any device in the group
+  control rights  any device while it is on - it is the one that applies them
+  remove / leave  any device but the hub, from any device; a member leaves
+
+A member does these by asking the hub, which keeps the group - so while the
+hub cannot be reached, only this device's own name and rights can change.
 
 Anything that cannot be changed says why, rather than just being grey.
 The dialog follows the device by its ID, so it stays on the same machine when
@@ -97,8 +99,8 @@ class DeviceDetails:
             return
         self.name = d["name"]
         self.top.title(f"{d['name']} - Nishro Link")
-        me, hub_here = d["me"], s.get("role") == "hub"
-        role = s.get("role")
+        me, role = d["me"], s.get("role")
+        manage = bool(s.get("can_manage", role == "hub"))
 
         head = tk.Frame(self.box, bg=C["panel"])
         head.pack(fill="x")
@@ -134,11 +136,13 @@ class DeviceDetails:
         # ---- name
         self.rename_row = tk.Frame(self.box, bg=C["panel"])
         self.rename_row.pack(fill="x", pady=(16, 0))
-        can_rename = me or hub_here
         line = self._line(self.rename_row, "Name", d["name"])
-        if can_rename:
+        if me or manage:
             Button(line, kit, "Rename", self._start_rename, kind="ghost",
                    small=True).pack(side="right")
+        elif not me:
+            self._note(f"Not connected to {s.get('group') or 'the hub'} right now, "
+                       f"so other devices cannot be changed from here.")
         if d.get("rename_to"):
             self._note(f"Renamed while it was off - it takes the name when it is "
                        f"next on.")
@@ -193,7 +197,7 @@ class DeviceDetails:
         tk.Frame(self.box, bg=C["line"], height=1).pack(fill="x", pady=(16, 12))
         bar = tk.Frame(self.box, bg=C["panel"])
         bar.pack(fill="x")
-        if hub_here and not me:
+        if not me and manage and not (role == "member" and d["hub"]):
             Button(bar, kit, "Remove from the group", self._remove, kind="danger",
                    small=True).pack(side="left")
         elif me and role == "member":
@@ -224,9 +228,9 @@ class DeviceDetails:
     def _rights_editable(d, s):
         if d["me"]:
             return True, None
-        if s.get("role") != "hub":
-            return False, (f"Only the hub, {s.get('group')}, can change another "
-                           f"device's rights.")
+        if not s.get("can_manage", s.get("role") == "hub"):
+            return False, (f"Not connected to {s.get('group') or 'the hub'} right "
+                           f"now - another device's rights are changed through it.")
         if not d["online"]:
             return False, (f"{d['name']} is switched off. Its rights can be changed "
                            f"while it is on - it is the one that applies them.")

@@ -50,6 +50,7 @@ class ControlAPI:
         node.on_removed = self._on_removed
         node.removed_ids = set(cfg.get("removed") or [])
         node.on_rename = self._on_renamed_by_hub
+        node.on_manage = self._on_manage
         node.on_policy = self._on_policy
         # What the hub remembers of each device, for a rename or a return.
         for d in cfg.get("devices") or []:
@@ -224,6 +225,9 @@ class ControlAPI:
             "dial": dict(n.dial),
             "adding": dict(n.adding),
             "blocked": n.blocked,
+            # Whether this device can rename, remove or set the rights of the
+            # others: the hub itself, or a member while the hub is reachable.
+            "can_manage": bool(n.core.is_hub or n.connected()),
             "events": list(self.events),
             "node": core.node,
             "device_id": n.device_id,
@@ -524,6 +528,18 @@ class ControlAPI:
     def _remove(self, name: str) -> dict:
         if not name:
             return {"error": "which device?"}
+        n = self.node
+        if name == n.core.node:
+            if n.core.is_hub:
+                return {"error": "this device is the hub - it keeps the group, "
+                                 "so remove the others instead"}
+            return self._leave()
+        if not n.core.is_hub:
+            if name == self.group():
+                return {"error": f"{name} is the hub - it keeps the group, so it "
+                                 f"cannot be removed from it. Leave the group "
+                                 f"instead."}
+            return n.request("remove", name=name)
         dev = next((d for d in self.cfg.get("devices") or []
                     if d.get("name") == name), {})
         err = self.node.remove(name)
@@ -541,24 +557,36 @@ class ControlAPI:
         self.log(f"{name} removed from the group")
         return {"ok": True}
 
+    def _rename_check(self, target: str, new: str):
+        """(the new name tidied, or None; why not, or None)."""
+        n = self.node
+        new = " ".join(str(new or "").split())
+        bad = name_problem(new)
+        if bad:
+            return None, bad
+        taken = {x.casefold() for x in n.core.layout.owners()} | \
+            {str(d.get("name")).casefold() for d in self.cfg.get("devices") or []
+             if d.get("name")}
+        taken.discard(target.casefold())
+        if new.casefold() in taken:
+            return None, f"there is already a device called {new} in this group"
+        return new, None
+
     def _rename(self, body: dict) -> dict:
-        """Rename this device (live), or - from the hub - another one."""
+        """Rename this device (live), or another one - from the hub directly,
+        from a member by asking the hub."""
         n = self.node
         target = str(body.get("name") or n.core.node).strip()
-        new = " ".join(str(body.get("new") or "").split())
-        bad = name_problem(new)
+        new, bad = self._rename_check(target, body.get("new"))
         if bad:
             return {"error": bad}
         if new == target:
             return {"ok": True}
-        taken = {x.casefold() for x in n.core.layout.owners()} | \
-            {str(d.get("name")).casefold() for d in self.cfg.get("devices") or []}
-        taken.discard(target.casefold())
-        if new.casefold() in taken:
-            return {"error": f"there is already a device called {new} in this group"}
         if target == n.core.node:
             self._rename_self(new)
             return {"ok": True}
+        if not n.core.is_hub:
+            return n.request("rename", name=target, new=new)
         err = n.rename_other(target, new)
         if err:
             return {"error": err}
@@ -591,6 +619,11 @@ class ControlAPI:
     def _rights(self, body: dict) -> dict:
         n = self.node
         name = str(body.get("name") or n.core.node)
+        if name != n.core.node and not n.core.is_hub:
+            return n.request("rights", name=name,
+                             **{k: bool(body[k]) for k in ("may_drive",
+                                                           "may_be_driven")
+                                if k in body})
         cur = (dict(n.core.policy) if name == n.core.node
                else n.core.rights.get(name, {}))
         drive = bool(body.get("may_drive", cur.get("may_drive", True)))
@@ -603,6 +636,34 @@ class ControlAPI:
         self.log(f"{name}: may take control {'yes' if drive else 'no'}, may be "
                  f"controlled {'yes' if driven else 'no'}")
         return {"ok": True}
+
+    def _on_manage(self, op, args: dict, by: str) -> dict:
+        """The hub: a member asked to rename, remove or set the rights of a
+        device. Carried out exactly as if it had been done here."""
+        n = self.node
+        name = str(args.get("name") or "")
+        if op == "rename":
+            if name == n.core.node:
+                # Renaming the hub reconnects everyone - including the one that
+                # asked, whose answer would be lost. Answer first.
+                new, bad = self._rename_check(name, args.get("new"))
+                if bad:
+                    return {"error": bad}
+                threading.Timer(0.3, self._rename_self, args=(new,)).start()
+                self.log(f"{by} renamed this device to {new}")
+                return {"ok": True}
+            r = self._rename({"name": name, "new": args.get("new")})
+        elif op == "remove":
+            if name == by:
+                return {"error": "to take this device out, leave the group"}
+            r = self._remove(name)
+        elif op == "rights":
+            r = self._rights(dict(args, name=name))
+        else:
+            return {"error": f"unknown request {op!r}"}
+        if r.get("ok"):
+            self.log(f"{by} asked: {op} {name}")
+        return r
 
     def _on_policy(self, policy: dict) -> None:
         for k in ("may_drive", "may_be_driven"):

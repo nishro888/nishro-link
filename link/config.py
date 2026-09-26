@@ -18,6 +18,8 @@ import copy
 import json
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 DEFAULTS = {
@@ -73,15 +75,34 @@ def load(p: Path = None) -> dict:
     return merge(cfg, stored)
 
 
+_SAVE = threading.Lock()
+
+
 def save(cfg: dict, p: Path = None) -> Path:
-    """Write atomically, and keep it to ourselves - it holds the PIN."""
+    """Write atomically, and keep it to ourselves - it holds the PIN.
+
+    One writer at a time. Saves come from several threads - the window, a
+    device joining or leaving, a request from another device - and two at once
+    shared one temporary file: on Windows the second replace then failed with
+    "the process cannot access the file". Windows also locks a file for a
+    moment while something scans it, so the replace is retried briefly.
+    """
     p = Path(p) if p else path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(json.dumps(cfg, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    if sys.platform != "win32":
-        os.chmod(tmp, 0o600)     # the PIN is in here in the clear
-    os.replace(tmp, p)           # atomic: readers see the old file or the new one
+    with _SAVE:
+        text = json.dumps(cfg, indent=2, sort_keys=True) + "\n"
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        if sys.platform != "win32":
+            os.chmod(tmp, 0o600)     # the PIN is in here in the clear
+        for attempt in range(10):
+            try:
+                os.replace(tmp, p)   # atomic: readers see the old file or the new
+                break
+            except PermissionError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.05)
     return p
 
 

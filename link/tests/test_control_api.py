@@ -728,10 +728,12 @@ def test_a_connected_device_is_told_it_was_removed(api):
         api.node.links.clear()
 
 
-def test_only_the_hub_removes_devices(api):
+def test_a_member_asks_the_hub_and_says_when_it_cannot_reach_it(api):
+    """Any device manages any other, through the hub that keeps the group -
+    so a member that has lost its hub says so rather than failing silently."""
     api.node.core.is_hub = False
     r = post(api, "/api/remove", {"name": "aio"})[1]
-    assert "only the hub" in r["error"]
+    assert "not connected" in r["error"]
 
 
 def test_a_member_cannot_change_the_groups_password(api):

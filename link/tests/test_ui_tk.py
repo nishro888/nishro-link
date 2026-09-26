@@ -567,3 +567,36 @@ def test_nearby_devices_are_listed_with_what_adding_means(app):
     buttons = [w for w in _walk(app.nearby_list)
                if isinstance(w, Button) and w.cget("text") == "Add"]
     assert len(buttons) == 1
+
+
+def test_a_card_lights_up_under_the_pointer(app):
+    app.show_page("devices")
+    app._render(app.api.status())
+    app.root.update()
+    card = app.dev_list.winfo_children()[0]
+    card.event_generate("<Enter>")
+    app.root.update()
+    assert card.cget("highlightbackground") == app.C["accent"]
+
+
+def test_a_right_click_offers_everything_that_can_be_done(app):
+    app._render(app.api.status())
+    card = app.dev_list.winfo_children()[0]
+
+    class E:
+        x_root = y_root = 0
+    import tkinter
+    popped = []
+    orig = tkinter.Menu.tk_popup
+    tkinter.Menu.tk_popup = lambda self, x, y, entry="": popped.append(self)
+    try:
+        app._card_menu(E(), "aio")
+    finally:
+        tkinter.Menu.tk_popup = orig
+    m = popped[0]
+    items = {m.entrycget(i, "label"): m.entrycget(i, "state")
+             for i in range(m.index("end") + 1) if m.type(i) == "command"}
+    assert items["Details…"] == "normal" and items["Rename…"] == "normal"
+    assert items["Remove from the group…"] == "normal"
+    assert items["Control rights…"] == "disabled", "aio is switched off"
+    assert card

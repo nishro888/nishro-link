@@ -35,6 +35,10 @@ Message shapes:
   editing    {"t":"rename","name":..}             hub -> peer: you are called this now
              {"t":"set_policy","may_drive":b,"may_be_driven":b}   hub -> peer
              {"t":"policy","may_drive":b,"may_be_driven":b}       peer -> hub: mine
+  managing   {"t":"manage","rid":..,"op":"rename|remove|rights",..}  peer -> hub
+             {"t":"manage_result","rid":..,"ok":b,"error":..}      hub -> that peer
+             Any device manages any other; the hub, which keeps the group,
+             carries it out.
   checking   hello with "probe":true    "is this the password?" - answered by
              {"t":"probe_ok","node":..,"proof":..} and nothing else: nobody
              joins, so a wrong guess changes nothing on either side
@@ -424,7 +428,7 @@ def geom(screens) -> dict:
 # and not believed: every member of the group knows the password, but only the
 # hub decides who holds control, what the arrangement is and who is here.
 HUB_ONLY = frozenset({"baton", "layout", "roster", "welcome", "removed",
-                      "rekey", "rename", "set_policy"})
+                      "rekey", "rename", "set_policy", "manage_result"})
 
 # Answered on the link they arrived on, never routed or relayed.
 HOP_LOCAL = frozenset({"ping", "pong", "err"})

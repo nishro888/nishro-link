@@ -26,11 +26,11 @@ there is no fixed "server with the keyboard".
   pick one, type the password it shows, and watch each step until it says
   connected - or says why not, and what to do. No IP addresses: if DHCP moves
   a device, it is found again automatically.
-- **Edit any device.** Rename it (live, no restart), see its details -
-  displays, address, version, when it joined - and set what it may do: take
-  control of the others, be controlled by them. One that may not be controlled
-  is a wall the pointer stops at. The hub edits every device; each device
-  edits itself.
+- **Manage any device from any device.** Click a device for its details -
+  displays, address, version, when it joined - or right-click it. Rename it
+  (live, no restart), remove it, and set what it may do: take control of the
+  others, be controlled by them. One that may not be controlled is a wall the
+  pointer stops at.
 - **A real arrangement editor.** Every machine is drawn as its actual monitors.
   Drag them to match your desk - beside, above, below, against a particular
   monitor - and bright lines show exactly where the pointer will cross. A
@@ -127,8 +127,12 @@ where that needs `sudo` it prints the exact commands. For the window:
 
 Push the pointer across a bright line to cross. Move any machine's own mouse to
 take control from there. To add a third device, do the same from any device
-already in the group. **Remove** (on the hub) and **Leave this group** (on the
-others) take a device out again.
+already in the group.
+
+To change a device, click it on the **Devices** page (or right-click it):
+**Details**, **Rename**, **Control rights**, **Remove from the group**. This
+works from any device in the group. A device can also **Leave this group**
+from its own screen.
 
 **Sharing** in the top right pauses everything, without losing the group.
 
@@ -169,7 +173,7 @@ Python 3.10+. No dependencies on Windows beyond the standard library; `evdev`
 on Linux (`pip install -r link/requirements-linux.txt`, or `python3-evdev`).
 
 ```bash
-python -m pytest link/tests          # 754 tests, about two minutes
+python -m pytest link/tests          # 770 tests, about two and a half minutes
 python -m link.nishro_link           # run from source
 python link/packaging/build-deb.py   # the .deb, into dist/ (pure Python; builds on Windows too)
 ```

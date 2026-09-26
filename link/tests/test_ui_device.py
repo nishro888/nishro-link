@@ -158,7 +158,21 @@ def test_rights_that_cannot_be_changed_say_why(root, api):
     api.node.peer_name = "desk"
     d = details(root, api, "aio")
     try:
-        assert any("Only the hub" in x for x in texts(d.top))
+        assert any("Not connected to desk" in x for x in texts(d.top))
+        assert "Rename" not in texts(d.top)
+    finally:
+        d.close()
+
+
+def test_a_member_connected_to_its_hub_manages_the_others(root, api):
+    """Any device manages any other - a member by asking the hub."""
+    api.node.core.set_hub(False)
+    api.node.peer_name = "desk"
+    online(api, "desk")                     # its link to the hub
+    d = details(root, api, "aio")
+    try:
+        t = texts(d.top)
+        assert "Rename" in t and "Remove from the group" in t
     finally:
         d.close()
 

@@ -904,6 +904,8 @@ class Node:
         from . import __version__
         self.version = __version__
         self.on_rename = None         # (new) - this device was renamed from the hub
+        self.on_manage = None         # hub: (op, args, by) -> {"ok"} or {"error"}
+        self._asked = {}              # member: request id -> [Event, result]
         self.on_policy = None         # (policy) - its rights were set from the hub
 
         self._stop = False
@@ -1069,8 +1071,18 @@ class Node:
     def roster_devices(self) -> list:
         """The group as the hub describes it, with each device's rights and
         version: every window shows them, and every driver needs the rights."""
+        listed = [dict(d) for d in self.core.devices or [] if d.get("name")]
+        names = {d["name"] for d in listed}
+        # Everyone on the arrangement, whether or not the saved list has caught
+        # up: a device's rights must reach the others even so.
+        if self.core.node not in names:
+            listed.insert(0, {"name": self.core.node, "id": self.device_id,
+                              "hub": True})
+        for owner in self.core.layout.owners():
+            if owner not in names and owner != self.core.node:
+                listed.append({"name": owner})
         out = []
-        for d in self.core.devices or []:
+        for d in listed:
             name = d.get("name")
             rights = (dict(may_drive=self.core.may_drive(),
                            may_be_driven=self.core.may_be_driven())
@@ -1491,6 +1503,40 @@ class Node:
             return f"{name} is switched off - change its rights when it is on"
         link.ch.send(dict({"t": "set_policy", "to": name}, **rights))
         return None
+
+    def request(self, op: str, timeout: float = 5.0, **args) -> dict:
+        """A member asks the hub to rename, remove or set the rights of a
+        device, and waits for the answer - the window shows it."""
+        if self.core.is_hub:
+            return {"error": "this device is the hub"}
+        if not self.connected():
+            return {"error": f"not connected to {self.peer_name or 'the hub'} "
+                             f"right now - try again once it is"}
+        rid = secrets.token_hex(6)
+        box = [threading.Event(), None]
+        self._asked[rid] = box
+        try:
+            self._send(dict(args, t="manage", op=op, rid=rid))
+            if not box[0].wait(timeout):
+                return {"error": f"{self.peer_name or 'the hub'} did not answer"}
+            return box[1] or {"error": "no answer"}
+        finally:
+            self._asked.pop(rid, None)
+
+    def _manage(self, msg: dict, by: str) -> None:
+        """The hub carries out a member's request, off the reader thread (it
+        may rename, reconnect and save), and answers."""
+        cb = self.on_manage
+        try:
+            args = {k: v for k, v in msg.items()
+                    if k not in ("t", "op", "rid", "from", "to")}
+            r = cb(msg.get("op"), args, by) if cb else {"error": "not supported"}
+        except Exception as e:
+            r = {"error": repr(e)}
+        ok = bool(r and r.get("ok"))
+        self._send({"t": "manage_result", "to": by, "rid": msg.get("rid"),
+                    "ok": ok, "error": None if ok else (r or {}).get("error"),
+                    "pending": bool((r or {}).get("pending"))})
 
     def _renamed_to(self, new: str) -> None:
         self._log(f"the hub renamed this device to {new!r}")
@@ -2306,6 +2352,16 @@ class Node:
                             self.on_policy(dict(self.core.policy))
                         except Exception:
                             pass
+                    continue
+                if hub and t == "manage":
+                    threading.Thread(target=self._manage, args=(msg, name),
+                                     daemon=True).start()
+                    continue
+                if not hub and t == "manage_result":
+                    box = self._asked.get(msg.get("rid"))
+                    if box is not None:
+                        box[1] = {k: msg.get(k) for k in ("ok", "error", "pending")}
+                        box[0].set()
                     continue
                 if hub and t == "policy":
                     with self._lock:

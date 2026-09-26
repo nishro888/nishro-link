@@ -484,7 +484,8 @@ class App:
         sig = tuple((d["name"], d["online"], d["hub"], d.get("may_drive"),
                      d.get("may_be_driven"), d.get("rename_to"),
                      tuple(map(tuple, d["displays"]))) for d in devs) + \
-            (s.get("role"), s.get("group"), getattr(self, "_dev_cols", 2))
+            (s.get("role"), s.get("group"), s.get("can_manage"),
+             getattr(self, "_dev_cols", 2))
         if sig != self._dev_sig:
             self._dev_sig = sig
             for w in self.dev_list.winfo_children():
@@ -573,16 +574,61 @@ class App:
         acts.pack(anchor="w", pady=(6, 0))
         Button(acts, kit, "Details", lambda n=d["name"]: self._details(n),
                kind="secondary", small=True).pack(side="left")
-        if s.get("role") == "hub":
+        manage = bool(s.get("can_manage"))
+        if manage:
             Button(acts, kit, "Rename", lambda n=d["name"]: self._details(n, rename=True),
                    kind="ghost", small=True).pack(side="left", padx=(6, 0))
-            Button(acts, kit, "Remove", lambda n=d["name"]: self._remove_device(n),
-                   kind="ghost", small=True).pack(side="left")
-        # The whole card opens the details, like any list of things.
-        for w in (card, inner, text, top, pic):
+            if not (s.get("role") == "member" and d["hub"]):
+                Button(acts, kit, "Remove", lambda n=d["name"]: self._remove_device(n),
+                       kind="ghost", small=True).pack(side="left")
+        # The whole card is one thing to click: it lights up under the pointer,
+        # opens the details on a click, and offers everything on a right-click.
+        parts = (card, inner, text, top, pic)
+        for w in parts:
             w.bind("<Button-1>", lambda _e, n=d["name"]: self._details(n))
+            w.bind("<Button-3>", lambda e, n=d["name"]: self._card_menu(e, n))
+            w.bind("<Enter>", lambda _e, c=card: c.configure(
+                highlightbackground=C["accent"]))
+            w.bind("<Leave>", lambda e, c=card: self._card_leave(e, c))
             w.configure(cursor="hand2")
         return card
+
+    def _card_leave(self, e, card) -> None:
+        """Only when the pointer leaves the card itself, not one of its parts."""
+        try:
+            x, y = card.winfo_pointerxy()
+            inside = card.winfo_containing(x, y)
+        except (tk.TclError, KeyError):
+            inside = None
+        w = inside
+        while w is not None and w is not card:
+            w = getattr(w, "master", None)
+        if w is not card:
+            card.configure(highlightbackground=self.C["line"])
+
+    def _card_menu(self, e, name) -> None:
+        C = self.C
+        s = self._last or {}
+        d = next((x for x in s.get("devices") or [] if x["name"] == name), {})
+        manage = bool(s.get("can_manage"))
+        m = tk.Menu(self.root, tearoff=0, bg=C["card_hi"], fg=C["ink"],
+                    activebackground=C["accent"], activeforeground=C["accent_ink"],
+                    disabledforeground=C["faint"], relief="flat", borderwidth=1)
+        m.add_command(label="Details…", command=lambda: self._details(name))
+        m.add_command(label="Rename…", command=lambda: self._details(name, rename=True),
+                      state="normal" if manage else "disabled")
+        m.add_command(label="Control rights…", command=lambda: self._details(name),
+                      state="normal" if manage and d.get("online") else "disabled")
+        m.add_separator()
+        can_remove = manage and not (s.get("role") == "member" and d.get("hub"))
+        m.add_command(label="Remove from the group…",
+                      command=lambda: self._remove_device(name),
+                      state="normal" if can_remove else "disabled")
+        self._menu = m
+        try:
+            m.tk_popup(e.x_root, e.y_root)
+        finally:
+            m.grab_release()
 
     # ========================================================== Arrangement
     def _arrange(self):

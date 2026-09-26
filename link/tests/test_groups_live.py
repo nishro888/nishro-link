@@ -401,3 +401,83 @@ def test_every_device_learns_the_others_versions_and_rights(running):
     wait(lambda: any(d.get("name") == "laptop" and d.get("version")
                      for d in aio.core.devices), "the roster", (laptop, aio))
     assert aio.core.rights["laptop"] == {"may_drive": True, "may_be_driven": True}
+
+
+# --------------------------------------------- managing from any device
+def member_api(tmp_path, node, **cfg_extra):
+    from link import config, control_api
+    from link.runtime import RunLog
+    cfg = config.merge(config.DEFAULTS, dict({"node": node.core.node,
+                                              "pin": LAPTOP_PW}, **cfg_extra))
+    return control_api.ControlAPI(node, cfg, RunLog(tmp_path / f"{node.core.node}.log",
+                                                    echo=False),
+                                  cfg_path=tmp_path / f"{node.core.node}.json", port=0)
+
+
+def trio_up(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio1 = device("aio1", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    aio2 = device("aio2", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    aio2.on_rename = aio2.rename
+    running(laptop, aio1, aio2)
+    wait(lambda: {"aio1", "aio2"} <= set(laptop.links), "all three",
+         (laptop, aio1, aio2))
+    return laptop, aio1, aio2
+
+
+def test_a_member_renames_another_device_through_the_hub(tmp_path, running):
+    laptop, aio1, aio2 = trio_up(running)
+    hub_api = member_api(tmp_path, laptop, hub=True)
+    api1 = member_api(tmp_path, aio1)
+    r = api1.command("/api/rename", {"name": "aio2", "new": "kitchen"})
+    assert r["ok"], r
+    wait(lambda: "kitchen" in laptop.links, "aio2 to come back as kitchen",
+         (laptop, aio1, aio2))
+    assert hub_api                                      # it is what answered
+
+
+def test_a_member_removes_another_device_through_the_hub(tmp_path, running):
+    laptop, aio1, aio2 = trio_up(running)
+    member_api(tmp_path, laptop, hub=True)
+    told = []
+    aio2.on_removed = told.append
+    api1 = member_api(tmp_path, aio1)
+    r = api1.command("/api/remove", {"name": "aio2"})
+    assert r["ok"], r
+    wait(lambda: told == ["laptop"], "aio2 to be told", (laptop, aio1, aio2))
+
+
+def test_a_member_sets_another_devices_rights_through_the_hub(tmp_path, running):
+    laptop, aio1, aio2 = trio_up(running)
+    member_api(tmp_path, laptop, hub=True)
+    api1 = member_api(tmp_path, aio1)
+    r = api1.command("/api/rights", {"name": "aio2", "may_be_driven": False})
+    assert r["ok"], r
+    wait(lambda: aio2.core.may_be_driven() is False, "aio2 to apply it",
+         (laptop, aio1, aio2))
+    wait(lambda: "aio2" not in aio1.core.reachable(), "aio1 to see the wall",
+         (laptop, aio1, aio2))
+
+
+def test_a_refusal_from_the_hub_reaches_the_member(tmp_path, running):
+    laptop, aio1, aio2 = trio_up(running)
+    member_api(tmp_path, laptop, hub=True)
+    api1 = member_api(tmp_path, aio1)
+    r = api1.command("/api/rename", {"name": "aio2", "new": "laptop"})
+    assert "already a device called laptop" in r["error"]
+
+
+def test_a_member_renames_the_hub(tmp_path, running):
+    laptop, aio1, aio2 = trio_up(running)
+    member_api(tmp_path, laptop, hub=True)
+    api1 = member_api(tmp_path, aio1)
+    assert api1.command("/api/rename", {"name": "laptop", "new": "desk"})["ok"]
+    wait(lambda: aio1.trusted_peer == "desk" and aio1.connected(),
+         "everyone to reconnect to the renamed hub", (laptop, aio1, aio2))
+
+
+def test_the_hub_cannot_be_removed_by_a_member(tmp_path, running):
+    laptop, aio1, aio2 = trio_up(running)
+    api1 = member_api(tmp_path, aio1)
+    r = api1.command("/api/remove", {"name": "laptop"})
+    assert "keeps the group" in r["error"]
