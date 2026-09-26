@@ -28,7 +28,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox
 
-from . import autostart, ui_arrange, ui_pair, ui_theme
+from . import autostart, ui_arrange, ui_device, ui_pair, ui_theme
 from .ui_kit import (Button, Card, Dot, Kit, Metric, Monitors, Pill, Scroll,
                      Segmented, Toggle, ago, field, label)
 
@@ -65,6 +65,13 @@ class App:
         self._pending = None          # (boxes, when): applied, not yet echoed
         self._apply_id = None
         self._pw_at = 0.0
+        self._nearby = None           # the last search's devices, or None
+        self._nearby_busy = False
+        self._nearby_at = 0.0
+        self._nearby_sig = None
+        self._renaming = False
+        # How to look for devices nearby. Tests swap it for a canned answer.
+        self._nearby_search = lambda: self.api.command("/api/discover", {})
 
         # `root` lets the tests hand in a Toplevel: a fresh Tk() per test is a
         # fresh Tcl interpreter, and on Windows starting those one after another
@@ -374,11 +381,18 @@ class App:
         words.pack(side="left", fill="x", expand=True)
         row = tk.Frame(words, bg=C["card"])
         row.pack(fill="x")
+        self.me_name_row = row
         self.me_name = tk.Label(row, text="", font=F["h1"], bg=C["card"],
                                 fg=C["ink"], anchor="w")
         self.me_name.pack(side="left")
         self.me_pill = Pill(row, kit, "")
         self.me_pill.pack(side="left", padx=10)
+        self.btn_me_details = Button(row, kit, "Details", self._me_details,
+                                     kind="ghost", small=True)
+        self.btn_me_details.pack(side="right")
+        self.btn_rename_me = Button(row, kit, "Rename", self._rename_me,
+                                    kind="ghost", small=True)
+        self.btn_rename_me.pack(side="right")
         self.me_role = label(words, kit, "", "body", "dim")
         self.me_role.configure(bg=C["card"], justify="left")
         self.me_role.pack(anchor="w", fill="x", pady=(4, 0))
@@ -398,7 +412,8 @@ class App:
         self.me_cred_name = tk.Label(g, text="", font=F["h2"], bg=C["surface"],
                                      fg=C["ink"])
         self.me_cred_name.grid(row=1, column=0, sticky="w")
-        self.me_password = tk.Label(g, text="", font=F["mono_big"],
+        # Words read better in a plain face than in a monospaced one.
+        self.me_password = tk.Label(g, text="", font=F["h1"],
                                     bg=C["surface"], fg=C["accent"])
         self.me_password.grid(row=1, column=1, sticky="w", padx=(32, 0))
         tools = tk.Frame(g, bg=C["surface"])
@@ -435,6 +450,7 @@ class App:
         # ---- the others
         bar = tk.Frame(box, bg=C["panel"])
         bar.pack(fill="x", pady=(22, 10))
+        self._devices_box = box
         self.dev_head = tk.Label(bar, text="OTHER DEVICES IN THIS GROUP",
                                  font=F["caps"], bg=C["panel"], fg=C["dim"])
         self.dev_head.pack(side="left", anchor="s")
@@ -443,13 +459,30 @@ class App:
         self.btn_add.pack(side="right")
         self.dev_list = tk.Frame(box, bg=C["panel"])
         self.dev_list.pack(fill="x")
+
+        # ---- nearby: on the network, not in this group - one click to add
+        nb = tk.Frame(box, bg=C["panel"])
+        nb.pack(fill="x", pady=(22, 10))
+        tk.Label(nb, text="NEARBY - NOT IN THIS GROUP", font=F["caps"],
+                 bg=C["panel"], fg=C["dim"]).pack(side="left", anchor="s")
+        self.btn_nearby = Button(nb, kit, "Search again",
+                                 lambda: self._search_nearby(force=True),
+                                 kind="ghost", small=True)
+        self.btn_nearby.pack(side="right")
+        self.nearby_list = tk.Frame(box, bg=C["card"], highlightthickness=1,
+                                    highlightbackground=C["line"])
+        self.nearby_list.pack(fill="x")
+        tk.Label(self.nearby_list, text="  Looking for devices nearby…",
+                 font=F["body"], bg=C["card"], fg=C["dim"]).pack(anchor="w",
+                                                                 pady=10)
         return page
 
     def _device_cards(self, s) -> None:
         """Rebuilt only when WHO is there changes; round trips and 'last seen'
         are updated in place, so the page does not flicker every poll."""
         devs = [d for d in s.get("devices") or [] if not d["me"]]
-        sig = tuple((d["name"], d["online"], d["hub"],
+        sig = tuple((d["name"], d["online"], d["hub"], d.get("may_drive"),
+                     d.get("may_be_driven"), d.get("rename_to"),
                      tuple(map(tuple, d["displays"]))) for d in devs) + \
             (s.get("role"), s.get("group"), getattr(self, "_dev_cols", 2))
         if sig != self._dev_sig:
@@ -527,10 +560,28 @@ class App:
         state = tk.Label(text, text=_device_state(d), font=F["small"], bg=C["card"],
                          fg=C["ok"] if d["online"] else C["faint"], anchor="w")
         state.pack(fill="x")
+        limits = _limits(d)
+        if limits:
+            tk.Label(text, text=limits, font=F["small"], bg=C["card"], fg=C["warn"],
+                     anchor="w").pack(fill="x")
+        if d.get("rename_to"):
+            tk.Label(text, text="takes the new name when it is next on",
+                     font=F["small"], bg=C["card"], fg=C["faint"],
+                     anchor="w").pack(fill="x")
         self._dev_rows[d["name"]] = {"state": state}
+        acts = tk.Frame(text, bg=C["card"])
+        acts.pack(anchor="w", pady=(6, 0))
+        Button(acts, kit, "Details", lambda n=d["name"]: self._details(n),
+               kind="secondary", small=True).pack(side="left")
         if s.get("role") == "hub":
-            Button(text, kit, "Remove", lambda n=d["name"]: self._remove_device(n),
-                   kind="ghost", small=True).pack(anchor="w", pady=(6, 0))
+            Button(acts, kit, "Rename", lambda n=d["name"]: self._details(n, rename=True),
+                   kind="ghost", small=True).pack(side="left", padx=(6, 0))
+            Button(acts, kit, "Remove", lambda n=d["name"]: self._remove_device(n),
+                   kind="ghost", small=True).pack(side="left")
+        # The whole card opens the details, like any list of things.
+        for w in (card, inner, text, top, pic):
+            w.bind("<Button-1>", lambda _e, n=d["name"]: self._details(n))
+            w.configure(cursor="hand2")
         return card
 
     # ========================================================== Arrangement
@@ -810,6 +861,8 @@ class App:
         # ---- devices
         self._me_card(s, devs)
         self._device_cards(s)
+        if self.page == "devices":
+            self._search_nearby()
 
         # ---- settings
         if "claim" not in self.touched:
@@ -866,7 +919,8 @@ class App:
     def _me_card(self, s, devs) -> None:
         C = self.C
         role, group = s.get("role"), s.get("group")
-        self.me_name.configure(text=s["node"])
+        if not self._renaming:
+            self.me_name.configure(text=s["node"])
         self.me_cred_name.configure(text=s["node"])
         me = next((d for d in devs if d["me"]), None)
         if me:
@@ -901,7 +955,7 @@ class App:
                 self.me_password.configure(text=pw)
         self.btn_new_pw.set_enabled(role != "member")
         self.me_hint.configure(text=(
-            "Capitals and dashes don't matter when it is typed. "
+            "Capitals, spaces and dashes don't matter when it is typed. "
             + (f"Only {group} can change it." if role == "member" else
                "" if role == "alone" else
                "A new password goes straight to the devices connected now; any "
@@ -928,6 +982,153 @@ class App:
                 self.me_problem_btn.pack(side="right", padx=12)
             elif not fix and self.me_problem_btn.winfo_manager():
                 self.me_problem_btn.pack_forget()
+
+    # ---------------------------------------------------------- editing
+    def _details(self, name, rename=False) -> None:
+        d = ui_device.DeviceDetails(self.root, self.api, self.C, name,
+                                    confirm=self._confirm,
+                                    on_change=self._devices_changed)
+        if rename:
+            d._start_rename()
+        return d
+
+    def _me_details(self) -> None:
+        self._details((self._last or {}).get("node") or self.me_name.cget("text"))
+
+    def _devices_changed(self) -> None:
+        self._dev_sig = None
+        self._poll_now()
+
+    def _rename_me(self) -> None:
+        """This device's name, edited where it is shown."""
+        C, kit = self.C, self.kit
+        if self._renaming:
+            return
+        self._renaming = True
+        self.me_name.pack_forget()
+        self.me_pill.pack_forget()
+        self.btn_rename_me.pack_forget()
+        self.btn_me_details.pack_forget()
+        self.f_me_name = field(self.me_name_row, kit, width=20)
+        self.f_me_name.configure(font=self.F["h2"])
+        self.f_me_name.insert(0, self.me_name.cget("text"))
+        self.f_me_name.select_range(0, "end")
+        self.f_me_name.pack(side="left", ipady=3)
+        self.f_me_name.focus_set()
+        self._me_save = Button(self.me_name_row, kit, "Save", self._rename_me_save,
+                               kind="primary", small=True)
+        self._me_save.pack(side="left", padx=(8, 0))
+        self._me_cancel = Button(self.me_name_row, kit, "Cancel",
+                                 self._rename_me_done, kind="ghost", small=True)
+        self._me_cancel.pack(side="left", padx=(4, 0))
+        self.f_me_name.bind("<Return>", lambda _e: self._rename_me_save())
+        self.f_me_name.bind("<Escape>", lambda _e: self._rename_me_done())
+
+    def _rename_me_save(self) -> None:
+        r = self.api.command("/api/rename", {"new": self.f_me_name.get()}) or {}
+        if r.get("error"):
+            self._toast(r["error"][:1].upper() + r["error"][1:], "bad")
+            self.f_me_name.focus_set()
+            return
+        self._rename_me_done()
+        self._toast(f"This device is called {self.me_name.cget('text')} now.", "ok")
+
+    def _rename_me_done(self) -> None:
+        for w in (self.f_me_name, self._me_save, self._me_cancel):
+            w.destroy()
+        self._renaming = False
+        self.me_name.pack(side="left")
+        self.me_pill.pack(side="left", padx=10)
+        self.btn_me_details.pack(side="right")
+        self.btn_rename_me.pack(side="right")
+        self._poll_now()
+
+    # ----------------------------------------------------------- nearby
+    def _search_nearby(self, force=False) -> None:
+        """Look for devices on the network every few seconds while the Devices
+        page is open - off the Tk thread, a search takes about a second."""
+        if self._nearby_busy or (not force and
+                                 time.monotonic() - self._nearby_at < 8):
+            return
+        self._nearby_busy = True
+        self._nearby_at = time.monotonic()
+        self.btn_nearby.set_enabled(False)
+        box = []
+        threading.Thread(target=lambda: box.append(self._safe_search()),
+                         daemon=True).start()
+
+        def wait():
+            if not self._alive:
+                return
+            if not box:
+                self.root.after(150, wait)
+                return
+            self._nearby_busy = False
+            self._nearby_at = time.monotonic()
+            try:
+                self.btn_nearby.set_enabled(True)
+            except tk.TclError:
+                return
+            self._nearby = box[0]
+            self._show_nearby()
+        wait()
+
+    def _safe_search(self):
+        try:
+            return list((self._nearby_search() or {}).get("devices") or [])
+        except Exception:
+            return []
+
+    def _show_nearby(self) -> None:
+        C, F, kit = self.C, self.F, self.kit
+        s = self._last or {}
+        me = {"role": s.get("role"), "group": s.get("group"),
+              "members": s.get("members") or [], "connected": s.get("connected")}
+        rows = []
+        for f in self._nearby or []:
+            what, tone, action, mode, target = ui_pair.row_action(f, me)
+            if what == "In this group":
+                continue
+            rows.append((f, what, tone, action, mode, target))
+        sig = repr(rows)
+        if sig == self._nearby_sig:
+            return
+        self._nearby_sig = sig
+        for w in self.nearby_list.winfo_children():
+            w.destroy()
+        if not rows:
+            tk.Label(self.nearby_list,
+                     text="  No other devices nearby. Open Nishro Link on another "
+                          "computer and it appears here.",
+                     font=F["body"], bg=C["card"], fg=C["dim"]).pack(anchor="w",
+                                                                     pady=10)
+            return
+        for i, (f, what, tone, action, mode, target) in enumerate(rows):
+            if i:
+                tk.Frame(self.nearby_list, bg=C["line"], height=1).pack(fill="x")
+            row = tk.Frame(self.nearby_list, bg=C["card"], padx=12, pady=9)
+            row.pack(fill="x")
+            dot = tk.Canvas(row, width=10, height=10, highlightthickness=0,
+                            bg=C["card"])
+            dot.create_oval(1, 1, 9, 9, outline="",
+                            fill=C["ok"] if f.get("waiting") else C["faint"])
+            dot.pack(side="left", padx=(0, 10))
+            tk.Label(row, text=f.get("name"), font=F["h3"], bg=C["card"],
+                     fg=C["ink"]).pack(side="left")
+            tk.Label(row, text="  " + what, font=F["small"], bg=C["card"],
+                     fg=C.get(tone, C["dim"])).pack(side="left")
+            if action:
+                Button(row, kit, action,
+                       lambda m=mode, t=target: self._add_device(start=(m, t)),
+                       kind="primary" if mode == "invite" else "secondary",
+                       small=True).pack(side="right")
+        if me["role"] == "hub" and any(r[3] is None and r[1] != "Sharing is off"
+                                       for r in rows):
+            tk.Label(self.nearby_list,
+                     text="  This device has a group of its own, so it can add "
+                          "devices that are on their own - not join another group.",
+                     font=F["small"], bg=C["card"], fg=C["faint"]
+                     ).pack(anchor="w", pady=(0, 8))
 
     def _copy_password(self) -> None:
         pw = self.me_password.cget("text")
@@ -1038,10 +1239,11 @@ class App:
                   self.C["ok"])
         self._poll_now()
 
-    def _add_device(self) -> None:
+    def _add_device(self, start=None) -> None:
         ui_pair.AddDevice(self.root, self.api, self.C,
-                          on_done=lambda r: self._poll_now(),
-                          on_arrange=lambda: self.show_page("arrange"))
+                          on_done=lambda r: self._devices_changed(),
+                          on_arrange=lambda: self.show_page("arrange"),
+                          start=start)
 
     def _leave(self) -> None:
         group = (self._last or {}).get("group") or "the"
@@ -1385,6 +1587,16 @@ def _connection_problem(s: dict):
         return (f"{g} is not answering. Is it switched on, with Nishro Link "
                 f"open? This device keeps trying.", False)
     return None, False
+
+
+def _limits(d) -> str:
+    """What a device may not do, in words - or nothing."""
+    out = []
+    if d.get("may_drive") is False:
+        out.append("cannot take control")
+    if d.get("may_be_driven") is False:
+        out.append("cannot be controlled")
+    return "  ·  ".join(out)
 
 
 def _device_state(d) -> str:

@@ -256,7 +256,7 @@ class AddDevice:
                                                       padx=(8, 20), pady=(6, 0))
         self._text(inner, "Password", "small", "dim").grid(row=1, column=2,
                                                           sticky="w", pady=(6, 0))
-        self.my_pw = self._text(inner, pw, "mono", "accent")
+        self.my_pw = self._text(inner, pw, "h3", "accent")
         self.my_pw.grid(row=1, column=3, sticky="w", padx=(8, 8), pady=(6, 0))
         Button(inner, self.kit, "Copy", lambda: self._copy(pw), small=True
                ).grid(row=1, column=4, sticky="e", pady=(6, 0))
@@ -369,10 +369,10 @@ class AddDevice:
         self._text(box, f"Type the password shown on {target} - in Nishro Link, "
                         f"Devices page, under “This device”.", "body", "dim"
                    ).pack(anchor="w", pady=(4, 2))
-        self._text(box, "Capitals and dashes don't matter.", "small", "faint"
-                   ).pack(anchor="w", pady=(0, 10))
+        self._text(box, "Usually four words. Capitals, spaces and dashes don't "
+                        "matter.", "small", "faint").pack(anchor="w", pady=(0, 10))
         self.f_pin = field(box, self.kit)
-        self.f_pin.configure(font=self.kit.F["mono_big"], justify="center")
+        self.f_pin.configure(font=self.kit.F["h2"], justify="center")
         self.f_pin.pack(fill="x", ipady=6)
         self.f_pin.focus_set()
 

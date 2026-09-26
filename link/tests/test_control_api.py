@@ -236,7 +236,7 @@ def test_nonsense_settings_are_refused(api, bad):
 def test_a_new_pin_reaches_the_node(api):
     post(api, "/api/config", {"pin": "k7qm-2xvp-9hdt"})
     assert api.node.pin == "k7qm2xvp9hdt", "compared without its dashes"
-    assert config.load(api.cfg_path)["pin"] == "k7qm2xvp9hdt"
+    assert config.load(api.cfg_path)["pin"] == "k7qm-2xvp-9hdt",         "saved as it reads, so the window can show it back"
 
 
 def test_stopping_releases_the_port(api):
@@ -268,11 +268,52 @@ def test_status_reports_trust_honestly(api):
                                     "otherwise would be worse than the gap"
 
 
-def test_the_device_name_can_be_changed(api):
+def test_the_device_name_changes_at_once(api):
+    """It used to need a restart."""
     r = post(api, "/api/config", {"node": "workshop"})[1]
     assert config.load(api.cfg_path)["node"] == "workshop"
-    assert any("device name" in x for x in r["needs_reconnect"]), \
-        "renaming live would mean rewriting the layout, the arbiter and every grant"
+    assert r["needs_reconnect"] == [] and r["applied_now"]["node"] == "workshop"
+    core = api.node.core
+    assert core.node == "workshop" and "workshop" in core.layout.names()
+    assert "laptop" not in core.layout.names() and core.arbiter is not None
+    assert core.layout.get("aio"), "and the others are where they were"
+
+
+@pytest.mark.parametrize("name,why", [
+    ("aio", "already"), ("x" * 33, "32"), ("lap/top", "letters"), ("", "empty")])
+def test_a_bad_new_name_is_refused(api, name, why):
+    r = post(api, "/api/rename", {"new": name})[1]
+    assert why in r["error"]
+    assert api.node.core.node == "laptop"
+
+
+def test_the_hub_renames_a_device_that_is_off_at_once(api):
+    api.cfg["devices"] = [{"name": "aio", "id": "aio-1"}]
+    api.node.names_by_id["aio-1"] = "aio"
+    r = post(api, "/api/rename", {"name": "aio", "new": "kitchen"})[1]
+    assert r == {"ok": True, "pending": True}
+    assert "kitchen" in api.node.core.layout.names()
+    assert api.node.pending_names == {"aio-1": "kitchen"}
+    assert config.load(api.cfg_path)["devices"][0]["rename_to"] == "kitchen"
+
+
+def test_rights_are_set_and_kept(api):
+    r = post(api, "/api/rights", {"name": "laptop", "may_be_driven": False})[1]
+    assert r["ok"] and api.node.core.may_be_driven() is False
+    assert config.load(api.cfg_path)["policy"]["may_be_driven"] is False
+
+
+def test_another_devices_rights_need_it_switched_on(api):
+    r = post(api, "/api/rights", {"name": "aio", "may_drive": False})[1]
+    assert "switched off" in r["error"]
+
+
+def test_the_device_list_carries_the_details(api):
+    s = json.loads(get(api, "/api/status")[1])
+    me = next(d for d in s["devices"] if d["me"])
+    assert me["version"] and me["may_drive"] is True and me["id"]
+    other = next(d for d in s["devices"] if not d["me"])
+    assert "first_seen" in other and "may_be_driven" in other
 
 
 def test_an_empty_device_name_is_refused(api):

@@ -114,7 +114,14 @@ def copyright_file() -> bytes:
             f"Source: {HOMEPAGE}\n\n"
             f"Files: *\n"
             f"Copyright: 2026 nishro888\n"
-            f"License: Expat\n{lic}\n").encode()
+            f"License: Expat\n{lic}\n\n"
+            f"Files: {LIB}/link/words.py\n"
+            f"Copyright: 2016 Electronic Frontier Foundation (Joseph Bonneau)\n"
+            f"License: CC-BY-3.0-US\n"
+            f" The EFF short word list 1, https://www.eff.org/dice - used, with a\n"
+            f" few words left out, for generated passwords.\n"
+            f" .\n"
+            f" https://creativecommons.org/licenses/by/3.0/us/\n").encode()
 
 
 def changelog(ver: str) -> bytes:

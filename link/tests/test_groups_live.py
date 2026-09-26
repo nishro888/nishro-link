@@ -308,3 +308,96 @@ def test_a_failed_join_leaves_the_device_as_it_was(tmp_path, running):
     s = api.status()
     assert s["adding"]["reason"] == "wrong_password"
     assert s["role"] == "alone" and aio.pin == pairing.normalise(AIO_PW)
+
+
+# -------------------------------------------------------------- renaming
+def test_the_hub_renames_itself_and_everyone_follows(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    running(laptop, aio)
+    wait(lambda: "aio" in laptop.links, "aio to connect", (laptop, aio))
+    laptop.rename("workshop")
+    wait(lambda: aio.connected() and aio.trusted_peer == "workshop",
+         "aio to reconnect to the renamed hub", (laptop, aio))
+    assert "workshop" in aio.core.layout.names()
+    assert "laptop" not in aio.core.layout.names()
+
+
+def test_a_member_renames_itself_and_keeps_its_place(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    running(laptop, aio)
+    wait(lambda: "aio" in laptop.links, "aio to connect", (laptop, aio))
+    x, y = laptop.core.layout.get("aio").x, laptop.core.layout.get("aio").y
+    aio.rename("kitchen")
+    wait(lambda: "kitchen" in laptop.links, "kitchen to reconnect", (laptop, aio))
+    lay = laptop.core.layout
+    assert "aio" not in lay.names(), "the same machine, not a second one"
+    assert (lay.get("kitchen").x, lay.get("kitchen").y) == (x, y)
+    assert ("renamed", "kitchen") in laptop.events
+
+
+def test_the_hub_renames_a_device_that_is_on(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    aio.on_rename = aio.rename
+    running(laptop, aio)
+    wait(lambda: "aio" in laptop.links, "aio to connect", (laptop, aio))
+    assert laptop.rename_other("aio", "kitchen") is None
+    wait(lambda: "kitchen" in laptop.links, "it to come back renamed",
+         (laptop, aio))
+    assert aio.core.node == "kitchen"
+
+
+def test_a_device_renamed_while_off_takes_the_name_when_it_returns(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    aio.on_rename = aio.rename
+    running(laptop)
+    laptop.core.layout.add("aio", 1920, 1080, owner="aio", x=1920, y=0)
+    laptop.names_by_id[aio.device_id] = "aio"
+    assert laptop.rename_other("aio", "kitchen") is None
+    assert "kitchen" in laptop.core.layout.names(), "renamed here at once"
+    running(aio)
+    wait(lambda: "kitchen" in laptop.links, "it to return renamed", (laptop, aio))
+    assert aio.core.node == "kitchen" and not laptop.pending_names
+
+
+# ----------------------------------------------------------------- rights
+def test_a_device_that_may_not_be_driven_is_a_wall_for_everyone(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    running(laptop, aio)
+    wait(lambda: "aio" in laptop.links, "aio to connect", (laptop, aio))
+    assert "aio" in laptop.core.reachable()
+    assert aio.set_rights("aio", True, False) is None
+    wait(lambda: "aio" not in laptop.core.reachable(), "the hub to wall it off",
+         (laptop, aio))
+
+
+def test_the_hub_sets_a_devices_rights_and_it_keeps_them(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    kept = []
+    aio.on_policy = kept.append
+    running(laptop, aio)
+    wait(lambda: "aio" in laptop.links, "aio to connect", (laptop, aio))
+    assert laptop.set_rights("aio", False, True) is None
+    wait(lambda: kept and kept[-1]["may_drive"] is False, "aio to apply it",
+         (laptop, aio))
+    assert aio.core.may_drive() is False
+    wait(lambda: laptop.core.rights.get("aio", {}).get("may_drive") is False,
+         "the hub to hear it back", (laptop, aio))
+
+
+def test_every_device_learns_the_others_versions_and_rights(running):
+    laptop = device("laptop", LAPTOP_PW)
+    aio = device("aio", LAPTOP_PW, hub=False, peer="laptop", port=laptop.port)
+    running(laptop, aio)
+    wait(lambda: "aio" in laptop.links, "aio to connect", (laptop, aio))
+    assert laptop.versions.get("aio") == aio.version
+    laptop.core.devices = [{"name": "laptop", "hub": True}, {"name": "aio"}]
+    laptop._broadcast_group()
+    wait(lambda: any(d.get("name") == "laptop" and d.get("version")
+                     for d in aio.core.devices), "the roster", (laptop, aio))
+    assert aio.core.rights["laptop"] == {"may_drive": True, "may_be_driven": True}

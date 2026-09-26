@@ -32,6 +32,9 @@ Message shapes:
              {"t":"invite","hub":..,"hub_id":..,"addr":..,"port":N,"secret":{..}}
              {"t":"invite_done","ok":bool}
   leaving    {"t":"leave"}   peer -> hub          {"t":"removed","by":..} hub -> peer
+  editing    {"t":"rename","name":..}             hub -> peer: you are called this now
+             {"t":"set_policy","may_drive":b,"may_be_driven":b}   hub -> peer
+             {"t":"policy","may_drive":b,"may_be_driven":b}       peer -> hub: mine
   checking   hello with "probe":true    "is this the password?" - answered by
              {"t":"probe_ok","node":..,"proof":..} and nothing else: nobody
              joins, so a wrong guess changes nothing on either side
@@ -59,10 +62,12 @@ import secrets
 import socket
 import threading
 
-VERSION = 4
+VERSION = 5
 # v4: passwords are compared without their dashes (pairing.normalise), and a
 # device can be added from either side (invite). A v3 peer would prove a
 # different secret and fail as "wrong password" - refused as a version instead.
+# v5: what is proved is a slow key derived from the password (pairing.key),
+# salted with the hub's ID - which is why "auth" must always carry it.
 # v3: the layout is machines with POSITIONS and displays (desk.py), and the
 # pointer crosses wherever displays touch. A v2 peer would read that layout as
 # screens with no links and could never cross, so it is refused outright, with
@@ -179,7 +184,7 @@ def auth(node: str, chal: str, dev_id: str = None) -> dict:
 def hello(node: str, screens, policy: dict = None, pin: str = "",
           resume: str = None, proof: str = None, chal: str = None,
           dev_id: str = None, join: bool = False, invite: bool = False,
-          probe: bool = False) -> dict:
+          probe: bool = False, version: str = None) -> dict:
     """Both peers send this; neither is 'the client'.
 
     `proof` answers the listener's challenge; `chal` is our own challenge for it
@@ -210,6 +215,8 @@ def hello(node: str, screens, policy: dict = None, pin: str = "",
         ev["invite"] = True
     if probe:
         ev["probe"] = True
+    if version:
+        ev["version"] = version         # the program's, for the device list
     return ev
 
 
@@ -417,7 +424,7 @@ def geom(screens) -> dict:
 # and not believed: every member of the group knows the password, but only the
 # hub decides who holds control, what the arrangement is and who is here.
 HUB_ONLY = frozenset({"baton", "layout", "roster", "welcome", "removed",
-                      "rekey"})
+                      "rekey", "rename", "set_policy"})
 
 # Answered on the link they arrived on, never routed or relayed.
 HOP_LOCAL = frozenset({"ping", "pong", "err"})

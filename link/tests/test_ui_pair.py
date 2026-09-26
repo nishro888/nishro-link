@@ -215,7 +215,8 @@ def test_one_password_field_and_the_dashes_explained(root, api):
     d = dialog(root, api)
     try:
         d._password("invite", "aio")
-        assert "Capitals and dashes don't matter." in texts(d.top)
+        assert ("Usually four words. Capitals, spaces and dashes don't matter."
+                in texts(d.top))
         assert [x for x in texts(d.steps)] == ["○", "Find aio", "○",
                                                "Check the password", "○",
                                                "aio joins this group", "○",

@@ -49,6 +49,7 @@ def app(tmp_path, tk_root):
     api = control_api.ControlAPI(node, cfg, log, cfg_path=tmp_path / "c.json",
                                  port=0)
     a = ui_tk.App(api, root=tk.Toplevel(tk_root))
+    a._nearby_search = lambda: {"devices": []}     # never the real network
     a.root.update()
     try:
         yield a
@@ -507,3 +508,62 @@ def test_the_login_command_keeps_this_runs_config_file(app, login_store):
     app._set_autostart()
     cmd = login_store["cmd"]
     assert cmd[cmd.index("--config") + 1] == str(app.api.cfg_path)
+
+
+# ---------------------------------------------------------------- editing
+def test_this_device_is_renamed_where_its_name_is_shown(app):
+    app.show_page("devices")
+    app._render(app.api.status())
+    app._rename_me()
+    app.f_me_name.delete(0, "end")
+    app.f_me_name.insert(0, "workshop")
+    app._rename_me_save()
+    assert app.api.node.core.node == "workshop"
+    app._render(app.api.status())
+    assert app.me_name.cget("text") == "workshop"
+    assert app.me_name.winfo_manager() == "pack", "back from editing"
+
+
+def test_a_bad_name_keeps_the_editor_open_and_says_why(app):
+    app._render(app.api.status())
+    app._rename_me()
+    app.f_me_name.delete(0, "end")
+    app.f_me_name.insert(0, "aio")
+    app._rename_me_save()
+    assert app._renaming
+    assert any("already a device called aio" in t for t in all_text(app.toasts))
+    app._rename_me_done()
+
+
+def test_each_card_opens_its_details(app):
+    app._render(app.api.status())
+    d = app._details("aio")
+    try:
+        assert d.name == "aio"
+    finally:
+        d.close()
+
+
+def test_a_device_with_limits_says_so_on_its_card(app):
+    app.api.node.core.rights["aio"] = {"may_drive": True, "may_be_driven": False}
+    app._render(app.api.status())
+    assert "cannot be controlled" in all_text(app.dev_list)
+
+
+def test_nearby_devices_are_listed_with_what_adding_means(app):
+    app._nearby_search = lambda: {"devices": [
+        {"name": "kitchen", "waiting": True, "alone": True, "group": "kitchen"},
+        {"name": "aio", "waiting": False, "group": "laptop"}]}
+    app.show_page("devices")
+    app._render(app.api.status())
+    import time
+    end = time.monotonic() + 3
+    while time.monotonic() < end and "kitchen" not in all_text(app.nearby_list):
+        app.root.update()
+        time.sleep(0.02)
+    text = all_text(app.nearby_list)
+    assert "kitchen" in text and "  On its own" in text
+    assert "aio" not in text, "already in this group: not 'nearby'"
+    buttons = [w for w in _walk(app.nearby_list)
+               if isinstance(w, Button) and w.cget("text") == "Add"]
+    assert len(buttons) == 1

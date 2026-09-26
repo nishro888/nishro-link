@@ -21,10 +21,16 @@ there is no fixed "server with the keyboard".
   between them - so one desktop's mouse can drive another desktop's screen
   through it.
 - **Add a device by name and one password - from either side.** Every device
-  shows its name and a generated password. Pick the other one from the list of
-  devices found on the network, type the password it shows, and watch each
-  step until it says connected - or says why not, and what to do. No IP
-  addresses: if DHCP moves a device, it is found again automatically.
+  shows its name and a generated password of four plain words
+  (`tiger-lemon-coral-radio`). Devices nearby are listed on the Devices page;
+  pick one, type the password it shows, and watch each step until it says
+  connected - or says why not, and what to do. No IP addresses: if DHCP moves
+  a device, it is found again automatically.
+- **Edit any device.** Rename it (live, no restart), see its details -
+  displays, address, version, when it joined - and set what it may do: take
+  control of the others, be controlled by them. One that may not be controlled
+  is a wall the pointer stops at. The hub edits every device; each device
+  edits itself.
 - **A real arrangement editor.** Every machine is drawn as its actual monitors.
   Drag them to match your desk - beside, above, below, against a particular
   monitor - and bright lines show exactly where the pointer will cross. A
@@ -162,7 +168,7 @@ Python 3.10+. No dependencies on Windows beyond the standard library; `evdev`
 on Linux (`pip install -r link/requirements-linux.txt`, or `python3-evdev`).
 
 ```bash
-python -m pytest link/tests          # 713 tests, about two minutes
+python -m pytest link/tests          # 754 tests, about two minutes
 python -m link.nishro_link           # run from source
 python link/packaging/build-deb.py   # the .deb, into dist/ (pure Python; builds on Windows too)
 ```
@@ -179,7 +185,8 @@ link/
   baton.py           who holds control; the safety watchdog
   protocol.py        the wire format
   discovery.py       finding a device by name on the network
-  pairing.py         generated passwords (dashes, spaces and case do not count)
+  pairing.py         generated word passwords, and the slow key they prove
+  words.py           the word list (EFF short list 1)
   capture_*.py       reading the local mouse and keyboard (Windows hooks / evdev)
   inject.py          moving the pointer and typing (SendInput / uinput)
   control_api.py     the local control API the window and web page use
@@ -191,4 +198,6 @@ link/
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Generated passwords use the EFF's
+[short word list 1](https://www.eff.org/dice) (CC BY 3.0 US), with a few words
+left out.

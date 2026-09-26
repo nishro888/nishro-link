@@ -465,11 +465,17 @@ and searches.
 **An answer is not trusted and need not be:** anything on the network can claim
 to be "aio", but the handshake still requires proof of the password, and nothing
 is injected into a machine that has not proved it. What a fake *can* do is take
-one proof away and guess offline — so every device **generates** its password
-(`pairing.py`, 12 characters from 31 unambiguous ones, ~59 bits), and a chosen
-one must be at least 8 characters. Dashes, spaces and capitals do not count:
-they are there to make it readable, and whether someone types them is a coin
-toss.
+one proof away and guess offline — so every device **generates** its password,
+and a chosen one must be at least 8 characters.
+
+The generated password is **four words** (`pairing.py`, from the EFF short word
+list in `words.py`: 1,239 words, 41 bits), because it is read off one screen
+and typed on another. What is proved is not the password but **a slow key**
+made from it - PBKDF2-SHA256, 2^19 iterations, salted with the hub's device ID
+(protocol v5) - so every offline guess costs 2^19 hashes: 60 bits of work, more
+than the twelve random characters it replaced (59). It takes half a second,
+once per password, on the slowest machine it runs on. Dashes, spaces and
+capitals do not count.
 
 ### Groups: adding, joining, leaving, removing
 
@@ -506,6 +512,22 @@ so, instead of retrying forever while the window said "looking for it".
 A new password on the hub goes to every member connected at that moment,
 sealed under the old one (`rekey`). One that was switched off is refused on
 return and asks for the new one.
+
+### Editing a device
+
+- **Rename.** A device's name is baked into the arrangement, the baton, the
+  arbiter and the cursor, so a rename resets those and reconnects; the hub
+  recognises the machine by its permanent ID and keeps its place. The hub
+  renames others: one that is on is told now (`rename`); one that is off is
+  renamed at the hub at once and told when it returns (`err` code `rename`).
+- **Control rights** are each device's own policy (`may_drive`,
+  `may_be_driven`), carried in `hello`, sent to the hub when changed
+  (`policy`) and to everyone in the roster. A device that may not be driven is
+  a wall for every driver (`reachable()`), not only a machine that ignores
+  what arrives. The hub sets another device's rights (`set_policy`) while it
+  is on - it is the one that applies them.
+- **Details**: each device's version travels in `hello`; the hub keeps when
+  each joined and was last seen, and shares both in the roster.
 
 ### What resume actually means
 

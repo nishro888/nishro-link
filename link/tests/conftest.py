@@ -29,3 +29,13 @@ def no_broadcasts(monkeypatch):
     tells them things. Direct questions to loopback still work."""
     from link import discovery
     monkeypatch.setattr(discovery, "NETWORK", False)
+
+
+@pytest.fixture(autouse=True)
+def quick_keys(monkeypatch):
+    """The password key is slow on purpose (pairing.ITERATIONS, half a
+    second). Every live test pairs devices with fresh IDs, so at full strength
+    the suite would spend most of its time deriving keys. The strength itself
+    is pinned by test_pairing."""
+    from link import pairing
+    monkeypatch.setattr(pairing, "ITERATIONS", 1024)

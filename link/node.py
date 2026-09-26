@@ -91,6 +91,11 @@ class NodeCore:
         # it steered a screen that was not there.
         self.online = set()
         self.devices = []             # the group as the hub last described it
+        # The other machines' control rights: name -> {"may_drive",
+        # "may_be_driven"}. One that may not be driven is a wall, like one that
+        # is switched off - it refuses input anyway (P6), but the pointer should
+        # not try to go where it cannot arrive.
+        self.rights = {}
 
         mine = layout.mine()
         if not mine:
@@ -216,6 +221,50 @@ class NodeCore:
         else:
             self.arbiter = None
             self.baton.lost()            # P2: nothing suppressed until told again
+
+    def rename(self, new: str) -> None:
+        """This machine is called `new` now - in the arrangement, the baton and
+        the arbiter. Only with no links up: the caller reconnects, and every
+        other machine learns the name in the handshake."""
+        old = self.node
+        if new == old:
+            return
+        for m in list(self.layout.machines()):
+            if m.owner == old:
+                self.layout.rename(m.name, new if m.name == old else m.name,
+                                   owner=new)
+        self.layout.node = new
+        self.node = new
+        hub = self.is_hub
+        self.arbiter, self.is_hub = None, False
+        self.baton = BatonState(new, **self._clock_kw)
+        start = self.layout.mine()[0]
+        s = self.layout.get(start)
+        self.cursor = Cursor(self.layout, start, s.w // 2, s.h // 2)
+        self.home = (start, s.w // 2, s.h // 2)
+        if hub:
+            self.set_hub(True)
+
+    def rename_peer(self, old: str, new: str) -> Actions:
+        """The hub: another machine is called `new` now. Only while it is not
+        connected - the caller makes sure - so neither the cursor nor the baton
+        can be on it."""
+        a = Actions()
+        if not self.arbiter or old == new or old not in self.layout.owners():
+            return a
+        if new in self.layout.names():
+            self.layout.remove(new)        # a stale machine under that name
+        for m in list(self.layout.machines()):
+            if m.owner == old:
+                self.layout.rename(m.name, new if m.name == old else m.name,
+                                   owner=new)
+        self.online.discard(old)
+        if old in self.rights:
+            self.rights[new] = self.rights.pop(old)
+        self.adopt_layout(self.layout, keep_cursor=True)
+        a.send.append(protocol.layout_msg(self.layout.to_dict(), self.placement))
+        a.placement_changed = True
+        return a
 
     def alone(self) -> None:
         """Only this machine left on the arrangement - after leaving a group or
@@ -444,7 +493,9 @@ class NodeCore:
             return
         who = msg.get("node")
         screen, x, y = self._home_of(who)
-        grant = self.arbiter.claim(who, screen, x, y, may_drive=True)
+        allowed = (self.may_drive() if who == self.node else
+                   self.rights.get(who, {}).get("may_drive", True))
+        grant = self.arbiter.claim(who, screen, x, y, may_drive=allowed)
         if grant:
             a.send.append(_grant_msg(grant))
             self._apply_grant(a, _grant_msg(grant))
@@ -489,6 +540,10 @@ class NodeCore:
             return
         self.online = {n for n in msg.get("online") or [] if n != self.node}
         self.devices = list(msg.get("devices") or [])
+        self.rights = {d["name"]: {"may_drive": d.get("may_drive", True),
+                                   "may_be_driven": d.get("may_be_driven", True)}
+                       for d in self.devices
+                       if d.get("name") and d["name"] != self.node}
 
     def _on_geom(self, a: Actions, msg: dict) -> None:
         """A peer's displays changed. The hub updates the arrangement, which
@@ -705,9 +760,12 @@ class NodeCore:
             self.online.discard(node)
 
     def reachable(self) -> set:
-        """Machines the pointer may enter now: ours, and connected peers'."""
+        """Machines the pointer may enter now: ours, and connected peers' that
+        may be driven."""
         return {m.name for m in self.layout.machines()
-                if m.owner == self.node or m.owner in self.online}
+                if m.owner == self.node
+                or (m.owner in self.online
+                    and self.rights.get(m.owner, {}).get("may_be_driven", True))}
 
     def link_lost(self) -> Actions:
         """The connection died. P2 and P3, immediately and without asking anyone."""
@@ -837,6 +895,16 @@ class Node:
         # Adding a device, either way - invite() or probe() - for the window.
         self.adding = {"phase": "idle"}
         self._miss = None             # why the last search found nothing usable
+        self._hub_id = None           # a member: its hub's ID, the key's salt
+        # The hub: each device's name by its permanent ID, so one that comes
+        # back under a new name is the same machine renamed, not a new one.
+        self.names_by_id = {}
+        self.pending_names = {}       # hub: ID -> the name it is to take
+        self.versions = {}            # hub: name -> the version it runs
+        from . import __version__
+        self.version = __version__
+        self.on_rename = None         # (new) - this device was renamed from the hub
+        self.on_policy = None         # (policy) - its rights were set from the hub
 
         self._stop = False
         self._reconfig = False
@@ -994,8 +1062,23 @@ class Node:
         with self._lock:
             lay = protocol.layout_msg(self.core.layout.to_dict(), self.core.placement)
             self.core.online = set(online) - {self.core.node}
-        self._send(protocol.roster(online, self.core.devices or None))
+        self._send(protocol.roster(online, self.roster_devices() or None))
         self._send(lay)
+
+    def roster_devices(self) -> list:
+        """The group as the hub describes it, with each device's rights and
+        version: every window shows them, and every driver needs the rights."""
+        out = []
+        for d in self.core.devices or []:
+            name = d.get("name")
+            rights = (dict(may_drive=self.core.may_drive(),
+                           may_be_driven=self.core.may_be_driven())
+                      if name == self.core.node else self.core.rights.get(name, {}))
+            version = self.version if name == self.core.node else \
+                self.versions.get(name)
+            out.append(dict(d, **rights, **({"version": version} if version
+                                             else {})))
+        return out
 
     def paired(self) -> bool:
         """Is there enough to try a connection at all?
@@ -1023,6 +1106,15 @@ class Node:
             return []
         return sorted(m.owner for m in self.core.layout.machines()
                       if m.owner != self.core.node)
+
+    def _own_key(self) -> str:
+        """The key this device's password proves, as a hub: salted with its
+        own ID. See pairing.key."""
+        return pairing.key(self.pin, self.device_id)
+
+    def _key_for(self, hub_id) -> str:
+        """The key this device's password proves to a hub with that ID."""
+        return pairing.key(self.pin, hub_id)
 
     def _event(self, kind: str, **info) -> None:
         cb = self.on_event
@@ -1343,9 +1435,68 @@ class Node:
         for l in links:
             a, b = protocol.nonce(), protocol.nonce()
             l.ch.send({"t": "rekey", "to": l.name, "a": a, "b": b,
-                       "secret": protocol.wrap(new, old, a, b)})
+                       "secret": protocol.wrap(new, pairing.key(old, self.device_id),
+                                               a, b)})
         self.pin = new
         return len(links)
+
+    def rename(self, new: str) -> None:
+        """Call this device `new` from now on, and reconnect so every other
+        machine learns it."""
+        with self._lock:
+            self.core.rename(new)
+        self.clip.node = new
+        self.reconfigure()
+
+    def rename_other(self, name: str, new: str):
+        """The hub renames another device. Connected, it is told now and comes
+        back under the new name; switched off, it is renamed here at once and
+        told when it returns. Returns an error to show, or None."""
+        if not self.core.is_hub:
+            return "only the hub renames other devices"
+        if name not in self.core.layout.owners() or name == self.core.node:
+            return f"{name} is not another device in this group"
+        dev_id = next((i for i, n in self.names_by_id.items() if n == name), None)
+        with self._links_lock:
+            link = self.links.get(name)
+        if link is not None:
+            link.ch.send({"t": "rename", "to": name, "name": new})
+            return None
+        if dev_id:
+            self.pending_names[dev_id] = new
+            self.names_by_id[dev_id] = new
+        self._act(self.core.rename_peer, name, new)
+        if name in self.versions:
+            self.versions[new] = self.versions.pop(name)
+        return None
+
+    def set_rights(self, name: str, may_drive: bool, may_be_driven: bool):
+        """Set what a device may do. This device's own, anywhere; another's,
+        from the hub and while it is connected - it is the one that applies
+        them. Returns an error to show, or None."""
+        rights = {"may_drive": bool(may_drive), "may_be_driven": bool(may_be_driven)}
+        if name == self.core.node:
+            self.core.policy.update(rights)
+            if self.core.is_hub:
+                self._broadcast_group()
+            else:
+                self._send(dict({"t": "policy"}, **rights))
+            return None
+        if not self.core.is_hub:
+            return "only the hub sets another device's rights"
+        with self._links_lock:
+            link = self.links.get(name)
+        if link is None:
+            return f"{name} is switched off - change its rights when it is on"
+        link.ch.send(dict({"t": "set_policy", "to": name}, **rights))
+        return None
+
+    def _renamed_to(self, new: str) -> None:
+        self._log(f"the hub renamed this device to {new!r}")
+        self._event("renamed_by_hub", name=new)
+        cb = self.on_rename
+        if cb is not None:
+            threading.Thread(target=cb, args=(new,), daemon=True).start()
 
     def _removed_by(self, by: str) -> None:
         """The hub removed this device, now or while it was switched off."""
@@ -1507,7 +1658,7 @@ class Node:
         if hello.get("invite"):
             return self._invited(ch, addr, chal, hello)
 
-        if not protocol.verify(self.pin, chal, who, self.core.node,
+        if not protocol.verify(self._own_key(), chal, who, self.core.node,
                                hello.get("proof", "")):
             ch.send(protocol.err("wrong password", code="auth"))
             self._log(f"rejected {who} at {addr}: wrong password"
@@ -1522,10 +1673,15 @@ class Node:
             if hello.get("nonce"):
                 ch.send({"t": "probe_ok", "v": protocol.VERSION,
                          "node": self.core.node,
-                         "proof": protocol.proof(self.pin, hello["nonce"],
+                         "proof": protocol.proof(self._own_key(), hello["nonce"],
                                                  self.core.node, who)})
             return None
         their_id = hello.get("id")
+        want = self.pending_names.get(their_id) if their_id else None
+        if want and want != who:
+            # Renamed from here while it was off: it takes the name first.
+            ch.send(protocol.err(f"renamed to {want}", code="rename") | {"name": want})
+            return None
         if their_id and their_id in self.removed_ids:
             if not hello.get("join"):
                 # Removed while it was switched off. It still knows the password,
@@ -1549,7 +1705,34 @@ class Node:
                                  code="name"))
             self._log(f"rejected a machine calling itself {who!r} - that is our name")
             return None
-        my_proof = protocol.proof(self.pin, their_chal, self.core.node, who)
+        my_proof = protocol.proof(self._own_key(), their_chal, self.core.node, who)
+        if their_id:
+            self.pending_names.pop(their_id, None)
+            old = self.names_by_id.get(their_id)
+            if old and old != who:
+                # Renamed on its own screen. Same machine: keep its place.
+                with self._links_lock:
+                    stale = self.links.pop(old, None)
+                if stale is not None:
+                    stale.ch.close()
+                    self._act(self.core.peer_lost, old)
+                self._act(self.core.rename_peer, old, who)
+                if old in self.versions:
+                    self.versions[who] = self.versions.pop(old)
+                if self.on_devices:
+                    try:
+                        self.on_devices("renamed", who, {"old": old, "id": their_id})
+                    except Exception:
+                        pass
+                self._log(f"{old} is called {who} now")
+                self._event("renamed", name=who, old=old)
+            self.names_by_id[their_id] = who
+        pol = hello.get("policy") or {}
+        with self._lock:
+            self.core.rights[who] = {"may_drive": pol.get("may_drive", True),
+                                     "may_be_driven": pol.get("may_be_driven", True)}
+        if hello.get("version"):
+            self.versions[who] = hello["version"]
         # Learn their name and screen size rather than making someone type them.
         screens = hello.get("screens") or []
         if who and screens:
@@ -1592,7 +1775,7 @@ class Node:
             try:
                 self.on_devices("joined", who, {
                     "id": hello.get("id"), "addr": addr[0] if addr else None,
-                    "screens": screens})
+                    "screens": screens, "version": hello.get("version")})
             except Exception as e:
                 self._log(f"could not save the device list: {e!r}")
         self._broadcast_group()          # everyone learns who joined, and the desk
@@ -1612,7 +1795,7 @@ class Node:
         strand them. Both sides prove the password before anything changes, and
         the group's password arrives sealed under ours (protocol.wrap)."""
         who = hello.get("node", "?")
-        if not protocol.verify(self.pin, chal, who, self.core.node,
+        if not protocol.verify(self._own_key(), chal, who, self.core.node,
                                hello.get("proof", "")):
             ch.send(protocol.err("wrong password", code="auth"))
             self._log(f"{who} tried to add this device with the wrong password")
@@ -1632,14 +1815,14 @@ class Node:
                                  code="busy"))
             return None
         ch.send(protocol.invite_ok(
-            self.core.node, protocol.proof(self.pin, their_chal, self.core.node,
-                                           who)))
+            self.core.node, protocol.proof(self._own_key(), their_chal,
+                                           self.core.node, who)))
         msg = ch.recv()
         if not msg or msg.get("t") != "invite":
             return None
         try:
-            secret = protocol.unwrap(msg.get("secret") or {}, self.pin, chal,
-                                     their_chal)
+            secret = protocol.unwrap(msg.get("secret") or {}, self._own_key(),
+                                     chal, their_chal)
             hub, port = str(msg["hub"]), int(msg.get("port") or self.port)
         except (KeyError, TypeError, ValueError) as e:
             ch.send(protocol.invite_done(False, f"could not read the invitation: {e}"))
@@ -1714,8 +1897,9 @@ class Node:
             them = greet.get("node") or name
             state("verifying", detail=them)
             mine = protocol.nonce()
+            theirs = pairing.key(pin, greet.get("id"))     # ITS password, ITS salt
             ch.send(protocol.hello(
-                self.core.node, [], proof=protocol.proof(pin, greet["nonce"],
+                self.core.node, [], proof=protocol.proof(theirs, greet["nonce"],
                                                          self.core.node, them),
                 chal=mine, dev_id=self.device_id, invite=True))
             reply = ch.recv()
@@ -1727,10 +1911,10 @@ class Node:
                                         "busy": "busy"}.get(code, "refused"),
                              reply.get("msg"))
             if reply.get("t") != "invite_ok" or not protocol.verify(
-                    pin, mine, them, self.core.node, reply.get("proof", "")):
+                    theirs, mine, them, self.core.node, reply.get("proof", "")):
                 return state("failed", "impostor", them)
             ch.send(protocol.invite(hub, hub_id, hub_addr, hub_port,
-                                    protocol.wrap(self.pin, pin, greet["nonce"],
+                                    protocol.wrap(self.pin, theirs, greet["nonce"],
                                                   mine)))
             done = ch.recv()
             if not done or not done.get("ok"):
@@ -1809,8 +1993,9 @@ class Node:
             target = hub
             state("verifying", detail=hub)
             mine = protocol.nonce()
+            k = pairing.key(pin, greet.get("id"))
             ch.send(protocol.hello(
-                self.core.node, [], proof=protocol.proof(pin, greet["nonce"],
+                self.core.node, [], proof=protocol.proof(k, greet["nonce"],
                                                          self.core.node, hub),
                 chal=mine, dev_id=self.device_id, join=True, probe=True))
             reply = ch.recv()
@@ -1822,7 +2007,7 @@ class Node:
                                             reply.get("code"), "refused"),
                              reply.get("msg"))
             if reply.get("t") != "probe_ok" or not protocol.verify(
-                    pin, mine, hub, self.core.node, reply.get("proof", "")):
+                    k, mine, hub, self.core.node, reply.get("proof", "")):
                 return state("failed", "impostor", hub)
         except protocol.ProtocolError as e:
             return state("failed", "version", str(e))
@@ -1965,11 +2150,12 @@ class Node:
             screens.append(dict({"name": n, "w": s.w, "h": s.h},
                                 **({"parts": [list(p) for p in s.parts]}
                                    if s.parts else {})))
+        k = self._key_for(hub_id)
         ch.send(protocol.hello(
             self.core.node, screens, self.core.policy,
-            proof=protocol.proof(self.pin, greet["nonce"], self.core.node, hub),
+            proof=protocol.proof(k, greet["nonce"], self.core.node, hub),
             chal=mine, resume=self.session, dev_id=self.device_id,
-            join=self.joining))
+            join=self.joining, version=self.version))
 
         reply = ch.recv()
         if reply is None:
@@ -1979,6 +2165,8 @@ class Node:
             self._log(f"refused by {hub}: {reply.get('msg')}")
             if code == "removed":
                 self._removed_by(hub)
+            elif code == "rename" and reply.get("name"):
+                self._renamed_to(str(reply["name"]))
             elif code in ("auth", "name"):
                 # The same attempt would get the same answer. Stop, and say so,
                 # until someone pairs again or switches sharing off and on.
@@ -1992,13 +2180,14 @@ class Node:
 
         # Mutual: we do not let anything inject into this machine until it has
         # proved it knows the password too.
-        if not protocol.verify(self.pin, mine, hub, self.core.node,
+        if not protocol.verify(k, mine, hub, self.core.node,
                                reply.get("proof", "")):
             self._log(f"{hub} could not prove it knows the password - refusing to "
                       f"be driven by it")
             self._dial_state("retrying", "impostor", hub)
             return False
         self.trusted_peer = hub
+        self._hub_id = hub_id
         with self._lock:
             self.core.peer_online(hub)
         # The hub's layout is the shared truth. It already holds both screens -
@@ -2084,10 +2273,38 @@ class Node:
                 if not hub and t == "removed":
                     self._removed_by(msg.get("by") or name)
                     break
+                if not hub and t == "rename" and msg.get("name"):
+                    self._renamed_to(str(msg["name"]))
+                    continue
+                if not hub and t == "set_policy":
+                    rights = {k: bool(msg[k]) for k in ("may_drive", "may_be_driven")
+                              if k in msg}
+                    with self._lock:
+                        self.core.policy.update(rights)
+                    self._send(dict({"t": "policy"}, **{
+                        "may_drive": self.core.may_drive(),
+                        "may_be_driven": self.core.may_be_driven()}))
+                    self._log(f"{name} set this device's rights: {rights}")
+                    self._event("rights_set", name=name)
+                    if self.on_policy:
+                        try:
+                            self.on_policy(dict(self.core.policy))
+                        except Exception:
+                            pass
+                    continue
+                if hub and t == "policy":
+                    with self._lock:
+                        self.core.rights[name] = {
+                            "may_drive": bool(msg.get("may_drive", True)),
+                            "may_be_driven": bool(msg.get("may_be_driven", True))}
+                    self._broadcast_group()
+                    continue
                 if not hub and t == "rekey":
                     try:
-                        new = protocol.unwrap(msg.get("secret") or {}, self.pin,
-                                              msg.get("a", ""), msg.get("b", ""))
+                        new = protocol.unwrap(
+                            msg.get("secret") or {},
+                            self._key_for(self._hub_id or self.peer_id),
+                            msg.get("a", ""), msg.get("b", ""))
                     except ValueError as e:
                         self._log(f"ignored a new password from {name}: {e}")
                         continue

@@ -49,6 +49,16 @@ class ControlAPI:
         node.on_invited = self._on_invited
         node.on_removed = self._on_removed
         node.removed_ids = set(cfg.get("removed") or [])
+        node.on_rename = self._on_renamed_by_hub
+        node.on_policy = self._on_policy
+        # What the hub remembers of each device, for a rename or a return.
+        for d in cfg.get("devices") or []:
+            if d.get("id") and d.get("name"):
+                node.names_by_id[d["id"]] = d["name"]
+                if d.get("rename_to"):
+                    node.pending_names[d["id"]] = d["rename_to"]
+            if d.get("name") and d.get("version"):
+                node.versions[d["name"]] = d["version"]
         node.core.devices = self._roster_view()
         # Things that happened, for the window to show as notices: who joined,
         # who was refused and why. Numbered, so each is shown once.
@@ -279,6 +289,10 @@ class ControlAPI:
             return self._leave()
         if path == "/api/remove":
             return self._remove(str(body.get("name") or ""))
+        if path == "/api/rename":
+            return self._rename(body)
+        if path == "/api/rights":
+            return self._rights(body)
         if path == "/api/forget":
             return self._forget()
         if path == "/api/device/forget":
@@ -330,7 +344,9 @@ class ControlAPI:
             if pairing.problem(pin):
                 pin = pairing.new_password()      # an old short one: replace it
         else:
-            pin = pairing.normalise(body.get("pin"))
+            # Kept as it reads - words with dashes - and normalised where the
+            # key is made (Node, pairing.key), so the window can show it back.
+            pin = pairing.display(body.get("pin"))
             bad = pairing.problem(pin)
             if bad:
                 return {"error": bad}
@@ -436,7 +452,7 @@ class ControlAPI:
         is checked with its hub FIRST: a wrong one changes nothing here. Runs in
         the background; the window follows status()["adding"]."""
         name = str(body.get("name") or "").strip()
-        pin = pairing.normalise(body.get("pin"))
+        pin = pairing.display(body.get("pin"))
         addr = str(body.get("addr") or "").strip() or None
         if not name and not addr:
             return {"error": "which device?"}
@@ -525,6 +541,75 @@ class ControlAPI:
         self.log(f"{name} removed from the group")
         return {"ok": True}
 
+    def _rename(self, body: dict) -> dict:
+        """Rename this device (live), or - from the hub - another one."""
+        n = self.node
+        target = str(body.get("name") or n.core.node).strip()
+        new = " ".join(str(body.get("new") or "").split())
+        bad = name_problem(new)
+        if bad:
+            return {"error": bad}
+        if new == target:
+            return {"ok": True}
+        taken = {x.casefold() for x in n.core.layout.owners()} | \
+            {str(d.get("name")).casefold() for d in self.cfg.get("devices") or []}
+        taken.discard(target.casefold())
+        if new.casefold() in taken:
+            return {"error": f"there is already a device called {new} in this group"}
+        if target == n.core.node:
+            self._rename_self(new)
+            return {"ok": True}
+        err = n.rename_other(target, new)
+        if err:
+            return {"error": err}
+        with n._links_lock:
+            online = target in n.links
+        if not online:
+            # Renamed here now; it takes the name when it next connects.
+            for d in self.cfg.get("devices") or []:
+                if d.get("name") == target:
+                    d["name"] = new
+                    d["rename_to"] = new
+            config.save(self.cfg, self.cfg_path)
+            n.core.devices = self._roster_view()
+        self.log(f"{target} renamed to {new}"
+                 + ("" if online else " - it takes the name when it is back on"))
+        return {"ok": True, "pending": not online}
+
+    def _rename_self(self, new: str) -> None:
+        old = self.node.core.node
+        self.cfg["node"] = new
+        config.save(self.cfg, self.cfg_path)
+        self.node.rename(new)
+        if self.node.core.is_hub:
+            self.node.core.devices = self._roster_view()
+        self.log(f"this device is called {new} now (was {old})")
+
+    def _on_renamed_by_hub(self, new: str) -> None:
+        self._rename_self(new)
+
+    def _rights(self, body: dict) -> dict:
+        n = self.node
+        name = str(body.get("name") or n.core.node)
+        cur = (dict(n.core.policy) if name == n.core.node
+               else n.core.rights.get(name, {}))
+        drive = bool(body.get("may_drive", cur.get("may_drive", True)))
+        driven = bool(body.get("may_be_driven", cur.get("may_be_driven", True)))
+        err = n.set_rights(name, drive, driven)
+        if err:
+            return {"error": err}
+        if name == n.core.node:
+            self._on_policy(dict(n.core.policy))
+        self.log(f"{name}: may take control {'yes' if drive else 'no'}, may be "
+                 f"controlled {'yes' if driven else 'no'}")
+        return {"ok": True}
+
+    def _on_policy(self, policy: dict) -> None:
+        for k in ("may_drive", "may_be_driven"):
+            if k in policy:
+                self.cfg["policy"][k] = bool(policy[k])
+        config.save(self.cfg, self.cfg_path)
+
     def _go_alone(self, why: str) -> None:
         """A group of one again, with a password of its own: the old group's
         password stays with the old group."""
@@ -542,7 +627,7 @@ class ControlAPI:
 
     def _on_invited(self, hub, hub_id, addr, port, secret, by) -> bool:
         """Another device added this one to its group (Node._invited)."""
-        self.cfg.update(hub=False, pin=pairing.normalise(secret), port=port,
+        self.cfg.update(hub=False, pin=pairing.display(secret), port=port,
                         peer=hub, peer_id=hub_id, peer_addr=addr, devices=[],
                         placement=None, removed=[])
         config.save(self.cfg, self.cfg_path)
@@ -593,7 +678,7 @@ class ControlAPI:
         elif kind == "went_offline":
             text = f"{name} disconnected"
         elif kind == "rekeyed":
-            self.cfg["pin"] = pairing.normalise(info.get("pin"))
+            self.cfg["pin"] = pairing.display(info.get("pin"))
             config.save(self.cfg, self.cfg_path)
             text = f"{name} changed the group's password - this device has it"
             tone = "ok"
@@ -632,6 +717,15 @@ class ControlAPI:
             d.update(id=info.get("id") or d.get("id"),
                      addr=info.get("addr") or d.get("addr"),
                      screens=screens or d.get("screens") or [], last_seen=now)
+            if info.get("version"):
+                d["version"] = info["version"]
+            d.pop("rename_to", None)           # it came back under the new name
+            devs[name] = d
+        elif event == "renamed":
+            old = info.get("old")
+            d = devs.pop(old, None) or {"first_seen": now}
+            d.update(name=name, id=info.get("id") or d.get("id"))
+            d.pop("rename_to", None)
             devs[name] = d
         elif event == "left" and name in devs:
             devs[name]["last_seen"] = now
@@ -678,11 +772,21 @@ class ControlAPI:
                 "online": m.owner in online,
                 "displays": [[r.w, r.h] for r in m.displays()],
                 "rects": [[r.x, r.y, r.w, r.h] for r in m.displays()],
-                "id": d.get("id") or (n.device_id if m.owner == core.node else
-                                      n.peer_id if m.name == n.peer_name else None),
+                "id": (n.device_id if m.owner == core.node else d.get("id")
+                       or (n.peer_id if m.name == n.peer_name else None)),
                 "addr": (live.get(m.name) or {}).get("addr") or d.get("addr"),
                 "rtt_ms": (live.get(m.name) or {}).get("rtt_ms"),
                 "last_seen": d.get("last_seen"),
+                "first_seen": d.get("first_seen"),
+                "version": (n.version if m.owner == core.node else
+                            n.versions.get(m.owner) or d.get("version")),
+                **(dict(may_drive=core.may_drive(),
+                        may_be_driven=core.may_be_driven())
+                   if m.owner == core.node else
+                   dict(may_drive=core.rights.get(m.owner, {}).get("may_drive", True),
+                        may_be_driven=core.rights.get(m.owner, {}).get(
+                            "may_be_driven", True))),
+                "rename_to": d.get("rename_to"),
             })
         return out
 
@@ -789,12 +893,16 @@ class ControlAPI:
             self.cfg["side"] = side
             self.node.core.side = side
             restart.append("side")
-        for key in ("may_drive", "may_be_driven"):
-            if key in body:
-                val = bool(body[key])
-                self.cfg["policy"][key] = val
-                self.node.core.policy[key] = val      # takes effect at once
-                live[key] = val
+        rights = {k: bool(body[k]) for k in ("may_drive", "may_be_driven")
+                  if k in body}
+        if rights and any(self.cfg["policy"].get(k) != v for k, v in rights.items()):
+            self.cfg["policy"].update(rights)
+            # At once, and the others hear it: their pointer must not try to
+            # enter a machine that may no longer be driven.
+            self.node.set_rights(self.node.core.node,
+                                 self.cfg["policy"].get("may_drive", True),
+                                 self.cfg["policy"].get("may_be_driven", True))
+        live.update(rights)
         if "claim" in body:
             claim = str(body["claim"])
             if claim not in ("motion", "click", "hotkey"):
@@ -807,22 +915,19 @@ class ControlAPI:
             if not self.node.core.is_hub:
                 return {"error": f"only {self.group() or 'the hub'} can change "
                                  f"the group's password"}
-            self.cfg["pin"] = pairing.normalise(body["pin"])
+            self.cfg["pin"] = pairing.display(body["pin"])
             told = self.node.rekey(self.cfg["pin"])      # and the devices here now
             live["pin"] = f"given to {told} connected device{'s' if told != 1 else ''}"
         if "peer_addr" in body:
             self.cfg["peer_addr"] = str(body["peer_addr"]) or None
             restart.append("the other device's address")
         if "node" in body:
-            name = str(body["node"]).strip()
-            if not name:
-                return {"error": "a device name cannot be empty"}
-            if name != self.cfg.get("node"):
-                self.cfg["node"] = name
-                # Not applied live: the name is baked into the layout, the
-                # arbiter and every grant already issued. Renaming underneath all
-                # that would be a far bigger change than it looks.
-                restart.append("device name (restart to apply)")
+            name = " ".join(str(body["node"]).split())
+            if name != self.node.core.node:
+                r = self._rename({"new": name})      # live: see Node.rename
+                if r.get("error"):
+                    return r
+                live["node"] = name
         if "hub" in body:
             want = bool(body["hub"])
             if want != bool(self.cfg.get("hub")):
@@ -844,6 +949,17 @@ class ControlAPI:
                  f"{', '.join(list(live) + restart) or 'nothing'}")
         return {"ok": True, "saved_to": str(where),
                 "applied_now": live, "needs_reconnect": restart}
+
+
+def name_problem(name: str):
+    """Why this will not do as a device name, or None."""
+    if not name:
+        return "a device name cannot be empty"
+    if len(name) > 32:
+        return "keep a device name to 32 characters"
+    if any(not (ch.isalnum() or ch in " -_.'") for ch in name):
+        return "use letters, numbers, spaces and - _ . ' in a device name"
+    return None
 
 
 def my_addresses() -> list:
