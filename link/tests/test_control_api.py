@@ -264,8 +264,8 @@ def test_status_reports_trust_honestly(api):
     peer where there is none."""
     s = json.loads(get(api, "/api/status")[1])
     assert s["trusted_peer"] is None
-    assert s["encrypted"] is False, "authenticated is not encrypted, and saying " \
-                                    "otherwise would be worse than the gap"
+    assert s["encrypted"] is True, "every link is encrypted (secure.py) - and " \
+                                   "test_secure proves it on the wire"
 
 
 def test_the_device_name_changes_at_once(api):

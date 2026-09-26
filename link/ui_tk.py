@@ -1665,13 +1665,13 @@ def _status(s: dict) -> dict:
         conn = (head, "bad", detail) if head else (f"Connecting to {group}…",
                                                    "warn", None)
     out["connection"] = conn
-    note = ("Devices prove the password to each other without sending it. "
-            "Input is not encrypted - use a network you trust.")
+    note = ("Encrypted with a fresh key every connection. Devices prove the "
+            "password to each other without ever sending it.")
     if not s["pin_set"]:
         out["security"] = ("No password", "bad",
                            "Anything on this network could connect.")
     elif s["connected"]:
-        out["security"] = ("Verified", "ok", note)
+        out["security"] = ("Encrypted", "ok", note)
     else:
         out["security"] = ("Password set", "dim", note)
     holder = s.get("holder")

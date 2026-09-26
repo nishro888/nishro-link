@@ -66,7 +66,10 @@ import secrets
 import socket
 import threading
 
-VERSION = 5
+VERSION = 6
+# v6: the link is encrypted (secure.py). "auth" and "hello" carry each side's
+# Diffie-Hellman public value, both are bound into the password proofs, and
+# every frame after "welcome" is sealed.
 # v4: passwords are compared without their dashes (pairing.normalise), and a
 # device can be added from either side (invite). A v3 peer would prove a
 # different secret and fail as "wrong password" - refused as a version instead.
@@ -81,7 +84,7 @@ VERSION = 5
 # hostile: drop the connection rather than buffer it. (Input Leap caps at 4 MiB
 # and disconnects; the principle is theirs, the number is ours, because our
 # messages are small and bulk data does not travel on this channel.)
-MAX_LINE = 64 * 1024
+MAX_LINE = 128 * 1024           # an encrypted line is base64: a third longer
 
 # Clipboard chunk payload, in CHARACTERS. Far under MAX_LINE because JSON
 # escaping inflates text badly: json.dumps defaults to ensure_ascii, so a BMP
@@ -158,19 +161,22 @@ def nonce() -> str:
     return secrets.token_hex(16)
 
 
-def proof(secret: str, challenge: str, prover: str, verifier: str) -> str:
-    """Prove to `verifier` that we know the secret, for this challenge only."""
-    msg = f"{challenge}|{prover}|{verifier}".encode()
-    return hmac.new((secret or "").encode(), msg, hashlib.sha256).hexdigest()
+def proof(secret: str, challenge: str, prover: str, verifier: str,
+          bind: str = "") -> str:
+    """Prove to `verifier` that we know the secret, for this challenge only.
+    `bind` ties the proof to both sides' key-exchange values, so a machine in
+    the middle cannot swap its own in: it could not remake the proof."""
+    msg = f"{challenge}|{prover}|{verifier}" + (f"|{bind}" if bind else "")
+    return hmac.new((secret or "").encode(), msg.encode(), hashlib.sha256).hexdigest()
 
 
 def verify(secret: str, challenge: str, prover: str, verifier: str,
-           given: str) -> bool:
-    expect = proof(secret, challenge, prover, verifier)
+           given: str, bind: str = "") -> bool:
+    expect = proof(secret, challenge, prover, verifier, bind)
     return hmac.compare_digest(expect, given or "")
 
 
-def auth(node: str, chal: str, dev_id: str = None) -> dict:
+def auth(node: str, chal: str, dev_id: str = None, dh: str = None) -> dict:
     """The listener speaks first, so the caller has something to answer.
 
     `id` is the device's permanent ID. The caller checks it before going any
@@ -181,6 +187,8 @@ def auth(node: str, chal: str, dev_id: str = None) -> dict:
     ev = {"t": "auth", "v": VERSION, "node": node, "nonce": chal}
     if dev_id:
         ev["id"] = dev_id
+    if dh:
+        ev["dh"] = dh
     return ev
 
 
@@ -188,7 +196,7 @@ def auth(node: str, chal: str, dev_id: str = None) -> dict:
 def hello(node: str, screens, policy: dict = None, pin: str = "",
           resume: str = None, proof: str = None, chal: str = None,
           dev_id: str = None, join: bool = False, invite: bool = False,
-          probe: bool = False, version: str = None) -> dict:
+          probe: bool = False, version: str = None, dh: str = None) -> dict:
     """Both peers send this; neither is 'the client'.
 
     `proof` answers the listener's challenge; `chal` is our own challenge for it
@@ -221,6 +229,8 @@ def hello(node: str, screens, policy: dict = None, pin: str = "",
         ev["probe"] = True
     if version:
         ev["version"] = version         # the program's, for the device list
+    if dh:
+        ev["dh"] = dh
     return ev
 
 
@@ -459,6 +469,13 @@ def clipdata(seq: int, fmt: str, i: int, n: int, v: str) -> dict:
             "i": int(i), "n": int(n), "v": v}
 
 
+class _Seal:
+    """A marker in the send queue: encrypt everything after it."""
+
+    def __init__(self, sealer):
+        self.sealer = sealer
+
+
 class LineChannel:
     """Buffered newline-delimited JSON over a socket.
 
@@ -478,6 +495,7 @@ class LineChannel:
         self.sock = sock
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self._buf = b""
+        self._opener = None           # set once the handshake has keyed the link
         self._q: queue.Queue = queue.Queue(maxsize=queue_size)
         self._dropped = 0
         self._sender = threading.Thread(target=self._send_loop, daemon=True)
@@ -516,13 +534,28 @@ class LineChannel:
         except queue.Full:
             self._dropped += 1          # a drainer beat us to it; let this one go
 
+    def seal(self, sealer, opener) -> None:
+        """Encrypt from here on. Sending switches in the queue - frames already
+        queued (the welcome) go as they were - and receiving switches now: the
+        caller does this between the last plain frame and the first sealed one."""
+        self._opener = opener
+        self._q.put(_Seal(sealer))
+
     def _send_loop(self) -> None:
+        sealer = None
         while True:
             event = self._q.get()
             if event is None:          # shutdown sentinel from close()
                 return
+            if isinstance(event, _Seal):
+                sealer = event.sealer
+                continue
             try:
-                self.sock.sendall(encode(event))
+                if sealer is None:
+                    self.sock.sendall(encode(event))
+                else:
+                    line = encode(event)[:-1]
+                    self.sock.sendall(sealer.seal(line) + b"\n")
             except ProtocolError:
                 self._dropped += 1     # our own bug: oversized frame. Don't die for it.
             except OSError:
@@ -546,6 +579,12 @@ class LineChannel:
         line, self._buf = self._buf.split(b"\n", 1)
         if len(line) > MAX_LINE:
             raise ProtocolError(f"frame is {len(line)}B, over the {MAX_LINE}B cap")
+        if self._opener is not None:
+            from .secure import SecureError
+            try:
+                line = self._opener.open(line)
+            except SecureError as e:
+                raise ProtocolError(str(e)) from None
         try:
             return decode(line)
         except (ValueError, UnicodeDecodeError) as e:

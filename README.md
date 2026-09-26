@@ -8,10 +8,9 @@ there is no fixed "server with the keyboard".
 
 ![The Overview page](docs/screenshots/overview.png)
 
-> **Status: beta (v0.9).** Developed and tested on a Windows 10 laptop and an
-> Ubuntu (Wayland) desktop, with 615 automated tests - but read
-> [Limitations](#limitations) first. In particular, **traffic is not encrypted
-> yet**: use it on a home or office network you trust.
+> **Status: beta (v0.10).** Developed and tested on a Windows 10 laptop and an
+> Ubuntu (Wayland) desktop, with an automated test suite - read
+> [Limitations](#limitations) first.
 
 ## Features
 
@@ -38,6 +37,9 @@ there is no fixed "server with the keyboard".
 - **Monitors plugged in or out** are noticed within seconds and the arrangement
   updates everywhere.
 - **Shared clipboard** (text).
+- **Encrypted.** Every link is encrypted with a fresh key each time it
+  connects, and devices prove the password to each other without ever sending
+  it.
 - **It gives your machine back.** If a link dies, a device leaves, or anything is
   in doubt, local input is restored at once. Pressing **both Ctrl keys**
   together, or *Release input* in the window, always frees the machine you are
@@ -138,10 +140,6 @@ from its own screen.
 
 ## Limitations
 
-- **Not encrypted.** Devices prove to each other that they know the password
-  (a challenge-response; the password never crosses the network), but
-  keystrokes themselves travel in plain text. Encryption is the next piece of
-  work.
 - **Three-device groups** are tested with live nodes on one machine, not yet on
   three physical machines.
 - **Linux:** after a monitor change, restart Nishro Link on that machine for the
@@ -191,6 +189,7 @@ link/
   protocol.py        the wire format
   discovery.py       finding a device by name on the network
   pairing.py         generated word passwords, and the slow key they prove
+  secure.py          encryption: the key exchange and sealed frames
   words.py           the word list (EFF short list 1)
   capture_*.py       reading the local mouse and keyboard (Windows hooks / evdev)
   inject.py          moving the pointer and typing (SendInput / uinput)

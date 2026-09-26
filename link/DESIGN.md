@@ -574,19 +574,30 @@ wire, each side proves it to the other, both names are in the signed
 transcript, and nothing is injected before the peer has proved itself. The
 waiting side generates the password (see *Finding the peer by name*).
 
-Still missing: **encryption.** Authentication says who is on the other end; it
-does not hide what is typed. Keystrokes cross the network readable by anything
-that can capture it.
+**Encryption** (protocol v6, `secure.py`). Every connection runs an ephemeral
+Diffie-Hellman exchange (RFC 3526 group 14, 2048 bits, 256-bit exponents) inside
+the password handshake: `auth` and `hello` carry each side's public value, and
+both are bound into the password proofs, so a machine in the middle cannot
+swap its own in without remaking a proof it cannot make. Session keys come from
+HKDF-SHA256 over the DH secret *and* the password key, salted with both
+challenges; four of them - encrypt and authenticate, each direction.
 
-Target, in order:
+Every frame after `welcome` is sealed: a keyed BLAKE2b keystream in counter
+mode, then a 16-byte keyed BLAKE2b tag over the frame number and ciphertext
+(encrypt-then-MAC), sent as one base64 line. Frame numbers are never sent: a
+dropped, replayed, reordered or altered frame fails its tag and ends the link.
 
-1. Each node generates a self-signed cert on first run.
-2. TLS on both channels.
-3. Fingerprints pinned trust-on-first-use, stored in config, shown in the tray UI
-   as a short readable digest so two machines can be compared by eye.
-4. The PIN authorises only the *first* pairing; afterwards fingerprints do the
-   work.
-5. Mutual — a node verifies its peer before injecting a single event.
+Why not TLS: Python's TLS cannot key a connection from a shared password
+before 3.13 (the Windows build is 3.11), and certificates would need a library
+this program does not otherwise carry. The pieces are standard; only their
+assembly is ours, and `test_secure` checks it - including a tap on the wire
+that sees no key press, baton or layout in the clear.
+
+What it costs: about 40 ms per connection (the exchange), and about 14 µs per
+frame - 1.4% of one core at a thousand pointer moves a second.
+
+Forward secrecy: the DH values are thrown away with the connection, so traffic
+recorded today stays unreadable even if the password is learned later.
 
 ---
 

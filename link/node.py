@@ -31,7 +31,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import pairing, protocol, runtime
+from . import pairing, protocol, runtime, secure
 from .baton import Arbiter, BatonState, ClaimDetector, Grant, now_ms
 from .clip import ClipboardSync
 from .motion import Cursor, exits, to_pixels
@@ -1709,7 +1709,8 @@ class Node:
         # We speak first, with a challenge, so the caller has something to answer
         # and the password never crosses the wire.
         chal = protocol.nonce()
-        ch.send(protocol.auth(self.core.node, chal, self.device_id))
+        dh_priv, dh_pub = secure.keypair()
+        ch.send(protocol.auth(self.core.node, chal, self.device_id, dh=dh_pub))
         hello = ch.recv()
         if hello is None:
             return None
@@ -1717,9 +1718,14 @@ class Node:
         who = hello.get("node", str(addr))
         if hello.get("invite"):
             return self._invited(ch, addr, chal, hello)
+        their_dh = hello.get("dh")
+        if not their_dh:
+            ch.send(protocol.err("no key exchange - update Nishro Link", code="auth"))
+            return None
+        bind = f"{dh_pub}|{their_dh}"
 
         if not protocol.verify(self._own_key(), chal, who, self.core.node,
-                               hello.get("proof", "")):
+                               hello.get("proof", ""), bind):
             ch.send(protocol.err("wrong password", code="auth"))
             self._log(f"rejected {who} at {addr}: wrong password"
                       + ("" if hello.get("proof") else
@@ -1734,7 +1740,7 @@ class Node:
                 ch.send({"t": "probe_ok", "v": protocol.VERSION,
                          "node": self.core.node,
                          "proof": protocol.proof(self._own_key(), hello["nonce"],
-                                                 self.core.node, who)})
+                                                 self.core.node, who, bind)})
             return None
         their_id = hello.get("id")
         want = self.pending_names.get(their_id) if their_id else None
@@ -1765,7 +1771,13 @@ class Node:
                                  code="name"))
             self._log(f"rejected a machine calling itself {who!r} - that is our name")
             return None
-        my_proof = protocol.proof(self._own_key(), their_chal, self.core.node, who)
+        my_proof = protocol.proof(self._own_key(), their_chal, self.core.node, who,
+                                  bind)
+        try:
+            dh_secret = secure.shared(dh_priv, their_dh)
+        except secure.SecureError as e:
+            ch.send(protocol.err(str(e)))
+            return None
         if their_id:
             self.pending_names.pop(their_id, None)
             old = self.names_by_id.get(their_id)
@@ -1821,6 +1833,9 @@ class Node:
                                      self.core.layout.to_dict(), g.screen,
                                      g.x, g.y, resumed=resumed, session=sid,
                                      proof=my_proof))
+            # Everything after the welcome is encrypted, both ways.
+            ch.seal(*secure.session(dh_secret, self._own_key(), chal, their_chal,
+                                    "hub"))
             ch.send(_grant_msg(g))
             # The placement too, not just the graph: the peer's window draws
             # the desk from it, and without it showed a row of boxes that had
@@ -2054,10 +2069,13 @@ class Node:
             state("verifying", detail=hub)
             mine = protocol.nonce()
             k = pairing.key(pin, greet.get("id"))
+            _priv, dh_pub = secure.keypair()
+            bind = f"{greet.get('dh')}|{dh_pub}"
             ch.send(protocol.hello(
                 self.core.node, [], proof=protocol.proof(k, greet["nonce"],
-                                                         self.core.node, hub),
-                chal=mine, dev_id=self.device_id, join=True, probe=True))
+                                                         self.core.node, hub, bind),
+                chal=mine, dev_id=self.device_id, join=True, probe=True,
+                dh=dh_pub))
             reply = ch.recv()
             if not reply:
                 return state("failed", "refused", "it hung up")
@@ -2067,7 +2085,7 @@ class Node:
                                             reply.get("code"), "refused"),
                              reply.get("msg"))
             if reply.get("t") != "probe_ok" or not protocol.verify(
-                    k, mine, hub, self.core.node, reply.get("proof", "")):
+                    k, mine, hub, self.core.node, reply.get("proof", ""), bind):
                 return state("failed", "impostor", hub)
         except protocol.ProtocolError as e:
             return state("failed", "version", str(e))
@@ -2203,6 +2221,13 @@ class Node:
             return False
         mine = protocol.nonce()
         self._dial_state("verifying", detail=hub)
+        if not greet.get("dh"):
+            self._log(f"{hub} runs an older Nishro Link without encryption - "
+                      f"update it")
+            self._dial_state("retrying", "version", hub)
+            return False
+        dh_priv, dh_pub = secure.keypair()
+        bind = f"{greet['dh']}|{dh_pub}"
 
         screens = []
         for n in self.core.layout.mine():
@@ -2213,9 +2238,9 @@ class Node:
         k = self._key_for(hub_id)
         ch.send(protocol.hello(
             self.core.node, screens, self.core.policy,
-            proof=protocol.proof(k, greet["nonce"], self.core.node, hub),
+            proof=protocol.proof(k, greet["nonce"], self.core.node, hub, bind),
             chal=mine, resume=self.session, dev_id=self.device_id,
-            join=self.joining, version=self.version))
+            join=self.joining, version=self.version, dh=dh_pub))
 
         reply = ch.recv()
         if reply is None:
@@ -2241,10 +2266,16 @@ class Node:
         # Mutual: we do not let anything inject into this machine until it has
         # proved it knows the password too.
         if not protocol.verify(k, mine, hub, self.core.node,
-                               reply.get("proof", "")):
+                               reply.get("proof", ""), bind):
             self._log(f"{hub} could not prove it knows the password - refusing to "
                       f"be driven by it")
             self._dial_state("retrying", "impostor", hub)
+            return False
+        try:
+            ch.seal(*secure.session(secure.shared(dh_priv, greet["dh"]), k,
+                                    greet["nonce"], mine, "dialer"))
+        except secure.SecureError as e:
+            self._log(f"{hub}: {e}")
             return False
         self.trusted_peer = hub
         self._hub_id = hub_id

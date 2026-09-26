@@ -635,7 +635,7 @@ def test_the_overview_says_its_status_in_a_few_words(app):
     values = {k: row[1].cget("text") for k, row in app.status_rows.items()}
     assert values == {"sharing": "On", "connection": "Waiting for devices",
                       "security": "Password set", "control": "This device"}
-    assert "not encrypted" in app.status_rows["security"][2].tip.text
+    assert "Encrypted with a fresh key" in app.status_rows["security"][2].tip.text
 
 
 def test_a_tooltip_shows_on_hover_and_goes(app):

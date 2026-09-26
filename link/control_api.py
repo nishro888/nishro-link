@@ -241,7 +241,7 @@ class ControlAPI:
             "paired": self.node.paired(),
             "addresses": my_addresses(),
             "trusted_peer": n.trusted_peer,
-            "encrypted": False,      # authenticated, not encrypted - see protocol.py
+            "encrypted": True,       # every link: secure.py
             "firewall_blocked": self.firewall_blocked or [],
             "setup": self.setup if self.setup and not self.setup.get("ok") else None,
             "autostart": self._autostart_state(),
