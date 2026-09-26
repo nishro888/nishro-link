@@ -65,11 +65,11 @@ powershell -ExecutionPolicy Bypass -File link\packaging\install-windows.ps1 -Aut
 
 ### Ubuntu, Debian and derivatives (Wayland and X11)
 
-Download `nishro-link_0.9.0-beta_all.deb` from the [Releases](../../releases)
+Download `nishro-link_0.9.1-beta_all.deb` from the [Releases](../../releases)
 page and open it in the App Center (Software Install), or:
 
 ```bash
-sudo apt install ./nishro-link_0.9.0-beta_all.deb
+sudo apt install ./nishro-link_0.9.1-beta_all.deb
 ```
 
 It installs what it needs (`python3-tk`, `python3-evdev`), adds **Nishro Link**
