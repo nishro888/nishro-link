@@ -1,0 +1,5 @@
+# Normalise line endings; shell scripts must stay LF even when checked out on
+# Windows, or bash on Linux fails on the first line with "bash".
+* text=auto
+*.sh text eol=lf
+*.png binary

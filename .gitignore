@@ -1,0 +1,19 @@
+# build output - the Windows exe is published as a release, not committed
+build/
+dist/
+*.spec
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

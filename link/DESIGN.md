@@ -1,0 +1,622 @@
+# Nishro Link — Design
+
+Shared mouse, keyboard, clipboard and files across machines on a LAN, so several
+computers feel like one desk — **whichever machine's mouse you happen to reach
+for.**
+
+This document is the contract. Code that disagrees with it is a bug in one of them.
+
+---
+
+## 1. Why we are not cloning Input Leap
+
+Input Leap (fork of Barrier, fork of Synergy) is the reference implementation of
+this idea and was **archived in 2025** — the third project in that lineage to
+stop. Its 25-year-old protocol is worth learning from. Its architecture is not
+worth inheriting, and on the central point it is structurally incapable of what
+we want: *its client binary contains no input-capture code at all.*
+
+**Taken from it**
+
+- Absolute cursor coordinates, not accumulated deltas (`kMsgDMouseMove`).
+- A screen *graph* with fractional edge intervals, not a single `left|right`
+  (`server/Config.h`).
+- Keep-alive with death detection (3s tick, 3 misses = dead).
+- TLS with trust-on-first-use fingerprint pinning, not a shared secret
+  (`FingerprintDatabase` — note protocol 1.4 added home-brew crypto and 1.5
+  removed it again).
+- Release keys by *physical* identity, never by logical keysym.
+
+**Rejected**
+
+- *Roles welded in at launch.* See section 2. This is the big one.
+- *Options as an apology for unsafe defaults.* They ship `screenSwitchDelay`,
+  `twoTap`, `needsShift` and `corners` because the default escapes too easily.
+  We pick one good guard and make it the default.
+- *Clipboard that stops at Wayland.* Theirs does not work on Linux/Wayland at
+  all. Wayland is our primary Linux target, not a port we failed to finish.
+- *Silence as an interface.* Their answer to "why is it laggy" is a log file.
+  Ours is a number you can read.
+
+---
+
+## 2. Roles, decomposed
+
+Synergy and its descendants fuse five independent concerns into two words. That
+fusion is the reason you cannot use the other machine's mouse.
+
+| Concern | Them | Us |
+|---|---|---|
+| Accepts TCP connections | server | `hub` — plumbing, set in config |
+| Resolves conflicting claims | server | `hub` — same node, still just config |
+| **Whose physical input is live right now** | server, permanently | **the baton** — a token that moves |
+| Accepts injected input | client, permanently | `may_be_driven` — a permission |
+| May edit the shared layout | server | `may_admin` — a permission |
+
+Every node runs **the same program with the same capabilities**. Each can
+capture, each can inject, each can hold the baton. What differs between them is
+configuration, plus one token that moves at runtime.
+
+```jsonc
+{
+  "node": "aio",
+  "hub":  "laptop",          // who listens and arbitrates — administrative only
+  "policy": {
+    "may_drive":     true,   // may this machine claim the baton?
+    "may_be_driven": true,   // may other machines inject here?
+    "may_admin":     false,  // may this machine edit the shared layout?
+    "claim": "motion"        // what takes the baton: motion | click | hotkey
+  }
+}
+```
+
+`hub` and `may_drive` are now independent, which is the entire point. A kiosk you
+can control but that can never control you is `may_drive: false,
+may_be_driven: true`. A locked-down admin laptop is the reverse. Neither has
+anything to do with which machine opened the socket.
+
+---
+
+## 3. The baton
+
+> **Exactly one node holds the baton. The baton holder owns the virtual cursor
+> and captures its own physical input. The baton moves to whichever machine you
+> touch.**
+
+1. The laptop holds the baton. Its mouse slides the shared cursor left onto the
+   AIO's screen. The laptop still holds the baton, sending positions; the AIO
+   injects them.
+2. You let go and grab **the AIO's own mouse.** The AIO claims the baton. It now
+   captures its own mouse and drives — and moving around its own screen is
+   **purely local, at zero latency.**
+3. You push the cursor right, back onto the laptop. The AIO keeps the baton and
+   sends positions; the laptop injects.
+4. You touch the laptop's mouse. The laptop claims back.
+
+The property that makes this worth the complexity: **motion is always local to
+the machine you are touching.** The wire only ever carries the *far* screen's
+cursor. The obvious alternative — both mice forwarding deltas to one fixed
+integrator — would put a LAN round trip in front of your own pointer on your own
+machine. On Wi-Fi that feels broken.
+
+### Claim policy
+
+A claim is triggered by **deliberate local movement**: cumulative physical motion
+past `claim_threshold` (default 8px) within `claim_window` (default 300ms), or
+any button press. A desk bump does not steal control.
+
+Injected input never counts as local. See P6 — this is not a detail.
+
+### Where the cursor goes on a claim
+
+**It jumps to the claiming machine.** You reached for that mouse because you want
+to work on that screen. Each node remembers its `home` — the last cursor position
+it held on one of its own screens — and the cursor warps there, falling back to
+the centre of its primary screen.
+
+### Arbitration and epochs
+
+All claims go to the `hub`, which grants them. A claim is rare (only when you
+swap mice), so one round trip costs nothing, and central arbitration makes
+split-brain impossible rather than merely unlikely.
+
+Every grant carries a monotonically increasing **epoch**. Every input message
+carries the epoch it was produced under, and **any message bearing a stale epoch
+is discarded on arrival.** Two simultaneous claims therefore cannot both take
+effect, and in-flight events from the previous holder cannot land after a
+handover.
+
+A grant carries the full handover state: the baton holder, the epoch, the cursor
+(`screen`, `x`, `y`) and the authoritative held-key set.
+
+### Keyboards follow the cursor, not the baton
+
+Typing goes to whatever screen the cursor is on, from whichever keyboard you
+touch, and **never moves the baton**. You can drive with one machine's mouse and
+type on the other's keyboard.
+
+This falls out of one rule:
+
+- **Mouse suppression follows the baton.** A node that does not hold it
+  suppresses its own mouse, whose only remaining local effect is to claim.
+- **Keyboard suppression follows the cursor.** The node hosting the cursor lets
+  its own keyboard through untouched. Every other node captures, suppresses, and
+  forwards to the node hosting the cursor.
+
+---
+
+## 4. Safety properties
+
+Not features. Promises the design must keep.
+
+- **P1 — The physical mouse never freezes.** Nothing on a capture thread may
+  block. Not network I/O, not clipboard reads, not `print()`, not config writes.
+  The hook does arithmetic and one `put_nowait`. Everything else is off-thread.
+  *(Windows blocks all mouse input system-wide for as long as a `WH_MOUSE_LL`
+  callback runs. We have shipped this bug once already.)*
+- **P2 — Suppression requires a live baton.** This is the peer model's
+  replacement for "control always comes home", and it is stricter because it has
+  to be. In a master/slave design only one machine ever suppresses input, so
+  there is always an escape. Here **both machines suppress**, so a lost baton —
+  crash, dead Wi-Fi, hung process — could kill *both* mice at once and leave no
+  way out but the power button. Therefore: every node runs a watchdog, and
+  `baton_ttl` (default 1500ms) without fresh traffic un-suppresses
+  unconditionally, whatever that node last believed. *Fresh traffic means ANY
+  traffic, not just input:* a holder who is simply not moving the mouse sends
+  none, so an idle peer would otherwise be indistinguishable from a crashed
+  one. The keep-alive is what tells them apart, so its interval must stay well
+  under the TTL. **Local input wins whenever
+  anything is in doubt.** Every node also carries its own failsafe hotkey — not
+  just the hub, as in Input Leap.
+- **P2b — The user always gets their machine back.** A claim refused by the
+  hub's anti-thrash guard is *silent*: the claimer is told nothing and nothing
+  retries it. A real mouse papers over that by streaming events, but a lost
+  claim, a wedged hub or a half-dead link leaves a machine whose mouse and
+  keyboard both go nowhere and whose only escape is a hotkey nobody remembers.
+  So a node chases an unanswered claim, and after `CLAIM_TRIES` stops waiting
+  and un-suppresses itself. Handing someone back their own keyboard is always
+  right; the worst case is two machines briefly both live, which is
+  recoverable — unlike a computer you cannot type on.
+- **P3 — No key stays down.** Any transition — crossing, handover, disconnect,
+  timeout, crash, failsafe — releases every key and button that machine holds.
+  A latched `Ctrl` on a uinput device outlives the process.
+- **P4 — Fail open.** An exception in a hook passes the event through rather
+  than swallowing it.
+- **P5 — Nothing is injected from an unauthenticated peer.**
+- **P6 — Injected input is never mistaken for local input.** Every node both
+  captures and injects *simultaneously*, so without this there is an instant
+  feedback loop: A injects into B, B reads its own injection, B claims the
+  baton, forever. Windows is covered by `LLMHF_INJECTED` / `LLKHF_INJECTED`.
+  Linux is **not** — `capture_linux.py` globs every `/dev/input/event*` and
+  keeps anything exposing `KEY_A`, `REL_X` or `BTN_LEFT`, which matches the
+  `"Nishro Link Virtual Input"` uinput node that `inject.py` creates. It must
+  exclude its own device by name. Harmless in the old master/slave design, fatal
+  in this one.
+
+---
+
+## 5. The arrangement, and how the pointer moves across it
+
+Two modules, one question each:
+
+```
+desk.py     WHERE things are    machines, their displays, where each machine sits;
+                                what touches what, what overlaps, what cannot be
+                                reached; snapping and resizing. No I/O.
+motion.py   HOW the pointer     moves a pointer across the desk the way an OS moves
+            MOVES over them     its own across monitors; decides when this
+                                machine's own pointer has been pushed off its edge.
+```
+
+The arrangement screen (`ui_arrange.py`) draws `desk.py` and turns mouse and
+keyboard into `desk.py` operations. Because the screen and the pointer ask the
+same module, what the screen shows is exactly what the pointer does.
+
+### The model: rectangles on one plane
+
+A desk is a plane of integer pixels. On it sit **machines**; a machine is a rigid
+group of **displays**, each a rectangle in that machine's own desktop
+coordinates, exactly as its operating system arranges them. A laptop with an
+external monitor to its left is one machine with two displays, and their
+relative position is Windows' business - never changed here. What is arranged is
+where each *machine* sits: one `(x, y)` per machine.
+
+```
+Machine: name, owner, x, y, w, h, parts     w, h = the whole desktop
+                                            parts = its displays, (x, y, w, h)
+```
+
+**The pointer crosses wherever a display of one machine shares an edge with a
+display of another**, and keeps its physical position across the edge. Where no
+display is adjacent, the edge is a wall. That is how an operating system treats
+its own monitors, and it is what makes "the AIO above the laptop's second
+monitor" mean what it looks like: up from the second monitor reaches the AIO; up
+from the panel beside it is a wall, because nothing is above the panel.
+
+Two rules the whole thing rests on:
+
+- **Machines must touch to connect.** A gap is a wall - dragging snaps, and the
+  screen names any machine the pointer cannot reach.
+- **Machines never overlap.** A point would belong to two machines at once. A
+  machine dropped on another is pushed clear the short way; anything left
+  overlapping is refused by `Desk.check()`.
+
+Rectangles are half-open: a display at `x=0, w=1920` covers 0..1919, and its
+neighbour starts at 1920. Touching means one's right equals the other's left.
+
+**What this replaced**, and why: screens joined by *declared links* mapping one
+edge onto another proportionally. That model knew whole machines and their four
+sides, so it could not say "above the second monitor"; and proportional mapping
+meant the pointer did not come out where the picture said it would. It also
+crossed gaps, which made a sloppy drop behave differently from the picture.
+
+### Movement (`motion.py`)
+
+A move that stays on displays happens as asked, whichever machines those
+displays belong to - crossing needs no special case, it is just more display. A
+move that would leave every display slides along the wall it hit: tried as
+horizontal-then-vertical and vertical-then-horizontal, keeping whichever ends
+nearer where the delta pointed. That is what makes a diagonal push along a wall
+slide instead of stick, and it is also why **a corner is not a doorway** - two
+displays touching only at a corner do not connect, as with real monitors.
+
+The cursor remembers *which machine* it is on and where on that machine's
+desktop, not a point on the plane: if the arrangement changes while it is on the
+AIO, it stays at the same place on the AIO's screen.
+
+**Leaving this machine by hand** (`exits`): while this machine drives and its
+pointer is on its own desktop, the OS moves it - across its own displays too,
+which is none of the link's business. Only a push against the *outside* of the
+desktop is ours: the pointer on its last pixel in that direction with no display
+of this machine beyond. Checked per display, not on the bounding box, so moving
+from a laptop panel onto its own external monitor is never mistaken for leaving.
+
+The wire is unchanged: positions travel as fractions of the target machine's
+desktop, so a machine whose resolution changed still lands the pointer on its
+screen.
+
+### The arrangement is shared
+
+**The hub keeps the one true arrangement** and sends it (`layout`) after the
+handshake and on every change. A peer that rearranges in its own window sends
+`arrange` to the hub, which applies it and sends it back, so both machines change
+together or neither does. The machine holding the baton decides crossings with
+its own copy, so an arrangement that reached only one machine - as it once did -
+changed nothing whenever the other one was driving.
+
+A machine that connects for the first time is put against the edge of everything
+on `side`, until someone drags it. One that reconnects with a different desktop
+(a monitor plugged in) keeps its place, and `Desk.resize()` moves whatever was
+beside it so nothing ends up underneath.
+
+### The arrangement screen
+
+- each machine drawn as its real displays, grouped, with each display's size
+- every crossing drawn as a bright line - the answer to "if I push the mouse
+  there, where does it go?"
+- dragging snaps to other machines' edges and lines up tops, bottoms and
+  centres, with dashed guides showing what it snapped to; the view is frozen
+  during a drag so the scale does not change under the hand
+- arrow keys nudge the selected machine (Shift for bigger steps); a nudge into
+  another machine is refused
+- the selected machine described in words, and problems listed in words
+- In a row / In a column, Apply, Revert; a change is kept until Apply or Revert
+  - the window refreshes every 700ms, and a screen that jumped back the moment
+  it was let go was a real bug
+- a machine that is not connected right now is drawn dimmed
+
+Protocol version 3: a version-2 peer would read the new layout as screens with no
+links and never cross, so it is refused with a message to update both sides.
+
+---
+
+## 6. Wire protocol v2
+
+Newline-delimited JSON over TCP. Chosen deliberately: input volume is tiny
+(~1 KB/s while moving), and reading the wire with `nc` during a 2 a.m. debugging
+session is worth more than the saved bytes.
+
+**Framing discipline.** Max line 64 KiB. A peer exceeding it is not slow, it is
+broken or hostile — drop the connection. (Input Leap caps at 4 MiB and
+disconnects; the principle is theirs, the number is ours, because our messages
+are small and bulk data does not use this channel.)
+
+### Handshake — symmetric
+
+```jsonc
+-> {"t":"hello","v":2,"node":"aio",
+    "screens":[{"name":"aio","w":1920,"h":1080}],
+    "policy":{"may_drive":true,"may_be_driven":true}}
+<- {"t":"welcome","v":2,"node":"laptop","epoch":7,"holder":"laptop",
+    "layout":{...}}
+```
+
+Both sides send the same `hello`; neither is "the client". `v` is negotiated,
+not assumed, so a mismatch is a clean error rather than a parse failure.
+
+### Baton
+
+```jsonc
+{"t":"claim","node":"aio","reason":"motion"}
+{"t":"baton","holder":"aio","epoch":8,"screen":"aio","x":960,"y":540,
+ "held":[29,42],"toggles":{"caps":0,"num":1}}
+{"t":"release","node":"aio"}
+```
+
+`baton` is broadcast by the hub and is the single authority on who drives. It
+carries the **authoritative held-key set**, so the new holder makes its state
+match rather than inferring it from a stream whose beginning it may have missed.
+That is the self-healing form of P3.
+
+### Input — all tagged with the epoch
+
+```jsonc
+{"t":"p","e":8,"s":"laptop","x":0.4213,"y":0.7105}   // absolute, normalized
+{"t":"b","e":8,"k":"left","d":1}
+{"t":"w","e":8,"x":0,"y":-1}
+{"t":"k","e":8,"c":29,"d":1}                          // evdev code, always
+```
+
+Canonical key codes on the wire are **Linux evdev codes**, so no machine's
+keyboard layout leaks into the protocol. Messages with a stale `e` are dropped.
+
+### Health
+
+Ping every 400ms carrying a monotonic id; `pong` echoes it, giving true RTT.
+Three missed means dead, and P2 fires. The interval is set by the `baton_ttl`
+it has to feed, not the other way round. Silence also means release every held key
+and reconnect — a network drop must never leave keys latched on a uinput device.
+
+### Clipboard — lazy, symmetric, loop-free
+
+```jsonc
+{"t":"clipmeta","origin":"aio","seq":7,"formats":["text"],"bytes":1204}
+{"t":"clipget","seq":7,"format":"text"}
+{"t":"clipdata","seq":7,"format":"text","i":0,"n":1,"v":"..."}
+```
+
+Announce on change, transfer on request, chunked, capped. Copying a 20 MB image
+must not stall a screen switch. Any node may originate; `origin` + `seq` stop a
+change echoing back to the machine it came from.
+
+### Files — a separate channel
+
+Bulk transfer gets its own connection on its own port. A 2 GB file must never
+queue behind mouse positions. Chunked, resumable, any node to any node, with
+progress readable from the control API.
+
+Input Leap has file transfer but **not on Linux** (their #855, still open). With
+clipboard working on Wayland, this is where we are simply better rather than
+merely different.
+
+---
+
+## 7. Connection loss and resume
+
+### Noticing
+
+Detection is by our own ping (2s tick, 3 misses), **not** by TCP. A dead peer can
+take minutes to surface as a socket error; the ping calls it in about six
+seconds. Death immediately and independently triggers P2 (un-suppress) and P3
+(release every held key) on every node — no node waits for permission from
+another to become usable again.
+
+**While disconnected, each machine is simply a normal computer.** Both mice work,
+both keyboards work, nothing is suppressed. That is the only acceptable failure
+mode, and it falls out of P2 rather than needing its own code path.
+
+### Retrying
+
+A fixed interval — today's `time.sleep(1.5)` in `client.py` — is wrong in both
+directions at once: too slow for a Wi-Fi blip, and far too fast for a machine
+that is simply switched off, which it will hammer all night.
+
+```
+attempt 0   immediate                       most drops are transient
+otherwise   d = min(cap, base * 2**n)       base 250ms, cap 15s
+sleep       d/2 + random(0, d/2)            equal jitter
+```
+
+giving roughly `0, 0.19, 0.38, 0.75, 1.5, 3, 6, 11, 11-15, …` seconds.
+
+Jitter is not ceremony. Without it, two nodes dropped by the same event retry in
+lockstep forever, and the backoff can phase-lock with whatever periodic thing
+broke the link in the first place.
+
+**Flap guard.** The attempt counter resets only once a connection has been
+healthy for `stable_after` (5s) — *not* on connect. A link that connects and dies
+again in 200ms is failing, and resetting on connect would retry it at full speed
+indefinitely.
+
+**Connect timeout 2s**, not the current 6: the backoff should set the pace, not
+a blocking syscall.
+
+**Escalate in kind, not only in delay.** After `rediscover_after` (2) consecutive
+failures, alternate the remembered address with a search by name. A peer whose
+DHCP lease moved is unreachable at its old address no matter how patiently you
+wait — more delay cannot fix the wrong destination.
+
+### Finding the peer by name
+
+Nobody types an address. A pairing is recorded as the peer's **name**, its
+permanent **device ID** (random, made on first run, survives a rename), and the
+address it was **last found at** — a cache, never typed. Dialling tries the
+cached address first, because it is usually still right; otherwise, or after two
+misses, it searches (`discovery.py`):
+
+```
+who   {"app":"nishro-link","t":"who","q":<name|id|*>,"from":<id>}
+here  {"app":"nishro-link","t":"here","name","id","port","waiting"}
+```
+
+Questions go out on UDP to the broadcast address, each local /24's broadcast
+address and the site-local group `239.255.87.70`, three times in about a second;
+answers come back unicast. UDP port = the link's TCP port, so one firewall rule
+covers both. ARP and ping were rejected because they answer the wrong question:
+they say a machine exists, not what it is called or whether it runs this.
+
+The hub's first message (`auth`) carries its ID. A dialler that reaches a
+different device at a remembered address — the lease went to another machine
+running Nishro Link — stops there, before sending any proof, drops the address
+and searches.
+
+**An answer is not trusted and need not be:** anything on the network can claim
+to be "aio", but the handshake still requires proof of the password, and nothing
+is injected into a machine that has not proved it. What a fake *can* do is take
+one proof away and guess offline — so the waiting side **generates** the
+password (`pairing.py`, 12 characters from 31 unambiguous ones, ~59 bits), and a
+chosen one must be at least 8 characters.
+
+### What resume actually means
+
+Two kinds of state, with very different lifetimes.
+
+**Input state is never replayed.** On reconnect the baton is re-granted under a
+**fresh epoch**, so any events still in flight from before the drop are discarded
+on arrival by the existing epoch rule. The cursor is restored to its last
+position. The held-key set starts **empty** — P3 already released everything, and
+restoring it would re-press keys the user has physically let go of.
+
+```jsonc
+-> {"t":"hello","v":2,"node":"aio","resume":"<session id>", ...}
+<- {"t":"welcome","v":2,"resumed":true,"epoch":9,"holder":"aio",
+    "screen":"aio","x":960,"y":540,"layout":{...}}
+```
+
+`resumed:false` — unknown or expired session — means a clean handshake. The
+layout is re-sent either way, in case it changed while the peer was away.
+
+**Bulk state resumes for much longer.** File transfers are keyed by transfer id
+and byte offset, persisted, and continue from where they stopped; those bytes are
+on disk and stay valid across a reboot. The clipboard re-announces its latest
+`clipmeta`, so a peer that missed a copy catches up without the data being pushed
+at it.
+
+### No hub, no baton
+
+If the vanished node *is* the hub, nothing can arbitrate. Every remaining node
+stays un-suppressed and behaves as an ordinary computer until it returns.
+Degrading to "just a normal PC" is always the correct failure.
+
+---
+
+## 8. Security
+
+Now: mutual HMAC-SHA256 challenge-response — the password never crosses the
+wire, each side proves it to the other, both names are in the signed
+transcript, and nothing is injected before the peer has proved itself. The
+waiting side generates the password (see *Finding the peer by name*).
+
+Still missing: **encryption.** Authentication says who is on the other end; it
+does not hide what is typed. Keystrokes cross the network readable by anything
+that can capture it.
+
+Target, in order:
+
+1. Each node generates a self-signed cert on first run.
+2. TLS on both channels.
+3. Fingerprints pinned trust-on-first-use, stored in config, shown in the tray UI
+   as a short readable digest so two machines can be compared by eye.
+4. The PIN authorises only the *first* pairing; afterwards fingerprints do the
+   work.
+5. Mutual — a node verifies its peer before injecting a single event.
+
+---
+
+## 9. Module layout
+
+Pure logic is kept apart from OS calls, so the interesting parts are testable on
+any machine including CI.
+
+```
+link/
+  protocol.py     wire format, LineChannel, version negotiation, size caps
+  desktop.py      this machine's monitors, as one desktop
+  desk.py         the arrangement: machines, displays, what     [pure]
+                  touches what, snapping, problems
+  motion.py       the pointer moving across the desk; when      [pure]
+                  this machine's own pointer leaves it
+  discovery.py    finding a device by name on the network
+  pairing.py      generated passwords
+  ui_tk.py        the window; ui_arrange.py the arrangement
+                  screen; ui_pair.py adding a device
+  baton.py        claim policy, epochs, arbitration, watchdog   [pure]
+  health.py       keep-alive, RTT, dead-link detection
+  reconnect.py    backoff, jitter, flap guard, session resume    [pure]
+  config.py       one JSON document, atomic writes
+  capture_win.py  WH_MOUSE_LL / WH_KEYBOARD_LL -> events        (obeys P1)
+  capture_linux.py evdev read + EVIOCGRAB                       (must obey P6)
+  inject.py       Windows SendInput / Linux uinput
+  keymap.py       VK <-> evdev
+  clip.py         lazy, chunked, multi-format
+  files.py        bulk channel
+  control_api.py  localhost HTTP for the tray UI
+  node.py         one peer: capture + inject + baton  (replaces server/client)
+  nishro_link.py  CLI
+  tests/          in version control this time
+```
+
+`server.py` and `client.py` collapse into `node.py` once the baton lands — under
+this model they are the same program with different config. `edges.py`, and
+after it `layout.py` + `cursor.py` (declared links, proportional spans), are
+superseded by `desk.py` + `motion.py` - see section 5.
+
+### Linux input backend
+
+We inject via **uinput**, not XTEST and not libei/portal. Input Leap went the
+portal route, which is the blessed and sandboxable path — and which still cannot
+do clipboard on Wayland. uinput needs a device permission but behaves identically
+under X11 and Wayland with no compositor cooperation. Portal stays on the list as
+an *additional* backend, never the only one.
+
+---
+
+## 10. Known platform limits
+
+- **Windows secure desktop.** A thread cannot switch desks while it holds hooks.
+  The UAC prompt, the lock screen and the screensaver are separate desks, so
+  capture stops there and that node drops out of the baton. Input Leap solves
+  this with a Windows service plus a watchdog that reinstalls hooks into the
+  active session (`MSWindowsDesks`, `MSWindowsWatchdog`). We document the limit
+  rather than ship a service; revisit if it proves annoying in practice.
+- **`GetSystemMetrics(0/1)` is the primary monitor**, not the virtual desktop.
+  The layout model makes this explicit instead of assuming one screen per node.
+- **evdev grab needs permission.** Capturing on Linux means read access to
+  `/dev/input/*` (the `input` group). Unlike injection, there is no portal-free
+  alternative.
+
+---
+
+## 11. Order of work
+
+Done, and verified on real hardware (Windows 10 laptop + Ubuntu/Wayland desktop):
+
+1. `desk.py` + `motion.py` — the arrangement and the pointer moving across it
+   (these replaced `layout.py` + `cursor.py`).
+2. `baton.py` — claims, epochs, arbitration, the P2 watchdog.
+3. `reconnect.py` — backoff, jitter, flap guard, session resume.
+4. `protocol.py` v2 — versioning, frame cap, epoch tags.
+5. **P6**, then `node.py` — both machines capture and inject. `server.py`,
+   `client.py` and `edges.py` are gone.
+6. `clip.py` — lazy chunked clipboard, working under Wayland.
+7. `config.py` + `--setup` — one command for daily use.
+8. Installers for both platforms, and a test harness for the Linux one.
+
+Live-run bugs, all of one shape — *state that is correct on the machine that
+changed it and never reaches the other one*:
+
+- an idle holder looked like a dead link (watchdog fed only by input, and the
+  keep-alive ran slower than the TTL it was meant to feed)
+- nobody told a machine the cursor had left it, so it kept typing locally
+- a stale anchor made both machines claim the baton off each other forever
+
+Still to do, in order:
+
+9. **TLS + fingerprint pinning; retire the plaintext PIN.** The largest
+   remaining gap between this and something that belongs outside a trusted LAN.
+10. Tray + settings UI over the layout and policy model.
+11. Files channel, resumable by transfer id and offset.
+12. More than two machines, and more than one screen per machine. The layout
+    model already handles both; the capture side is what assumes one screen.
+13. `geom` is defined in the protocol but not implemented — a resolution change
+    mid-session is not yet picked up.
