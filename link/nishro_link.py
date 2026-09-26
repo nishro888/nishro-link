@@ -32,6 +32,7 @@ import os
 import socket
 import sys
 import threading
+import time
 
 from . import access, config, control_api, desk, desktop, pairing
 from .inject import make_injector
@@ -169,6 +170,8 @@ def build_parser():
                     help="port for the local control UI (0 turns it off)")
     ap.add_argument("--no-window", action="store_true",
                     help="run without the application window (headless/service)")
+    ap.add_argument("--agent", nargs=2, metavar=("PORT", "TOKEN"),
+                    help=argparse.SUPPRESS)       # started by the Windows service
     ap.add_argument("--service", action="store_true",
                     help="run as the system service: from boot, without a window "
                          "(the window attaches to it)")
@@ -322,13 +325,69 @@ def _no_access() -> int:
 def main() -> int:
     args, cfg = settings()
 
+    if args.agent:
+        # The Windows service's hands on the desktop that is showing (agent.py).
+        from . import agent, winsvc
+        port, token = args.agent
+        return agent.run(int(port), token, desk_name=winsvc.own_desktop,
+                         showing=winsvc.showing_desktop)
+
     if not args.service and not args.no_window and not args.show and \
             not args.setup and not args.save:
         attached = attach(args)
         if attached is not None:
             return attached
 
+    if args.service and sys.platform == "win32":
+        from . import winsvc
+        if winsvc.run_as_service(lambda stop: _engine(args, cfg, stop)):
+            return 0
+        # Started by hand rather than by Windows: run the same thing in the
+        # foreground, which is how it is tried out.
+        return _engine(args, cfg, None)
+    return _engine(args, cfg, None)
+
+
+def _windows_service_input(log):
+    """The service's capture, injector and clipboard: all through the desk agent
+    it keeps running on whichever desktop is showing (agent.py, winsvc.py)."""
+    from . import agent, service, winsvc
+    exe = sys.executable
+    runner = f'"{exe}"' if getattr(sys, "frozen", False) else \
+        f'"{exe}" -m link.nishro_link'
+
+    def launch(port, token, desk):
+        return winsvc.launch_in_console(f"{runner} --agent {port} {token}", desk)
+    hub = agent.AgentHub(launch=launch, log=log)
+    hub.start()
+    # The screens are the agent's to measure: this session has none of its own.
+    for _ in range(100):
+        if hub.desktop() is not None:
+            break
+        time.sleep(0.2)
+    here = hub.desktop() or desktop.Desktop(0, 0, 1920, 1080)
+    _private(service.CONFIG.parent)
+    return hub, here
+
+
+def _private(folder) -> None:
+    """The service's settings hold the group's password: SYSTEM and
+    Administrators only. (The handle next door stays readable - see service.py.)"""
+    import subprocess
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["icacls", str(folder), "/inheritance:r", "/grant:r",
+                        "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"],
+                       capture_output=True, timeout=10)
+    except Exception:
+        pass
+
+
+def _engine(args, cfg, stop=None) -> int:
+    """The link itself: a node, its devices, its control API, and - unless it
+    is a service - its window. `stop` ends it (the Windows service)."""
     log = RunLog()
+    win_service = args.service and sys.platform == "win32"
 
     if not cfg["node"]:
         cfg["node"] = socket.gethostname()
@@ -383,7 +442,11 @@ def main() -> int:
         except OSError:
             pass
 
-    here = desktop.detect()
+    hub = None
+    if win_service:
+        hub, here = _windows_service_input(log)
+    else:
+        here = desktop.detect()
     screen = parse_size(cfg["screen"], here.size)
     policy = cfg["policy"]
     lay = build_desk(cfg, here, peer_label)
@@ -413,8 +476,12 @@ def main() -> int:
     try:
         if not setup["ok"]:
             raise PermissionError(" ".join(setup["problems"]))
-        capture = make_capture(screen, origin=(here.x, here.y))
-        injector = make_injector(screen=screen, origin=(here.x, here.y))
+        if hub is not None:
+            from .agent import AgentCapture, AgentInjector
+            capture, injector = AgentCapture(hub), AgentInjector(hub)
+        else:
+            capture = make_capture(screen, origin=(here.x, here.y))
+            injector = make_injector(screen=screen, origin=(here.x, here.y))
     except Exception as e:
         if not sys.platform.startswith("linux"):
             log(f"cannot start: {e}")
@@ -437,6 +504,11 @@ def main() -> int:
              peer_id=None if cfg["hub"] else cfg.get("peer_id"))
     n.detect_desktop = desktop.detect          # notice monitors plugged in or out
     n.desktop_now = here
+    if hub is not None:
+        from .clip import ClipboardSync
+        n.detect_desktop = hub.desktop
+        n.clip = ClipboardSync(cfg["node"], read=hub.clip_read,
+                               write=hub.clip_write, seq_fn=hub.clip_seq)
 
     if cfg["hub"]:
         where = f"waiting for a device, on the {cfg['side']}"
@@ -470,8 +542,12 @@ def main() -> int:
         ui.setup = setup
         ui.service = bool(args.service)
         if ui.start():
-            log(f"control UI: {ui.url}")
-            log("  (that link carries a one-time token - it changes every run)")
+            if args.service:
+                # Not the token: a log is read more widely than the handle.
+                log(f"control UI on 127.0.0.1:{ui.port}")
+            else:
+                log(f"control UI: {ui.url}")
+                log("  (that link carries a one-time token - it changes every run)")
             if args.service:
                 from . import service
                 where = service.publish(ui.port, ui.token)
@@ -505,10 +581,19 @@ def main() -> int:
                 # setup that is not done would otherwise wait unseen forever.
                 window.hide()
 
+    if args.service and sys.platform != "win32":
+        import signal
+        # systemd stops a service with SIGTERM: stop cleanly - input released,
+        # the handle withdrawn - rather than die mid-step.
+        signal.signal(signal.SIGTERM, lambda *_: n.stop())
     try:
         if window:
             threading.Thread(target=n.run, daemon=True).start()
             window.run()
+        elif stop is not None:
+            threading.Thread(target=n.run, daemon=True).start()
+            stop.wait()
+            log("stopping - asked by Windows")
         else:
             n.run()
     except KeyboardInterrupt:

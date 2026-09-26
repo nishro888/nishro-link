@@ -23,7 +23,7 @@ from pathlib import Path
 if sys.platform == "win32":
     BASE = Path(os.environ.get("PROGRAMDATA") or r"C:\ProgramData") / "NishroLink"
     HANDLE = BASE / "api.json"
-    CONFIG = BASE / "config.json"
+    CONFIG = BASE / "private" / "config.json"     # SYSTEM and Administrators only
     STATE = BASE
 else:
     HANDLE = Path("/run/nishro-link/api.json")
