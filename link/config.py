@@ -39,6 +39,7 @@ DEFAULTS = {
     "placement": None,
     "port": 8770,
     "pin": "",
+    "find_on_shake": True,   # shaking the mouse shows where the pointer is
     "policy": {
         "may_drive": True,       # may this machine take control?
         "may_be_driven": True,   # may others inject here?

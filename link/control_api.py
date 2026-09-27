@@ -52,6 +52,7 @@ class ControlAPI:
         node.on_rename = self._on_renamed_by_hub
         node.on_manage = self._on_manage
         node.on_policy = self._on_policy
+        node.core.find_on_shake = bool(cfg.get("find_on_shake", True))
         # What the hub remembers of each device, for a rename or a return.
         for d in cfg.get("devices") or []:
             if d.get("id") and d.get("name"):
@@ -248,6 +249,7 @@ class ControlAPI:
             "addresses": my_addresses(),
             "trusted_peer": n.trusted_peer,
             "encrypted": True,       # every link: secure.py
+            "find_on_shake": bool(self.node.core.find_on_shake),
             "firewall_blocked": self.firewall_blocked or [],
             "setup": self.setup if self.setup and not self.setup.get("ok") else None,
             "autostart": self._autostart_state(),
@@ -320,6 +322,10 @@ class ControlAPI:
             return self._password(bool(body.get("new")))
         if path == "/api/placement":
             return self._place(body.get("boxes") or [])
+        if path == "/api/find":
+            # Show where the pointer is, on whichever machine it is on.
+            self.node._act(self.node.core.find)
+            return {"ok": True}
         if path == "/api/config":
             return self._configure(body)
         if path == "/api/quit":
@@ -969,6 +975,11 @@ class ControlAPI:
                                  self.cfg["policy"].get("may_drive", True),
                                  self.cfg["policy"].get("may_be_driven", True))
         live.update(rights)
+        if "find_on_shake" in body:
+            on = bool(body["find_on_shake"])
+            self.cfg["find_on_shake"] = on
+            self.node.core.find_on_shake = on
+            live["find_on_shake"] = on
         if "claim" in body:
             claim = str(body["claim"])
             if claim not in ("motion", "click", "hotkey"):

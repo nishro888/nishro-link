@@ -38,6 +38,7 @@ from .motion import Cursor, exits, to_pixels
 from .desk import Desk, beside, normal_parts
 from .reconnect import Backoff, SessionStore
 from .runtime import firewall_hint
+from .shake import Shake
 
 CLAIM_RETRY_MS = 400     # how long to wait before asking for control again
 CLAIM_TRIES = 4          # then stop waiting: ~1.6s from first ask to self-rescue
@@ -83,6 +84,9 @@ class NodeCore:
         # they cannot type on.
         self._claim_at = None
         self._claim_tries = 0
+        # Shaking the mouse shows where the pointer is (shake.py). A setting.
+        self.shake = Shake()
+        self.find_on_shake = True
         # Peer NODES connected right now. The pointer may enter only their
         # machines and ours: an arrangement lists machines that are switched
         # off, and pushing into one of those flipped the cursor between the
@@ -360,6 +364,7 @@ class NodeCore:
         eat_x, eat_y = exits(self.layout.get(screen), x, y, dx, dy)
         if eat_x or eat_y:
             self._advance(a, eat_x, eat_y)
+        self._shaken(a, dx, dy)
         return a
 
     def local_motion(self, dx: int, dy: int) -> Actions:
@@ -369,6 +374,28 @@ class NodeCore:
         if not self.holds():
             return self._maybe_claim(a, self.claims.motion(dx, dy), "motion")
         self._advance(a, dx, dy)
+        self._shaken(a, dx, dy)
+        return a
+
+    def _shaken(self, a: Actions, dx: int, dy: int) -> None:
+        """Only movement of a machine that is driving counts: movement that
+        merely asks for control has not taken the pointer anywhere yet, and
+        the spotlight would go up where the pointer used to be."""
+        if self.find_on_shake and self.shake.feed(dx, dy, self._clock()):
+            self.find(a)
+
+    def find(self, a: Actions = None) -> Actions:
+        """Show where the pointer is: a spotlight round it, on the machine it
+        is on - this one, or another, which is told to."""
+        a = a if a is not None else Actions()
+        screen = self.cursor.screen
+        if self.layout.is_local(screen):
+            a.inject.append(("spotlight", self.cursor.x, self.cursor.y))
+        else:
+            nx, ny = self.cursor.norm()
+            msg = protocol.find(screen, nx, ny)
+            msg["to"] = self.layout.get(screen).owner
+            a.send.append(msg)
         return a
 
     def local_button(self, name: str, down: bool) -> Actions:
@@ -442,6 +469,12 @@ class NodeCore:
             a.send.append(protocol.pong(msg.get("i", 0)))
         elif t in ("p", "b", "w", "k"):
             self._on_input(a, msg, t)
+        elif t == "find":
+            s = msg.get("s")
+            if s in self.layout.names() and self.layout.is_local(s):
+                m = self.layout.get(s)
+                x, y = to_pixels(msg.get("x", 0.5), msg.get("y", 0.5), m.w, m.h)
+                a.inject.append(("spotlight", x, y))
         return a
 
     def _on_input(self, a: Actions, msg: dict, t: str) -> None:
@@ -845,6 +878,14 @@ class Node:
     # the ping is the only traffic on an idle link, and it is what stops an idle
     # holder looking like a dead one. 2 ticks = 400ms against a 1500ms TTL.
     PING_EVERY = 2
+    # While another machine drives this one: a tiny frame this often. Wi-Fi
+    # power saving lets a radio that has been quiet doze, and what arrives then
+    # waits for it - measured between the laptop and the AIO: one packet in ten
+    # held back 65 ms or more, the worst 126 ms, exactly when the mouse starts
+    # moving again after a rest. Sending every 40 ms keeps the radio awake:
+    # one in ten then 14-21 ms, the worst 49-53. About 2.5 KB/s, and only
+    # while this machine is being driven.
+    KEEP_AWAKE_S = 0.04
 
     def __init__(self, core: NodeCore, capture, injector, port: int = 8770,
                  pin: str = "", peer_addr: str = None, on_log=None,
@@ -956,6 +997,7 @@ class Node:
         # local connect is retried only after 500ms.
         threading.Thread(target=self._start_responder, daemon=True).start()
         threading.Thread(target=self._heartbeat, daemon=True).start()
+        threading.Thread(target=self._keep_awake, daemon=True).start()
         threading.Thread(target=self._clipboard, daemon=True).start()
         if self.detect_desktop is not None:
             threading.Thread(target=self._watch_displays, daemon=True).start()
@@ -1328,6 +1370,10 @@ class Node:
                 self.injector.key(what[1], what[2])
             elif kind == "wheel":
                 self.injector.wheel(what[1], what[2])
+            elif kind == "spotlight":
+                show = getattr(self.injector, "spotlight", None)
+                if show:
+                    show(what[1], what[2])
         except Exception as e:
             self._log_async(f"inject {kind} failed: {e!r}")
 
@@ -1613,6 +1659,29 @@ class Node:
                     if len(l.ping_at) > 16:
                         l.ping_at.pop(min(l.ping_at))
                     l.ch.send(protocol.ping(i))
+
+    def _keep_awake(self) -> None:
+        """While another machine drives this one, keep this machine's radio
+        awake - see KEEP_AWAKE_S. Only then: the machine driving sends all
+        the time anyway, and an idle link is left alone."""
+        while not self._stop:
+            time.sleep(self.KEEP_AWAKE_S)
+            if self.driven_from() is None:
+                continue
+            with self._links_lock:
+                links = list(self.links.values())
+            for l in links:
+                l.ch.send(protocol.keep_awake())
+
+    def driven_from(self):
+        """The machine driving this one right now, or None."""
+        core = self.core
+        with self._lock:
+            holder = core.baton.holder
+            here = not core.cursor_is_remote()
+        if holder in (None, core.node) or not here or not self.connected():
+            return None
+        return holder
 
     def _clipboard(self) -> None:
         """Watch our clipboard, and handle the other machine's.
@@ -2504,6 +2573,7 @@ class Node:
                 l.rtt_ms = self.rtt_ms = (time.monotonic() - sent) * 1000.0
         elif t == "err":
             self._log(f"{name} says: {msg.get('msg')}")
+        # "ka": arriving was its whole job (and it fed the watchdog above)
 
 
 def _grant_msg(g: Grant) -> dict:

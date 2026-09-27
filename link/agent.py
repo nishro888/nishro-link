@@ -238,6 +238,9 @@ class AgentInjector:
     def key(self, code, down):
         self._do("key", code, int(down))
 
+    def spotlight(self, x, y):
+        self._do("spotlight", int(x), int(y))
+
     def set_origin(self, x, y):
         pass
 

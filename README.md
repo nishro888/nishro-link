@@ -10,7 +10,7 @@ there is no fixed "server with the keyboard".
 |---|---|
 | ![The Home page, light](docs/screenshots/overview.png) | ![The Home page, dark](docs/screenshots/overview-dark.png) |
 
-> **Status: beta (v0.12).** Developed and tested on a Windows 10 laptop and an
+> **Status: beta (v0.13).** Developed and tested on a Windows 10 laptop and an
 > Ubuntu (Wayland) desktop, with an automated test suite - read
 > [Limitations](#limitations) first.
 
@@ -43,6 +43,12 @@ there is no fixed "server with the keyboard".
 - **Wrap-around.** Place a copy of a machine anywhere, and pushing into the
   copy lands you on the machine itself: put a copy of the laptop to the right
   of the AIO, and right from the AIO comes back round to the laptop.
+- **Find the pointer.** Lost it among the screens? Shake the mouse: every screen
+  but a circle round the pointer darkens - on whichever computer it is (on
+  Ubuntu, GNOME's own ripple). Also in the Sharing menu; can be turned off.
+- **Quick on Wi-Fi.** A machine being controlled keeps its Wi-Fi radio awake,
+  so the pointer does not stall after a pause, and bursts of mouse reports go
+  out together.
 - **Monitors plugged in or out** are noticed within seconds and the arrangement
   updates everywhere.
 - **Shared clipboard** (text).
@@ -71,7 +77,7 @@ there is no fixed "server with the keyboard".
 
 ### Windows 10 / 11
 
-Download **`NishroLink-Setup-0.12.0.exe`** from the [Releases](../../releases)
+Download **`NishroLink-Setup-0.13.0.exe`** from the [Releases](../../releases)
 page and run it. Click through the wizard and approve the one permission
 prompt. Nishro Link then:
 
@@ -85,11 +91,11 @@ time: choose **More info → Run anyway**.
 
 ### Ubuntu, Debian and derivatives (Wayland and X11)
 
-Download **`nishro-link_0.12.0-beta_all.deb`** from the
+Download **`nishro-link_0.13.0-beta_all.deb`** from the
 [Releases](../../releases) page and open it - the App Center installs it - or:
 
 ```bash
-sudo apt install ./nishro-link_0.12.0-beta_all.deb
+sudo apt install ./nishro-link_0.13.0-beta_all.deb
 ```
 
 It installs everything it needs and runs Nishro Link in the background from

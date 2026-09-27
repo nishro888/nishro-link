@@ -195,6 +195,44 @@ Not features. Promises the design must keep.
 
 ---
 
+### Latency
+
+Measured on the real pair - a laptop on 5 GHz Wi-Fi, an AIO on 2.4 GHz with
+power saving on (the default) - the link's own work is not where the time goes:
+two nodes over loopback deliver a thousand-a-second mouse at 0.3 ms median,
+0.7 ms at the 99th percentile, 7% of one core. **Wi-Fi power saving** is: a
+radio that has been quiet dozes between beacons, and a packet for it waits at
+the access point. Pinging the AIO every half second, one packet in ten took
+65 ms or more, the worst 113-126 ms - felt exactly when the mouse moves again
+after a rest.
+
+- **Keep-awake** (`Node._keep_awake`): while this machine is driven from
+  another, it sends a tiny `ka` frame every 40 ms. A radio that transmits stays
+  awake. Tried on the real pair before it was built: one packet in ten then
+  14-21 ms, the worst 49-53. About 2.5 KB/s, and only while being driven; an
+  idle link is left alone. `ka` is hop-local, and feeds the watchdog.
+- **Batching** (`LineChannel._send_loop`): whatever is queued goes out in one
+  write - one system call, one packet with TCP_NODELAY.
+- **Collapse** (`protocol.collapse`): a position replaced by a newer one for
+  the same screen, before it was sent, is not sent. Positions are absolute, so
+  only the newest matters; nothing else is ever merged or reordered.
+- The receiver splits a whole read into frames at once; the second walk of a
+  move (motion.py) is skipped when the first lost nothing; a machine's display
+  list is worked out once; Python switches threads every 1 ms, not 5.
+
+### Finding the pointer
+
+Shaking the mouse (`shake.py`: far, fast, doubling back sharply at least four
+times, within a small patch - circles, drags and zig-zags do not count) or
+*Sharing > Find the pointer* shows where the pointer is, **on the machine it
+is on**: the node that notices sends `find` to its owner. Only movement of a
+machine that is driving counts: movement that merely asks for control has not
+moved the pointer yet. On Windows a click-through layered window darkens every
+screen but a circle round the pointer (`spotlight_win.py`; in the service the
+desk agent draws it, so it works on the lock screen too). On Linux only the
+compositor may draw over everything on Wayland, so GNOME's own Locate Pointer
+does it - a lone Ctrl tap - turned on for the moment if it is off, and back.
+
 ## 5. The arrangement, and how the pointer moves across it
 
 Two modules, one question each:

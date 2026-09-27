@@ -98,9 +98,14 @@ class Cursor:
         desk = self.layout
         dx, dy = int(dx), int(dy)
         here = (self._screen, self._x, self._y)
-        a = _walk(desk, here, dx, dy, allowed, "xy")
-        b = _walk(desk, here, dx, dy, allowed, "yx")
-        end = a if a[4] <= b[4] else b
+        end = _walk(desk, here, dx, dy, allowed, "xy")
+        # The other order can only do better if this one lost something to a
+        # wall, and only if the move has both parts. Most moves are neither:
+        # this halves the work per mouse event.
+        if end[4] and dx and dy:
+            other = _walk(desk, here, dx, dy, allowed, "yx")
+            if other[4] < end[4]:
+                end = other
         self._screen, self._x, self._y = end[0], end[1], end[2]
         return self.spot(end[3])
 
@@ -165,7 +170,7 @@ def _walk(desk, here, dx, dy, allowed, order):
             if steps > MAX_STEPS:
                 lost += abs(n)
                 break
-            rects = desk.get(screen).displays()
+            rects = desk.get(screen)._displays
             if axis == "x":
                 nx = _slide(rects, x, y, n, "x")
                 n -= nx - x

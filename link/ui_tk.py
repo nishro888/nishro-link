@@ -828,6 +828,17 @@ class App:
                    ).pack(side="left")
             tk.Label(row, text=text, font=F["body"], bg=C["card"],
                      fg=C["ink"]).pack(side="left", padx=10)
+        # In force the moment it is flipped, like Start at login: it changes
+        # nothing anyone could want to take back with a Save they forgot.
+        self.find_shake = tk.BooleanVar(value=True)
+        row = tk.Frame(ctl.body, bg=C["card"])
+        row.pack(fill="x", pady=3)
+        Toggle(row, kit, self.find_shake, command=self._set_find_shake
+               ).pack(side="left")
+        tk.Label(row, text="Shake the mouse to find the pointer", font=F["body"],
+                 bg=C["card"], fg=C["ink"]).pack(side="left", padx=10)
+        info(row, kit, "A quick shake darkens every screen but a circle round "
+                       "the pointer - on whichever computer it is.").pack(side="left")
 
         # Applied as soon as it is flipped, not by Save: it changes nothing in
         # the running program, and a switch that waits for a button reads as
@@ -1027,6 +1038,8 @@ class App:
             self.may_drive.set(s["policy"].get("may_drive", True))
         if "may_be_driven" not in self.touched:
             self.may_be_driven.set(s["policy"].get("may_be_driven", True))
+        if "find_on_shake" in s and self.find_shake.get() != s["find_on_shake"]:
+            self.find_shake.set(bool(s["find_on_shake"]))
         if self.autostart is not None:
             a = s.get("autostart") or {}
             if self.autostart.get() != bool(a.get("on")):
@@ -1088,6 +1101,8 @@ class App:
                           command=self._toggle)
         m.add_command(label="Release input", accelerator="Both Ctrl",
                       command=self._release)
+        m.add_command(label="Find the pointer", accelerator="Shake",
+                      command=self._find_pointer)
         m.add_separator()
         m.add_command(label="Copy password", command=self._copy_password)
         m.add_command(label="New password…", command=self._new_password,
@@ -1472,6 +1487,16 @@ class App:
                           self.C["bad"])
             self._poll_now()
         wait()
+
+    def _find_pointer(self) -> None:
+        self.api.command("/api/find", {})
+
+    def _set_find_shake(self) -> None:
+        r = self.api.command("/api/config",
+                             {"find_on_shake": bool(self.find_shake.get())}) or {}
+        if r.get("error"):
+            self._say(r["error"], self.C["bad"])
+        self._poll_now()
 
     def _release(self) -> None:
         self.api.command("/api/release", {})

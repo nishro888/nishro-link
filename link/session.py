@@ -52,6 +52,9 @@ def describe(props: dict, uid_home=None, runtime="/run/user", xsockets="/tmp/.X1
         return None
     rt = f"{runtime}/{uid}"
     env = {"XDG_RUNTIME_DIR": rt}
+    if os.path.exists(f"{rt}/bus"):
+        # The session's D-Bus: GNOME's settings (gsettings) are reached over it.
+        env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={rt}/bus"
     if props["Type"] == "wayland" and os.path.exists(f"{rt}/wayland-0"):
         env["WAYLAND_DISPLAY"] = "wayland-0"
     display = props.get("Display") or ""

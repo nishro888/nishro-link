@@ -58,6 +58,7 @@ Message shapes:
 """
 from __future__ import annotations
 
+import collections
 import hashlib
 import hmac
 import json
@@ -444,7 +445,21 @@ HUB_ONLY = frozenset({"baton", "layout", "roster", "welcome", "removed",
                       "rekey", "rename", "set_policy", "manage_result"})
 
 # Answered on the link they arrived on, never routed or relayed.
-HOP_LOCAL = frozenset({"ping", "pong", "err"})
+HOP_LOCAL = frozenset({"ping", "pong", "err", "ka"})
+
+
+def find(screen: str, nx: float, ny: float) -> dict:
+    """Show where the pointer is, on `screen` - the machine it is on. Where
+    it is, as for `p`; the machine showing it may look for itself."""
+    return {"t": "find", "s": screen, "x": round(float(nx), 5),
+            "y": round(float(ny), 5)}
+
+
+def keep_awake() -> dict:
+    """Nothing to say - said so that the radio stays awake. See
+    Node._keep_awake: Wi-Fi power saving held back what arrived after a quiet
+    moment by up to a tenth of a second."""
+    return {"t": "ka"}
 
 
 def arrange(placement) -> dict:
@@ -470,6 +485,25 @@ def clipget(seq: int, fmt: str = "text") -> dict:
 def clipdata(seq: int, fmt: str, i: int, n: int, v: str) -> dict:
     return {"t": "clipdata", "seq": int(seq), "format": fmt,
             "i": int(i), "n": int(n), "v": v}
+
+
+def collapse(batch, stats=None) -> list:
+    """A batch of queued frames, minus any position superseded by the very
+    next frame: same screen, same epoch, same addressee, and nothing else
+    between them. Order is kept; nothing but a stale position is removed."""
+    out = []
+    for ev in batch:
+        prev = out[-1] if out else None
+        if (type(ev) is dict and type(prev) is dict and ev.get("t") == "p"
+                and prev.get("t") == "p" and prev.get("s") == ev.get("s")
+                and prev.get("e") == ev.get("e") and prev.get("to") == ev.get("to")
+                and len(prev) == len(ev)):
+            out[-1] = ev
+            if stats is not None:
+                stats.coalesced += 1
+            continue
+        out.append(ev)
+    return out
 
 
 class _Seal:
@@ -498,6 +532,8 @@ class LineChannel:
         self.sock = sock
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self._buf = b""
+        self._lines = collections.deque()   # complete frames not yet returned
+        self.coalesced = 0                  # positions superseded before sending
         self._opener = None           # set once the handshake has keyed the link
         self._q: queue.Queue = queue.Queue(maxsize=queue_size)
         self._dropped = 0
@@ -545,24 +581,48 @@ class LineChannel:
         self._q.put(_Seal(sealer))
 
     def _send_loop(self) -> None:
+        """Drain the queue into the socket.
+
+        Whatever is waiting goes out in ONE write - one system call, and with
+        TCP_NODELAY one packet, instead of one each. A mouse reports up to a
+        thousand times a second; written one by one, the queue filled faster
+        than it drained and the cursor ran tens of milliseconds behind.
+
+        And a position that a newer one for the same screen replaces before it
+        was sent is not sent at all (collapse): positions are absolute, so
+        only the newest can matter. Nothing else is merged or reordered.
+        """
         sealer = None
         while True:
-            event = self._q.get()
-            if event is None:          # shutdown sentinel from close()
+            batch = [self._q.get()]
+            while len(batch) < 512:
+                try:
+                    batch.append(self._q.get_nowait())
+                except queue.Empty:
+                    break
+            out = []
+            done = False
+            for event in collapse(batch, self):
+                if event is None:            # shutdown sentinel from close()
+                    done = True
+                    break
+                if isinstance(event, _Seal):
+                    sealer = event.sealer    # frames after it are sealed
+                    continue
+                try:
+                    line = encode(event)
+                    if sealer is not None:
+                        line = sealer.seal(line[:-1]) + b"\n"
+                    out.append(line)
+                except ProtocolError:
+                    self._dropped += 1   # our own bug: oversized frame. Don't die for it.
+            if out:
+                try:
+                    self.sock.sendall(b"".join(out))
+                except OSError:
+                    pass  # connection is broken; recv() elsewhere will notice
+            if done:
                 return
-            if isinstance(event, _Seal):
-                sealer = event.sealer
-                continue
-            try:
-                if sealer is None:
-                    self.sock.sendall(encode(event))
-                else:
-                    line = encode(event)[:-1]
-                    self.sock.sendall(sealer.seal(line) + b"\n")
-            except ProtocolError:
-                self._dropped += 1     # our own bug: oversized frame. Don't die for it.
-            except OSError:
-                pass  # connection is broken; recv() elsewhere will notice and clean up
 
     def recv(self) -> dict | None:
         """Return the next event, or None when the peer closes the connection.
@@ -571,15 +631,19 @@ class LineChannel:
         the cap a peer that never sends a newline grows _buf until the process
         dies - a free denial of service against a machine that owns a mouse.
         """
-        while b"\n" not in self._buf:
+        # One read can carry many frames now that the sender batches them:
+        # split them all at once, rather than copying the rest of the buffer
+        # once per frame.
+        while not self._lines:
             if len(self._buf) > MAX_LINE:
                 raise ProtocolError(
                     f"peer sent {len(self._buf)}B with no frame end; cap is {MAX_LINE}B")
             chunk = self.sock.recv(65536)
             if not chunk:
                 return None
-            self._buf += chunk
-        line, self._buf = self._buf.split(b"\n", 1)
+            *frames, self._buf = (self._buf + chunk).split(b"\n")
+            self._lines.extend(frames)
+        line = self._lines.popleft()
         if len(line) > MAX_LINE:
             raise ProtocolError(f"frame is {len(line)}B, over the {MAX_LINE}B cap")
         if self._opener is not None:

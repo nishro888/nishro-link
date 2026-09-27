@@ -336,6 +336,11 @@ def _no_access() -> int:
 
 def main() -> int:
     args, cfg = settings()
+    # Mouse events wait for Python's lock between threads. By default a busy
+    # thread keeps it 5 ms before others get a turn - a whole frame behind at
+    # a thousand reports a second. 1 ms bounds that wait; what it costs is a
+    # little switching on a program that is mostly asleep.
+    sys.setswitchinterval(0.001)
 
     if args.install_service or args.uninstall_service:
         from . import wininstall

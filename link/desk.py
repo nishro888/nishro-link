@@ -51,6 +51,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from dataclasses import dataclass, replace
+from functools import cached_property
 
 SIDES = ("left", "right", "top", "bottom")
 OPPOSITE = {"left": "right", "right": "left", "top": "bottom", "bottom": "top"}
@@ -132,9 +133,15 @@ class Machine:
 
     def displays(self) -> list:
         """Each display as a Rect in LOCAL coordinates."""
+        return list(self._displays)
+
+    @cached_property
+    def _displays(self) -> tuple:
+        # Asked on every mouse event; a machine never changes (it is frozen -
+        # a change is a new Machine), so the answer is worked out once.
         if not self.parts:
-            return [Rect(0, 0, self.w, self.h)]
-        return [Rect(*p) for p in self.parts]
+            return (Rect(0, 0, self.w, self.h),)
+        return tuple(Rect(*p) for p in self.parts)
 
     def world(self) -> list:
         """Each display as a Rect in WORLD coordinates."""

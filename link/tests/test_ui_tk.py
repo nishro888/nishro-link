@@ -704,3 +704,26 @@ def test_the_right_click_menu_offers_what_applies(app):
         assert m.state("Actual size") == "disabled"
     finally:
         app._menu.close()
+
+
+# ------------------------------------------------- finding the pointer
+def test_the_sharing_menu_finds_the_pointer(app, monkeypatch):
+    called = []
+    monkeypatch.setattr(app.api.node.core, "find",
+                        lambda a=None: called.append(1) or __import__(
+                            "link.node", fromlist=["Actions"]).Actions())
+    app.menubar.build("Sharing").invoke("Find the pointer")
+    assert called == [1]
+
+
+def test_shake_to_find_is_a_switch_that_applies_at_once(app):
+    app._render(app.api.status())
+    assert app.find_shake.get() is True
+    app.find_shake.set(False)
+    app._set_find_shake()
+    assert app.api.node.core.find_on_shake is False
+    assert app.api.cfg["find_on_shake"] is False
+    assert app.api.status()["find_on_shake"] is False
+    app.find_shake.set(True)
+    app._set_find_shake()
+    assert app.api.node.core.find_on_shake is True

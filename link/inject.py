@@ -42,6 +42,7 @@ class Injector:
     def button(self, name: str, down: bool) -> None: ...
     def wheel(self, dx: int, dy: int) -> None: ...
     def key(self, evdev_code: int, down: bool) -> None: ...
+    def spotlight(self, x: int, y: int) -> None: ...  # show where the pointer is
     def close(self) -> None: ...
 
 
@@ -101,6 +102,12 @@ class WindowsInjector(Injector):
         # Windows does not auto-repeat injected keys itself, so a repeat (2) has
         # to become another keydown - which is what any truthy value does here.
         self.u.keybd_event(vk, 0, 0 if down else self.KEYUP, 0)
+
+    def spotlight(self, x, y):
+        """Darken every screen but a circle round the pointer (spotlight_win)
+        - wherever the pointer really is, so (x, y) is only a hint."""
+        from .spotlight_win import show
+        show()
 
     def close(self):
         pass
@@ -193,11 +200,64 @@ class LinuxInjector(Injector):
         self.ui.write(self.e.EV_KEY, code, 1)
         self.ui.syn()
 
+    def spotlight(self, x, y):
+        """Show where the pointer is - by GNOME's own Locate Pointer: a Ctrl
+        pressed and let go on its own sends a ripple out from the pointer. On
+        Wayland only the compositor may draw over everything, so this is the
+        way that works, and it knows where the pointer really is. Off the
+        main path: it asks and sets GNOME's settings, which takes a moment."""
+        import threading
+        threading.Thread(target=locate_gnome, args=(self,), daemon=True).start()
+
     def close(self):
         try:
             self.ui.close()
         except Exception:
             pass
+
+
+_LOCATING = None
+
+
+def locate_gnome(injector, settle: float = 0.15, restore_after: float = 1.6,
+                 run=None) -> bool:
+    """GNOME's Locate Pointer, shown once. If the person has it off, it is
+    turned on for the moment and back off after, so their setting stands.
+    False where there is no GNOME to ask. One at a time."""
+    import threading
+    import time
+    global _LOCATING
+    if _LOCATING is None:
+        _LOCATING = threading.Lock()
+    if not _LOCATING.acquire(blocking=False):
+        return False                       # one is showing now
+    try:
+        if run is None:
+            from . import session
+            run = session.run
+        def gs(verb, *more):
+            return run(["gsettings", verb, "org.gnome.desktop.interface",
+                        "locate-pointer", *more],
+                       capture_output=True, text=True, timeout=3)
+        r = gs("get")
+        if r.returncode != 0:
+            return False                   # not GNOME, or no session to ask
+        was_on = r.stdout.strip() == "true"
+        if not was_on:
+            gs("set", "true")
+            time.sleep(settle)             # for the compositor to hear it
+        ctrl = keymap.E["LEFTCTRL"]
+        injector.key(ctrl, True)
+        time.sleep(0.03)
+        injector.key(ctrl, False)
+        if not was_on:
+            time.sleep(restore_after)      # the ripple takes about a second
+            gs("set", "false")
+        return True
+    except Exception:
+        return False
+    finally:
+        _LOCATING.release()
 
 
 def make_injector(screen=None, origin=(0, 0)) -> Injector:
