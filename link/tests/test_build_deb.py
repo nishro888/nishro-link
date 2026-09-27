@@ -65,10 +65,17 @@ def test_scripts_are_executable_and_everything_else_is_not(deb):
 
 
 def test_the_program_is_all_there_and_the_tests_are_not(deb):
-    shipped = {n.rsplit("/", 1)[1] for n in deb["data"]
-               if n.startswith("./usr/lib/nishro-link/link/")}
-    wanted = {p.name for p in (HERE.parent).glob("*.py")}
+    lib = "./usr/lib/nishro-link/link/"
+    shipped = {n[len(lib):] for n in deb["data"]
+               if n.startswith(lib) and "/" not in n[len(lib):]}
+    wanted = {p.name for p in (HERE.parent).glob("*.py")} | {"theme"}
     assert shipped == wanted
+    theme = {n[len(lib) + 6:] for n in deb["data"]
+             if n.startswith(lib + "theme/")}
+    assert theme == {p.name for p in (HERE.parent / "theme").iterdir()}
+    png = deb["data"][lib + "theme/spritesheet_dark.png"][1]
+    assert png == (HERE.parent / "theme" / "spritesheet_dark.png").read_bytes(), \
+        "an image must reach the machine byte for byte"
 
 
 def test_md5sums_lists_every_file(deb):

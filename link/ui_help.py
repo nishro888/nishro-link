@@ -190,7 +190,8 @@ class About(Sheet):
 
         tk.Frame(box, bg=C["line"], height=1).pack(fill="x", pady=16)
         for text in (f"{COPYRIGHT} · MIT License",
-                     "Password words from the EFF list · CC BY 3.0 US"):
+                     "Password words from the EFF list · CC BY 3.0 US",
+                     "Controls: Sun Valley theme by rdbende · MIT"):
             tk.Label(box, text=text, font=F["small"], bg=C["panel"],
                      fg=C["faint"]).pack(anchor="w")
 

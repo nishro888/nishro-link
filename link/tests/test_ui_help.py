@@ -69,7 +69,7 @@ def test_the_first_page_is_home(app):
 def test_every_entry_says_its_shortcut(app):
     file = {e[1]: e[3] for e in entries(app.menubar.build("File"))}
     assert file["Add a device…"] == "Ctrl+N" and file["Quit"] == "Ctrl+Q"
-    view = entries(app.menubar.build("View"))
+    view = entries(app.menubar.build("View"))[:len(ui_tk.PAGES)]
     assert [e[1] for e in view] == [t for _, t, _ in ui_tk.PAGES]
     assert [e[3] for e in view] == [f"Ctrl+{i}" for i in range(1, 6)]
 
@@ -131,7 +131,7 @@ def test_about_says_which_version_and_which_device(app):
         app.root.update()
         text = " ".join(all_text(about.top))
         assert f"Version {link.__version__}" in text
-        assert link.__stage__.upper() in text
+        assert link.__stage__.capitalize() in text
         s = app.api.status()
         assert s["node"] in text and s["device_id"] in text
         assert "MIT" in text and "EFF" in text
@@ -214,7 +214,7 @@ def test_quick_start_can_go_straight_to_adding(app, monkeypatch):
     monkeypatch.setattr(app, "_add_device", lambda *a: calls.append(1))
     qs = app._quick_start()
     buttons = [w for w in qs.box.winfo_children()[-1].winfo_children()
-               if isinstance(w, tk.Label) and w.cget("text") == "Add a device"]
+               if str(w.cget("text")) == "Add a device"]
     buttons[0].invoke()
     assert calls == [1] and not qs.alive()
 
@@ -319,7 +319,8 @@ def test_a_ticked_item_shows_its_tick(app, opened):
     app.show_page("devices")
     dd = opened("View")
     ticks = [parts[1].cget("text") for _, parts in dd.rows]
-    assert ticks == ["", "•", "", "", ""]
+    assert ticks == ["", "•", "", "", "",       # the pages
+                     "", "", "•"]               # System, Light, Dark
 
 
 def test_the_right_click_menu_is_the_same_kind(app):

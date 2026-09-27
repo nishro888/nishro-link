@@ -239,7 +239,7 @@ class AddDevice:
         wrap.pack(fill="x", pady=(18, 0))
         inner = tk.Frame(wrap, bg=C["card"], padx=14, pady=10)
         inner.pack(fill="x")
-        self._text(inner, "PAIR FROM THE OTHER DEVICE", "caps", "dim"
+        self._text(inner, "Pair from the other device", "h3", "ink"
                    ).grid(row=0, column=0, columnspan=4, sticky="w")
         self._text(inner, "Name", "small", "dim").grid(row=1, column=0, sticky="w",
                                                       pady=(6, 0))

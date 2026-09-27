@@ -39,3 +39,14 @@ def quick_keys(monkeypatch):
     is pinned by test_pairing."""
     from link import pairing
     monkeypatch.setattr(pairing, "ITERATIONS", 1024)
+
+
+@pytest.fixture(autouse=True)
+def own_theme_choice(monkeypatch, tmp_path_factory):
+    """The window keeps the theme someone picked in their own folder. Tests
+    that switch it must not change the real person's choice - and must not
+    inherit it either, so every test starts from Dark unless it says so."""
+    from link import ui_theme
+    pref = tmp_path_factory.mktemp("ui") / "ui.json"
+    pref.write_text('{"mode": "dark"}', encoding="utf-8")
+    monkeypatch.setattr(ui_theme, "PREF_PATH", str(pref))

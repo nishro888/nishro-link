@@ -112,6 +112,10 @@ def payload(ver: str) -> dict:
             (assets / f"nishro-link-{n}.png").read_bytes(), 0o644)
     for p in sorted(LINK.glob("*.py")):          # top level only: no tests
         files[f"{LIB}/link/{p.name}"] = (lf(p.read_bytes()), 0o644)
+    for p in sorted((LINK / "theme").iterdir()):  # the controls' look
+        data = p.read_bytes()
+        files[f"{LIB}/link/theme/{p.name}"] = (
+            data if p.suffix == ".png" else lf(data), 0o644)
     files["usr/lib/modules-load.d/nishro-link.conf"] = (b"uinput\n", 0o644)
     doc = f"usr/share/doc/{PACKAGE}"
     files[f"{doc}/copyright"] = (copyright_file(), 0o644)
@@ -130,14 +134,20 @@ def copyright_file() -> bytes:
             f"Source: {HOMEPAGE}\n\n"
             f"Files: *\n"
             f"Copyright: 2026 nishro888\n"
-            f"License: Expat\n{lic}\n\n"
+            f"License: Expat\n\n"
+            f"Files: {LIB}/link/theme/*\n"
+            f"Copyright: rdbende <rdbende@proton.me>\n"
+            f"License: Expat\n"
+            f" The Sun Valley ttk theme,\n"
+            f" https://github.com/rdbende/Sun-Valley-ttk-theme\n\n"
             f"Files: {LIB}/link/words.py\n"
             f"Copyright: 2016 Electronic Frontier Foundation (Joseph Bonneau)\n"
             f"License: CC-BY-3.0-US\n"
             f" The EFF short word list 1, https://www.eff.org/dice - used, with a\n"
             f" few words left out, for generated passwords.\n"
             f" .\n"
-            f" https://creativecommons.org/licenses/by/3.0/us/\n").encode()
+            f" https://creativecommons.org/licenses/by/3.0/us/\n\n"
+            f"License: Expat\n{lic}\n").encode()
 
 
 def changelog(ver: str) -> bytes:

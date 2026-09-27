@@ -40,6 +40,8 @@ MIN_W, MIN_H = 560, 440            # small enough for a netbook
 WANT_W, WANT_H = 1040, 700         # clamped to the display before use
 NARROW = 820                       # below this the sidebar folds to icons
 
+THEMES = (("system", "System"), ("light", "Light"), ("dark", "Dark"))
+
 PAGES = (("overview", "Home", "⌂"),
          ("devices", "Devices", "▣"),
          ("arrange", "Arrangement", "⊞"),
@@ -79,6 +81,7 @@ class App:
         self._nearby_sig = None
         self._renaming = False
         self._sheets = {}             # the Help menu's windows, one of each
+        self._dialogs = []            # Add a device, device details: open ones
         # How to look for devices nearby. Tests swap it for a canned answer.
         self._nearby_search = lambda: self.api.command("/api/discover", {})
 
@@ -102,12 +105,16 @@ class App:
         self.root.minsize(MIN_W, MIN_H)
         self._size_to_fit()
 
+        # System, Light or Dark: the person's own choice, kept per person.
+        self.theme_pref = ui_theme.load_pref()
+        ui_theme.apply(self.root, self.theme_pref)
         self.C = ui_theme.palette(self.root)
         self.F = ui_theme.fonts(self.root)
         self.kit = Kit(self.C, self.F)
         self.root.configure(bg=self.C["bg"])
 
         self._page_var = tk.StringVar(master=self.root, value="overview")
+        self._theme_var = tk.StringVar(master=self.root, value=self.theme_pref)
         self._build()
         self.show_page("overview")
         self.root.bind("<Configure>", self._reflow)
@@ -117,7 +124,7 @@ class App:
         self.root.bind("<Control-n>", lambda _e: self._add_device())
         self.root.bind("<Control-q>", lambda _e: self._quit())
         self.root.bind("<F1>", lambda _e: self._quick_start())
-        ui_theme.dark_title_bar(self.root)
+        ui_theme.title_bar(self.root)
         self._reflow()
         self._poll()
 
@@ -143,12 +150,15 @@ class App:
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
         brand = tk.Frame(self.sidebar, bg=C["sidebar"])
-        brand.pack(fill="x", padx=16, pady=(18, 22))
-        tk.Label(brand, text="◆", font=F["h2"], bg=C["sidebar"],
-                 fg=C["accent"]).pack(side="left")
-        self.brand_text = tk.Label(brand, text=" NISHRO LINK", font=F["h3"],
+        brand.pack(fill="x", padx=16, pady=(16, 18))
+        icon = getattr(self, "_icon", None)
+        if icon is not None:
+            self._brand_icon = icon.zoom(3).subsample(8)       # 24 px
+            tk.Label(brand, image=self._brand_icon, bg=C["sidebar"]
+                     ).pack(side="left")
+        self.brand_text = tk.Label(brand, text="Nishro Link", font=F["h2"],
                                    bg=C["sidebar"], fg=C["ink"])
-        self.brand_text.pack(side="left")
+        self.brand_text.pack(side="left", padx=(8, 0))
 
         self.nav = {}
         for name, text, glyph in PAGES:
@@ -464,11 +474,11 @@ class App:
         cred.pack(fill="x", pady=(14, 0))
         g = tk.Frame(cred, bg=C["surface"], padx=16, pady=12)
         g.pack(fill="x")
-        tk.Label(g, text="NAME", font=F["caps"], bg=C["surface"], fg=C["faint"]
+        tk.Label(g, text="Name", font=F["small"], bg=C["surface"], fg=C["faint"]
                  ).grid(row=0, column=0, sticky="w")
         pw_head = tk.Frame(g, bg=C["surface"])
         pw_head.grid(row=0, column=1, sticky="w", padx=(32, 0))
-        tk.Label(pw_head, text="PASSWORD", font=F["caps"], bg=C["surface"],
+        tk.Label(pw_head, text="Password", font=F["small"], bg=C["surface"],
                  fg=C["faint"]).pack(side="left")
         self.me_hint = info(pw_head, kit, "")
         self.me_hint.pack(side="left", padx=(6, 0))
@@ -510,8 +520,8 @@ class App:
         bar = tk.Frame(box, bg=C["panel"])
         bar.pack(fill="x", pady=(22, 10))
         self._devices_box = box
-        self.dev_head = tk.Label(bar, text="DEVICES", font=F["caps"],
-                                 bg=C["panel"], fg=C["dim"])
+        self.dev_head = tk.Label(bar, text="Devices", font=F["h3"],
+                                 bg=C["panel"], fg=C["ink"])
         self.dev_head.pack(side="left", anchor="s")
         self.dev_count = Pill(bar, kit, "")
         self.dev_count.pack(side="left", anchor="s", padx=(8, 0))
@@ -524,8 +534,8 @@ class App:
         # ---- nearby: on the network, not in this group - one click to add
         nb = tk.Frame(box, bg=C["panel"])
         nb.pack(fill="x", pady=(22, 10))
-        tk.Label(nb, text="NEARBY", font=F["caps"],
-                 bg=C["panel"], fg=C["dim"]).pack(side="left", anchor="s")
+        tk.Label(nb, text="Nearby", font=F["h3"],
+                 bg=C["panel"], fg=C["ink"]).pack(side="left", anchor="s")
         info(nb, kit, "Computers on this network running Nishro Link that are "
                       "not in this group.").pack(side="left", anchor="s",
                                                  padx=(6, 0))
@@ -830,6 +840,16 @@ class App:
             self.autostart_note.configure(bg=C["card"])
             self.autostart_note.pack(side="left", padx=(8, 0))
 
+        look = Card(box, kit, "Appearance")
+        look.pack(fill="x", pady=(12, 0))
+        row = tk.Frame(look.body, bg=C["card"])
+        row.pack(fill="x")
+        tk.Label(row, text="Theme", font=F["body"], bg=C["card"],
+                 fg=C["ink"]).pack(side="left", padx=(0, 14))
+        Segmented(row, kit, THEMES, self._theme_var,
+                  command=lambda: self.set_theme(self._theme_var.get())
+                  ).pack(side="left")
+
         sec = Card(box, kit, "Security")
         sec.pack(fill="x", pady=(12, 0))
         g = tk.Frame(sec.body, bg=C["card"])
@@ -1037,6 +1057,11 @@ class App:
             m.add_radiobutton(label=text, value=name, variable=self._page_var,
                               accelerator=f"Ctrl+{i}",
                               command=lambda n=name: self.show_page(n))
+        m.add_separator()
+        for mode, text in THEMES:
+            m.add_radiobutton(label=f"{text} theme", value=mode,
+                              variable=self._theme_var,
+                              command=lambda v=mode: self.set_theme(v))
 
     def _menu_sharing(self, m) -> None:
         s = self._last or {}
@@ -1187,6 +1212,7 @@ class App:
         d = ui_device.DeviceDetails(self.root, self.api, self.C, name,
                                     confirm=self._confirm,
                                     on_change=self._devices_changed)
+        self._dialogs.append(d)
         if rename:
             d._start_rename()
         return d
@@ -1352,10 +1378,10 @@ class App:
     def _repair(self) -> None:
         """This device's password stopped working: type the group's new one."""
         s = self._last or {}
-        ui_pair.AddDevice(self.root, self.api, self.C,
-                          on_done=lambda r: self._poll_now(),
-                          on_arrange=lambda: self.show_page("arrange"),
-                          start=("join", s.get("group") or s.get("peer")))
+        self._dialogs.append(ui_pair.AddDevice(
+            self.root, self.api, self.C, on_done=lambda r: self._poll_now(),
+            on_arrange=lambda: self.show_page("arrange"),
+            start=("join", s.get("group") or s.get("peer"))))
 
     def _set_autostart(self) -> None:
         r = self.api.command("/api/autostart", {"on": bool(self.autostart.get())})
@@ -1436,10 +1462,52 @@ class App:
         self._poll_now()
 
     def _add_device(self, start=None) -> None:
-        ui_pair.AddDevice(self.root, self.api, self.C,
-                          on_done=lambda r: self._devices_changed(),
-                          on_arrange=lambda: self.show_page("arrange"),
-                          start=start)
+        d = ui_pair.AddDevice(self.root, self.api, self.C,
+                              on_done=lambda r: self._devices_changed(),
+                              on_arrange=lambda: self.show_page("arrange"),
+                              start=start)
+        self._dialogs.append(d)
+        return d
+
+    # ---------------------------------------------------------------- theme
+    def set_theme(self, mode) -> None:
+        """System, Light or Dark: kept for next time, and in force at once."""
+        if mode not in ui_theme.MODES:
+            return
+        ui_theme.save_pref(mode)
+        self.theme_pref = mode
+        if self._theme_var.get() != mode:
+            self._theme_var.set(mode)
+        if ui_theme.resolve(mode) != ui_theme.current():
+            self._rebuild()
+
+    def _rebuild(self) -> None:
+        """Draw the whole window again in the theme now chosen. Everything on
+        it comes from the status poll, so nothing is lost but open dialogs."""
+        page = self.page or "overview"
+        for d in self._dialogs + list(self._sheets.values()):
+            try:
+                d.close()
+            except Exception:
+                pass
+        self._dialogs, self._sheets = [], {}
+        ui_theme.apply(self.root, self.theme_pref)
+        self.C = ui_theme.palette(self.root)
+        self.kit = Kit(self.C, self.F)
+        for w in list(self.root.winfo_children()):
+            w.destroy()
+        self._wrapped, self._dev_rows, self._toasts = [], {}, []
+        self._dev_sig = self._me_sig = self._nearby_sig = None
+        self.__dict__.pop("_dev_cols", None)
+        self._renaming = False
+        self.page = None
+        self.root.configure(bg=self.C["bg"])
+        self._build()
+        self.show_page(page)
+        ui_theme.title_bar(self.root)
+        self._reflow()
+        if self._last:
+            self._render(self._last)
 
     def _leave(self) -> None:
         group = (self._last or {}).get("group") or "the"

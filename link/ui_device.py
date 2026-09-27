@@ -164,7 +164,7 @@ class DeviceDetails:
 
         # ---- control rights
         tk.Frame(self.box, bg=C["line"], height=1).pack(fill="x", pady=(16, 12))
-        tk.Label(self.box, text="CONTROL", font=F["caps"], bg=C["panel"],
+        tk.Label(self.box, text="Control", font=F["h3"], bg=C["panel"],
                  fg=C["dim"]).pack(anchor="w")
         editable, why = self._rights_editable(d, s)
         self.drive = tk.BooleanVar(value=bool(d.get("may_drive", True)))
@@ -176,12 +176,7 @@ class DeviceDetails:
             t = Toggle(r, kit, var, command=self._rights_changed)
             t.pack(side="left")
             if not editable:
-                # Shown, not offered: no click, and drawn in the faint colours.
-                t.unbind("<Button-1>")
-                t.configure(cursor="arrow")
-                t._kit = Kit(dict(C, accent=C["line_hi"], line_hi=C["line"],
-                                  accent_ink=C["faint"], ink=C["faint"]), kit.F)
-                t._draw()
+                t.state(["disabled"])       # shown, not offered
             tk.Label(r, text=text, font=F["body"], bg=C["panel"],
                      fg=C["ink"] if editable else C["faint"]).pack(side="left",
                                                                    padx=10)

@@ -97,7 +97,7 @@ class Dropdown:
             top.attributes("-topmost", True)     # over everything, as a menu is
         except tk.TclError:
             pass
-        body = tk.Frame(top, bg=C["card_hi"], pady=5)
+        body = tk.Frame(top, bg=C["menu"], pady=5)
         body.pack(padx=1, pady=1, fill="both", expand=True)
         for e in items.entries:
             if e["kind"] == "separator":
@@ -105,17 +105,17 @@ class Dropdown:
                                                            pady=5)
                 continue
             on = e["state"] != "disabled"
-            row = tk.Frame(body, bg=C["card_hi"])
+            row = tk.Frame(body, bg=C["menu"])
             row.pack(fill="x")
             mark = "✓" if e["kind"] == "check" else "•"
             tick = tk.Label(row, text=mark if Items.ticked(e) else "", width=2,
-                            font=F["body"], bg=C["card_hi"], fg=C["accent"])
+                            font=F["body"], bg=C["menu"], fg=C["accent"])
             tick.pack(side="left", padx=(6, 0), pady=3)
-            text = tk.Label(row, text=e["label"], font=F["body"], bg=C["card_hi"],
+            text = tk.Label(row, text=e["label"], font=F["body"], bg=C["menu"],
                             fg=C["ink"] if on else C["faint"], anchor="w")
             text.pack(side="left", fill="x", expand=True, padx=(2, 0))
             acc = tk.Label(row, text=e["accelerator"], font=F["small"],
-                           bg=C["card_hi"], fg=C["dim"] if on else C["faint"])
+                           bg=C["menu"], fg=C["dim"] if on else C["faint"])
             acc.pack(side="right", padx=(28, 14))
             parts = [row, tick, text, acc]
             if on:
@@ -174,7 +174,7 @@ class Dropdown:
     def light(self, i) -> None:
         C = self.kit.C
         for j, (_, parts) in enumerate(self.rows):
-            bg = C["accent_dim"] if j == i else C["card_hi"]
+            bg = C["menu_hi"] if j == i else C["menu"]
             for w in parts:
                 w.configure(bg=bg)
         self.active = i

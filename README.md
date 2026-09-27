@@ -6,9 +6,11 @@ computer's. Type, and it goes to whichever screen the pointer is on. Copy on one
 machine, paste on another. Any machine's own mouse can take over at any time -
 there is no fixed "server with the keyboard".
 
-![The Home page](docs/screenshots/overview.png)
+| Light | Dark |
+|---|---|
+| ![The Home page, light](docs/screenshots/overview.png) | ![The Home page, dark](docs/screenshots/overview-dark.png) |
 
-> **Status: beta (v0.10).** Developed and tested on a Windows 10 laptop and an
+> **Status: beta (v0.11).** Developed and tested on a Windows 10 laptop and an
 > Ubuntu (Wayland) desktop, with an automated test suite - read
 > [Limitations](#limitations) first.
 
@@ -44,10 +46,11 @@ there is no fixed "server with the keyboard".
   in doubt, local input is restored at once. Pressing **both Ctrl keys**
   together, or *Release input* in the window, always frees the machine you are
   at.
-- **A proper program.** A setup wizard, a Start Menu entry, an uninstaller, a
-  menu bar - File, View, Sharing, Help - with keyboard shortcuts, a quick start
-  guide, and an About window with the version - and any device running a
-  different one.
+- **A proper program.** Windows 11-style buttons, switches and text boxes, in
+  a light and a dark theme that follow the computer's setting (or pick one). A
+  setup wizard, a Start Menu entry, an uninstaller, a menu bar - File, View,
+  Sharing, Help - with keyboard shortcuts, a quick start guide, and an About
+  window with the version - and any device running a different one.
 
 | Devices | Arrangement |
 |---|---|
@@ -61,7 +64,7 @@ there is no fixed "server with the keyboard".
 
 ### Windows 10 / 11
 
-Download **`NishroLink-Setup-0.10.0.exe`** from the [Releases](../../releases)
+Download **`NishroLink-Setup-0.11.0.exe`** from the [Releases](../../releases)
 page and run it. Click through the wizard and approve the one permission
 prompt. Nishro Link then:
 
@@ -75,11 +78,11 @@ time: choose **More info → Run anyway**.
 
 ### Ubuntu, Debian and derivatives (Wayland and X11)
 
-Download **`nishro-link_0.10.0-beta_all.deb`** from the
+Download **`nishro-link_0.11.0-beta_all.deb`** from the
 [Releases](../../releases) page and open it - the App Center installs it - or:
 
 ```bash
-sudo apt install ./nishro-link_0.10.0-beta_all.deb
+sudo apt install ./nishro-link_0.11.0-beta_all.deb
 ```
 
 It installs everything it needs and runs Nishro Link in the background from
@@ -178,6 +181,7 @@ link/
   inject.py          moving the pointer and typing (SendInput / uinput)
   control_api.py     the local control API the window and web page use
   ui_*.py            the window
+  theme/             the controls' look: the Sun Valley ttk theme
   access.py          Linux keyboard and mouse permissions: checked, and fixed
   autostart.py       starting at login
   packaging/         the Windows exe, the .deb, and the install scripts
@@ -187,4 +191,6 @@ link/
 
 [MIT](LICENSE). Generated passwords use the EFF's
 [short word list 1](https://www.eff.org/dice) (CC BY 3.0 US), with a few words
-left out.
+left out. The controls are drawn by rdbende's
+[Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) (MIT,
+[its licence](link/theme/LICENSE)).

@@ -54,6 +54,9 @@ $pyi = @(
     "--workpath", "$root\build\pyinstaller",
     "--specpath", "$root\build",
     "--paths", $root,
+    # The controls' look (ui_theme.THEME_DIR): Tcl files and images, not
+    # Python, so PyInstaller would not find them by itself.
+    "--add-data", "$root\link\theme;link\theme",
     # evdev is Linux-only; excluding it keeps the exe from carrying a broken
     # import and keeps the size down.
     "--exclude-module", "evdev",

@@ -144,13 +144,18 @@ def test_one_theme_everywhere(app):
     assert app.log.cget("background") == C["surface"]
 
 
-def test_the_theme_is_dark_and_readable(tk_root):
-    C = ui_theme.palette()
-    for key in ("bg", "panel", "card", "ink", "dim", "accent", "ok", "warn", "bad",
-                "mine", "theirs", "cross", "offline", "grid"):
-        assert key in C, key
-    assert ui_theme.luminance(tk_root, C["bg"]) < 0.1
-    assert ui_theme.luminance(tk_root, C["ink"]) > 0.8, "text must stand out"
+def test_both_themes_have_every_colour_and_are_readable(tk_root):
+    """Light and Dark name the same colours, so no page can work in one and
+    break in the other - and text stands out from what it is written on."""
+    assert set(ui_theme.DARK) == set(ui_theme.LIGHT)
+    L = lambda c: ui_theme.luminance(tk_root, c)            # noqa: E731
+    for C, dark in ((ui_theme.DARK, True), (ui_theme.LIGHT, False)):
+        assert C["dark"] is dark
+        assert (L(C["bg"]) < 0.15) if dark else (L(C["bg"]) > 0.9)
+        for surface in ("bg", "panel", "card", "sidebar"):
+            assert abs(L(C["ink"]) - L(C[surface])) > 0.75, surface
+            assert abs(L(C["dim"]) - L(C[surface])) > 0.35, surface
+        assert abs(L(C["accent_ink"]) - L(C["accent"])) > 0.4
     assert ui_theme.luminance(tk_root, "not-a-colour") == 1.0
 
 
@@ -173,19 +178,19 @@ def test_a_button_does_its_job_and_can_be_disabled(app):
 def test_the_overview_says_who_has_control(app):
     app._render(app.api.status())
     assert app.hero_name.cget("text") == "laptop"       # the hub starts in control
-    assert app.hero_pill.cget("text") == "YOU"
+    assert app.hero_pill.cget("text") == "You"
     assert "online" in app.m_online.caption.cget("text")
 
 
 def test_the_header_says_whether_sharing_is_on(app):
     """A switch showing the state, not a button naming its opposite."""
     app._render(app.api.status())
-    assert app.chip.cget("text") == "WAITING"
+    assert app.chip.cget("text") == "Waiting"
     assert app.sharing.get() is True
     assert app.sharing_label.cget("text") == "Sharing on"
     app.api.node.set_enabled(False)
     app._render(app.api.status())
-    assert app.chip.cget("text") == "PAUSED"
+    assert app.chip.cget("text") == "Paused"
     assert app.sharing.get() is False
     assert app.sharing_label.cget("text") == "Sharing off"
 
@@ -220,7 +225,7 @@ def test_this_device_shows_what_another_needs_to_add_it(app):
     app.show_page("devices")
     app._render(app.api.status())
     assert app.me_name.cget("text") == "laptop"
-    assert app.me_pill.cget("text") == "HUB"
+    assert app.me_pill.cget("text") == "Hub"
     assert app.me_password.cget("text") == app.api.command("/api/password", {})["pin"]
     assert "dashes are ignored" in app.me_hint.tip.text, "one hover away"
 
@@ -248,7 +253,7 @@ def test_a_device_on_its_own_says_how_to_add_one(app):
     app.api.node.core.alone()
     app.show_page("overview")
     app._render(app.api.status())
-    assert app.chip.cget("text") == "READY"
+    assert app.chip.cget("text") == "Ready"
     assert app.start_card.winfo_manager() == "pack", "the first thing on Overview"
     assert "No other devices yet" in all_text(app.dev_list)
 
@@ -271,7 +276,7 @@ def test_a_rejected_password_is_shown_with_the_way_to_fix_it(app):
     assert app.me_problem_text.cget("text") == "desk rejected this device's password"
     assert "changed" in app.me_problem_info.tip.text
     assert app.me_problem_btn.winfo_manager() == "pack"
-    assert app.chip.cget("text") == "NOT CONNECTED"
+    assert app.chip.cget("text") == "Not connected"
 
 
 def test_what_happens_is_shown_once_as_a_notice(app):
@@ -443,7 +448,7 @@ def test_missing_permissions_are_shown_with_the_fix(app):
     assert app.setup_text.cget("text") == "Keyboard and mouse access needed"
     assert "cannot read" in app.setup_info.tip.text
     assert app.setup_btn.winfo_manager() == "pack"
-    assert app.chip.cget("text") == "SETUP NEEDED"
+    assert app.chip.cget("text") == "Setup needed"
     app._render(dict(s, setup=None))
     assert app.setup_box.winfo_manager() == "", "and goes once it is done"
 

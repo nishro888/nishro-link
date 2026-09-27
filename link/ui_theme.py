@@ -1,60 +1,118 @@
-"""The look: one dark, deliberate theme, the same on Windows and Linux.
+"""The look: Windows 11's, in light and dark, the same on Windows and Linux.
 
-The window used to borrow the desktop's colours and hardcode the rest, which
-looked like a settings dialog - fine on Windows, mismatched on a dark GNOME
-desktop, and never like a product. It now has its own palette, as most modern
-desktop software does: a deep blue-black base, raised panels, one cyan accent for
-what matters (the crossing lines, the primary action) and a violet second accent
-used sparingly.
+The controls - buttons, switches, text boxes, scrollbars - are real ttk widgets
+drawn by the Sun Valley theme (link/theme, MIT, by rdbende), which reproduces
+Windows 11's own. Everything around them - pages, cards, the sidebar - is drawn
+here, in colours taken from the same theme, so the two never disagree.
 
-Every colour the program draws comes from here, so the whole window can be
-restyled in one place, and nothing is hardcoded in the pages.
+An earlier look was a dark dashboard of flat, coloured labels posing as
+buttons. It read as a web page; this reads as a Windows program.
 
-luminance() stays: it is how the tests - and anyone checking contrast - can ask
-Tk what a colour actually resolves to.
+MODE is System, Light or Dark. System follows the computer - Windows' app
+mode, or GNOME's colour scheme - and is where a new install starts. The choice
+is the person's, so it is kept in their own folder, not in the settings the
+service shares.
+
+Every colour the program draws comes from palette(), so nothing is hardcoded in
+the pages. luminance() is how the tests - and anyone checking contrast - ask Tk
+what a colour actually resolves to.
 """
 from __future__ import annotations
 
-BRAND = {
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+THEME_DIR = Path(__file__).resolve().with_name("theme")
+MODES = ("system", "light", "dark")
+
+DARK = {
     "dark": True,
     # surfaces, from the back forward
-    "bg": "#0a0e16",          # the window
-    "sidebar": "#0d1220",
-    "panel": "#101626",       # a page's own background
-    "card": "#141b2d",        # a card on a page
-    "card_hi": "#1a2338",     # a card under the pointer; inputs
-    "line": "#233050",        # hairlines and borders
-    "line_hi": "#2f3f66",
+    "bg": "#1c1c1c",          # the window, and what the controls are drawn on
+    "sidebar": "#202020",
+    "panel": "#1c1c1c",       # a page's own background
+    "card": "#242424",        # a card on a page
+    "card_hi": "#2d2d2d",     # under the pointer; the page being shown
+    "line": "#303030",        # hairlines and borders
+    "line_hi": "#454545",
+    "menu": "#2c2c2c",        # an open menu
+    "menu_hi": "#3a3a3a",     # the item under the pointer
+    "field": "#292929",       # a text box at rest, under the pointer, typing
+    "field_hover": "#2f2f2f",
+    "field_focus": "#1c1c1c",
     # text
-    "ink": "#e7edf7",
-    "dim": "#8c9ab3",
-    "faint": "#5a6886",
+    "ink": "#fafafa",
+    "dim": "#a3a3a3",
+    "faint": "#6e6e6e",
     # meaning
-    "accent": "#22d3ee",      # cyan: primary actions, crossings, focus
-    "accent_ink": "#04121a",  # text on the accent
-    "accent_dim": "#0e4a5a",  # the glow under a crossing line
-    "accent2": "#a78bfa",     # violet: the hub, sparingly
-    "ok": "#34d399",
-    "warn": "#fbbf24",
-    "bad": "#f87171",
-    "bad_bg": "#3a1620",
-    "warn_bg": "#3a2c0f",
+    "accent": "#57c8ff",      # the theme's: primary actions, crossings, focus
+    "accent_ink": "#000000",  # text on the accent
+    "accent_dim": "#1b3f52",
+    "accent2": "#c3a6ff",     # the hub, sparingly
+    "ok": "#6ccb5f",
+    "warn": "#fce100",
+    "bad": "#ff99a4",
+    "bad_bg": "#442726",
+    "warn_bg": "#433519",
     # the arrangement
-    "surface": "#0f1524",     # canvas background
-    "grid": "#161f33",
+    "surface": "#171717",     # canvas background
+    "grid": "#232323",
     "mine": "#60a5fa",
-    "theirs": "#34d399",
-    "mine_fill": "#15223a",
-    "theirs_fill": "#12281f",
-    "cross": "#22d3ee",
-    "offline": "#5a6886",
-    "offline_fill": "#151b29",
+    "theirs": "#6ccb5f",
+    "mine_fill": "#16243a",
+    "theirs_fill": "#18291a",
+    "cross": "#57c8ff",
+    "offline": "#6e6e6e",
+    "offline_fill": "#232323",
+}
+
+LIGHT = {
+    "dark": False,
+    "bg": "#fafafa",
+    "sidebar": "#f0f0f0",
+    "panel": "#fafafa",
+    "card": "#ffffff",
+    "card_hi": "#e9e9e9",
+    "line": "#e1e1e1",
+    "line_hi": "#c8c8c8",
+    "menu": "#f9f9f9",
+    "menu_hi": "#e8e8e8",
+    "field": "#fdfdfd",
+    "field_hover": "#f9f9f9",
+    "field_focus": "#ffffff",
+    "ink": "#1c1c1c",
+    "dim": "#5c5c5c",
+    "faint": "#8f8f8f",
+    "accent": "#005fb8",
+    "accent_ink": "#ffffff",
+    "accent_dim": "#cfe3f6",
+    "accent2": "#7a3fc4",
+    "ok": "#0f7b0f",
+    "warn": "#9d5d00",
+    "bad": "#c42b1c",
+    "bad_bg": "#fde7e9",
+    "warn_bg": "#fff4ce",
+    "surface": "#f3f3f3",
+    "grid": "#e5e5e5",
+    "mine": "#0067c0",
+    "theirs": "#0f7b0f",
+    "mine_fill": "#dcebfa",
+    "theirs_fill": "#dff6dd",
+    "cross": "#005fb8",
+    "offline": "#8f8f8f",
+    "offline_fill": "#ececec",
 }
 
 SANS = ("Segoe UI Variable Text", "Segoe UI", "Inter", "Ubuntu", "Cantarell",
         "Noto Sans", "DejaVu Sans", "Helvetica")
 MONO = ("Cascadia Mono", "Consolas", "JetBrains Mono", "Ubuntu Mono",
         "DejaVu Sans Mono", "Courier New")
+
+_current = "dark"         # the mode in force: "light" or "dark"
+PREF_PATH = None          # where the choice is kept; the tests point it away
 
 
 def luminance(root, colour: str) -> float:
@@ -66,13 +124,134 @@ def luminance(root, colour: str) -> float:
     return (0.299 * r + 0.587 * g + 0.114 * b) / 65535.0
 
 
+def current() -> str:
+    return _current
+
+
 def palette(root=None) -> dict:
-    """The theme's colours. `root` is accepted for callers that pass one."""
-    return dict(BRAND)
+    """The colours of the mode in force. `root` is accepted for old callers."""
+    return dict(DARK if _current == "dark" else LIGHT)
+
+
+# ------------------------------------------------------------------ mode
+def system_mode() -> str:
+    """What the computer is set to: 'light' or 'dark'."""
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r"Software\Microsoft\Windows\CurrentVersion"
+                                r"\Themes\Personalize") as k:
+                return "light" if winreg.QueryValueEx(k, "AppsUseLightTheme")[0] \
+                    else "dark"
+        except OSError:
+            return "light"
+    try:
+        out = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface",
+                              "color-scheme"], capture_output=True, text=True,
+                             timeout=2).stdout
+        if "dark" in out:
+            return "dark"
+        if out.strip():
+            return "light"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "dark" if ":dark" in os.environ.get("GTK_THEME", "") else "light"
+
+
+def resolve(mode: str) -> str:
+    return system_mode() if mode not in ("light", "dark") else mode
+
+
+def _pref_file() -> Path:
+    if PREF_PATH:
+        return Path(PREF_PATH)
+    from . import config
+    return config.path().parent / "ui.json"
+
+
+def load_pref() -> str:
+    try:
+        mode = json.loads(_pref_file().read_text(encoding="utf-8")).get("mode")
+    except (OSError, ValueError, AttributeError):
+        mode = None
+    return mode if mode in MODES else "system"
+
+
+def save_pref(mode: str) -> None:
+    p = _pref_file()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"mode": mode}), encoding="utf-8")
+    except OSError:
+        pass                  # a preference that cannot be kept is no failure
+
+
+def apply(root, mode: str) -> str:
+    """Put `mode` in force on this Tk: the controls' theme, the palette, the
+    fonts. Returns what it resolved to. Call before building widgets."""
+    global _current
+    _current = resolve(mode)
+    from tkinter import ttk
+    try:
+        style = ttk.Style(root)
+        if "sun-valley-dark" not in style.theme_names():
+            root.tk.call("source", str(THEME_DIR / "sv.tcl"))
+        style.theme_use(f"sun-valley-{_current}")
+        root.tk.call("configure_colors")      # now, not when the event lands
+        _styles(root, style)
+    except Exception:
+        pass                  # without the theme: plain ttk, still usable
+    _made.clear()
+    return _current
+
+
+def _styles(root, style) -> None:
+    C, F = palette(), fonts(root)
+    family = F["body"][0]
+    for name, size in (("SunValleyCaptionFont", 9), ("SunValleyBodyFont", 10),
+                       ("SunValleyBodyLargeFont", 12)):
+        try:
+            root.tk.call("font", "configure", name, "-family", family,
+                         "-size", size)
+        except Exception:
+            pass
+    try:
+        root.tk.call("font", "configure", "SunValleyBodyStrongFont",
+                     "-family", F["h3"][0], "-size", 10,
+                     "-weight", "bold" if len(F["h3"]) > 2 else "normal")
+    except Exception:
+        pass
+    style.configure("Danger.TButton", foreground=C["bad"])
+    style.map("Danger.TButton", foreground=[("disabled", C["faint"])])
+    style.configure("Toolbutton", foreground=C["dim"])
+    style.map("Toolbutton", foreground=[("disabled", C["faint"]),
+                                        ("active", C["ink"])])
+
+
+_made = set()
+
+
+def on(root, base: str, bg: str) -> str:
+    """The ttk style `base`, for a control sitting on `bg`. The theme draws its
+    controls for its own background; anywhere else the corners would show it."""
+    bg = (bg or "").lower()
+    if not bg or bg == palette()["bg"]:
+        return base
+    name = f"on{bg.lstrip('#')}.{base}"
+    if name not in _made:
+        from tkinter import ttk
+        try:
+            ttk.Style(root).configure(name, background=bg)
+        except Exception:
+            return base
+        _made.add(name)
+    return name
 
 
 def fonts(root) -> dict:
-    """Font tuples for each role, from whatever this machine actually has."""
+    """Font tuples for each role, from whatever this machine actually has.
+    Headings use Segoe UI Semibold where it exists - Windows' own weight."""
     try:
         from tkinter import font as tkfont
         have = set(tkfont.families(root))
@@ -80,27 +259,32 @@ def fonts(root) -> dict:
         have = set()
     sans = next((f for f in SANS if f in have), "")
     mono = next((f for f in MONO if f in have), "Courier")
+    if "Segoe UI Semibold" in have:
+        def strong(size):
+            return ("Segoe UI Semibold", size)
+    else:
+        def strong(size):
+            return (sans, size, "bold")
     return {
-        "h1": (sans, 17, "bold"),
-        "h2": (sans, 12, "bold"),
-        "h3": (sans, 10, "bold"),
+        "h1": strong(18),
+        "h2": strong(13),
+        "h3": strong(10),
         "body": (sans, 10),
         "small": (sans, 9),
         "tiny": (sans, 8),
-        "caps": (sans, 8, "bold"),
-        "metric": (sans, 18, "bold"),
-        "hero": (sans, 22, "bold"),
+        "caps": strong(9),
+        "metric": strong(18),
+        "hero": strong(22),
         "nav": (sans, 10),
         "mono": (mono, 9),
         "mono_big": (mono, 13, "bold"),
     }
 
 
-def dark_title_bar(win) -> None:
-    """Ask Windows for a dark title bar. Windows 10 (2004 and later) and 11
-    draw a white one unless asked - the one bright strip on a dark window.
+def title_bar(win) -> None:
+    """Match Windows' title bar to the mode: Windows 10 (2004 and later) and 11
+    draw a white one unless asked, the one bright strip on a dark window.
     Elsewhere, or on an older Windows, nothing happens."""
-    import sys
     if sys.platform != "win32":
         return
     try:
@@ -114,14 +298,17 @@ def dark_title_bar(win) -> None:
                                               ctypes.c_void_p, wintypes.DWORD]
         win.update_idletasks()
         hwnd = user32.GetParent(win.winfo_id())
-        on = ctypes.c_int(1)
+        on_ = ctypes.c_int(1 if _current == "dark" else 0)
         # 20 is DWMWA_USE_IMMERSIVE_DARK_MODE; builds before 20H1 used 19.
         for attr in (20, 19):
-            if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(on),
-                                         ctypes.sizeof(on)) == 0:
+            if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(on_),
+                                         ctypes.sizeof(on_)) == 0:
                 break
         # Windows 10 repaints the title bar only when the frame changes.
         win.attributes("-alpha", 0.99)
         win.attributes("-alpha", 1.0)
     except Exception:
         pass
+
+
+dark_title_bar = title_bar        # the name it had while there was one mode
