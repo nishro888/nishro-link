@@ -207,7 +207,12 @@ class LinuxInjector(Injector):
         way that works, and it knows where the pointer really is. Off the
         main path: it asks and sets GNOME's settings, which takes a moment."""
         import threading
-        threading.Thread(target=locate_gnome, args=(self,), daemon=True).start()
+
+        def show():
+            if not locate_gnome(self) and getattr(self, "on_log", None):
+                self.on_log("find the pointer: GNOME's Locate Pointer could not be "
+                            "used here (not GNOME, or no one logged in)")
+        threading.Thread(target=show, daemon=True).start()
 
     def close(self):
         try:

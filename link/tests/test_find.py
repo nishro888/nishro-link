@@ -325,3 +325,21 @@ def test_an_ordinary_mouse_shaken_by_hand_is_noticed(px_per_s, turn_ms):
     moves = shake_x(seconds=1.0, speed=px_per_s // 125, every_ms=turn_ms // 8,
                     rate=125)
     assert len(play(moves, rate=125)) == 1
+
+
+def test_showing_the_pointer_is_written_in_the_log():
+    from test_node_live import Pair
+    p = Pair().start().connected()
+    try:
+        p.aio_inj.spotlight = lambda x, y: None
+        p.hub.on_pointer(5, 400, -10, 0)
+        time.sleep(0.2)
+        p.hub.on_pointer(0, 400, -10, 0)
+        p.wait(lambda: p.hub_core.cursor.screen == "aio", what="crossing")
+        p.hub._act(p.hub_core.find)
+        p.wait(lambda: any("asked it to show" in l for l in p.logs["hub"]),
+               what="the hub's line")
+        p.wait(lambda: any("showing it here" in l for l in p.logs["aio"]),
+               what="the aio's line")
+    finally:
+        p.stop()

@@ -998,6 +998,11 @@ class Node:
         threading.Thread(target=self._start_responder, daemon=True).start()
         threading.Thread(target=self._heartbeat, daemon=True).start()
         threading.Thread(target=self._keep_awake, daemon=True).start()
+        if hasattr(self.injector, "spotlight"):
+            try:
+                self.injector.on_log = self._log_async   # its own failures, told
+            except AttributeError:
+                pass
         threading.Thread(target=self._clipboard, daemon=True).start()
         if self.detect_desktop is not None:
             threading.Thread(target=self._watch_displays, daemon=True).start()
@@ -1327,6 +1332,9 @@ class Node:
 
     def _apply(self, a: Actions) -> None:
         for msg in a.send:
+            if msg.get("t") == "find":
+                self._log_async(f"find the pointer: it is on {msg.get('s')} - "
+                                f"asked it to show where")
             self._send(msg)                             # queued; never blocks
         for what in a.inject:
             self._inject(what)
@@ -1374,6 +1382,7 @@ class Node:
                 show = getattr(self.injector, "spotlight", None)
                 if show:
                     show(what[1], what[2])
+                    self._log_async("find the pointer: showing it here")
         except Exception as e:
             self._log_async(f"inject {kind} failed: {e!r}")
 
