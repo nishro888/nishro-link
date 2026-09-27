@@ -95,6 +95,7 @@ class Sheet:
         self.parent, self.kit = parent, kit
         C = kit.C
         self.top = tk.Toplevel(parent, bg=C["panel"])
+        self.top.withdraw()                   # built hidden: see ui_theme.reveal
         self.top.title(self.title)
         self.top.transient(parent)
         self.top.resizable(False, False)
@@ -112,8 +113,7 @@ class Sheet:
             self.top.geometry(f"+{max(0, x)}+{max(0, y)}")
         except tk.TclError:
             pass
-        ui_theme.dark_title_bar(self.top)
-        self.top.focus_set()
+        ui_theme.reveal(self.top, then=self.top.focus_set)
 
     def fill(self, box) -> None:
         raise NotImplementedError

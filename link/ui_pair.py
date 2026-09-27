@@ -111,6 +111,7 @@ class AddDevice:
         self.node = s.get("node") or "this device"
 
         self.top = tk.Toplevel(parent, bg=self.C["panel"])
+        self.top.withdraw()                   # built hidden: see ui_theme.reveal
         self.top.title("Add a device")
         self.top.transient(parent)
         self.top.resizable(True, False)
@@ -123,11 +124,13 @@ class AddDevice:
             self._list()
         self.top.update_idletasks()
         self._centre(parent)
-        ui_theme.dark_title_bar(self.top)
-        try:
-            self.top.grab_set()
-        except tk.TclError:
-            pass
+
+        def modal():
+            try:
+                self.top.grab_set()
+            except tk.TclError:
+                pass
+        ui_theme.reveal(self.top, then=modal)
 
     # ------------------------------------------------------------- pieces
     def _centre(self, parent) -> None:

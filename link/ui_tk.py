@@ -93,6 +93,7 @@ class App:
         # nishro-link.desktop and shows the app's name and icon. Tk's default
         # class is "Tk", which the dock shows as an unknown program.
         self.root = root if root is not None else tk.Tk(className=WM_CLASS)
+        self.root.withdraw()          # built hidden, shown once: ui_theme.reveal
         self.root.title("Nishro Link")
         try:
             # Its own icon in the title bar and the taskbar, not Tk's feather:
@@ -128,8 +129,8 @@ class App:
         self.root.bind("<Control-n>", lambda _e: self._add_device())
         self.root.bind("<Control-q>", lambda _e: self._quit())
         self.root.bind("<F1>", lambda _e: self._quick_start())
-        ui_theme.title_bar(self.root)
         self._reflow()
+        ui_theme.reveal(self.root)
         self._poll()
 
     def _size_to_fit(self) -> None:
@@ -1534,6 +1535,10 @@ class App:
             except Exception:
                 pass
         self._dialogs, self._sheets = [], {}
+        if sys.platform == "win32":
+            # Out of sight while it is redrawn: not a window being torn down
+            # and put back piece by piece, but one theme, then the other.
+            self.root.attributes("-alpha", 0.0)
         ui_theme.apply(self.root, self.theme_pref)
         self.C = ui_theme.palette(self.root)
         self.kit = Kit(self.C, self.F)
@@ -1547,10 +1552,13 @@ class App:
         self.root.configure(bg=self.C["bg"])
         self._build()
         self.show_page(page)
-        ui_theme.title_bar(self.root)
         self._reflow()
         if self._last:
             self._render(self._last)
+        ui_theme.title_bar(self.root, repaint=False)
+        if sys.platform == "win32":
+            ui_theme.paint(self.root)           # the new theme painted, unseen
+            self.root.attributes("-alpha", 1.0)
 
     def _leave(self) -> None:
         group = (self._last or {}).get("group") or "the"

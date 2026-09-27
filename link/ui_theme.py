@@ -290,10 +290,58 @@ def fonts(root) -> dict:
     }
 
 
-def title_bar(win) -> None:
+def reveal(win, then=None) -> None:
+    """Show a window that was built while withdrawn - once, finished.
+
+    A window shown as it is made appears at the default place and size,
+    empty, with a white title bar; then it jumps, fills and darkens. Filmed on
+    the laptop: a white box for a fifth of a second before About or Add a
+    device. So windows are built withdrawn, placed, and given their title bar
+    while still hidden (the frame exists by then); then shown transparent,
+    PAINTED - every pending event and redraw run while no one can see it -
+    and only then made opaque. Made opaque after a fixed delay instead, it
+    still showed white first: Windows sends the paint message only when
+    nothing else is waiting, so a timer beats it. `then` runs once the window
+    is showing - a grab needs a window on screen."""
+    import tkinter as tk
+    try:
+        win.update_idletasks()
+        title_bar(win, repaint=False)
+        fade = sys.platform == "win32"
+        if fade:
+            win.attributes("-alpha", 0.0)
+        win.deiconify()
+        paint(win)                          # mapped and painted, unseen
+        if then:
+            then()
+        if fade:
+            win.attributes("-alpha", 1.0)
+    except tk.TclError:
+        pass
+
+
+def paint(win) -> None:
+    """Draw a window that has just been shown, now - and nothing else.
+
+    update() would do it, and did, but it also runs whatever else is due - the
+    window's twice-a-second status refresh among it - and a menu took 80 ms
+    to open. Only window events (map, expose) and then the redraws they ask
+    for: a menu in a few milliseconds."""
+    import tkinter as tk
+    import _tkinter
+    flags = _tkinter.WINDOW_EVENTS | _tkinter.DONT_WAIT
+    for _ in range(200):                    # a fence: there are only a few
+        if not win.tk.dooneevent(flags):
+            break
+    win.update_idletasks()
+
+
+def title_bar(win, repaint: bool = True) -> None:
     """Match Windows' title bar to the mode: Windows 10 (2004 and later) and 11
     draw a white one unless asked, the one bright strip on a dark window.
-    Elsewhere, or on an older Windows, nothing happens."""
+    Elsewhere, or on an older Windows, nothing happens. `repaint`: the window
+    is on screen already, and Windows 10 has to be made to redraw its frame -
+    not needed for a window still hidden (reveal)."""
     if sys.platform != "win32":
         return
     try:
@@ -313,9 +361,10 @@ def title_bar(win) -> None:
             if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(on_),
                                          ctypes.sizeof(on_)) == 0:
                 break
-        # Windows 10 repaints the title bar only when the frame changes.
-        win.attributes("-alpha", 0.99)
-        win.attributes("-alpha", 1.0)
+        if repaint:
+            # Windows 10 repaints the title bar only when the frame changes.
+            win.attributes("-alpha", 0.99)
+            win.attributes("-alpha", 1.0)
     except Exception:
         pass
 

@@ -17,7 +17,12 @@ a tk.Menu: add_command, add_checkbutton, add_radiobutton, add_separator.
 """
 from __future__ import annotations
 
+import sys
 import tkinter as tk
+
+from . import ui_theme
+
+KEY_TAG = "NishroLinkMenuKeys"
 
 
 class Items:
@@ -81,14 +86,23 @@ def run(e) -> None:
 
 class Dropdown:
     """One open menu: a borderless window that holds the pointer and the keys
-    until something is chosen or it is dismissed."""
+    until something is chosen or it is dismissed.
+
+    Drawn on ONE canvas. On Windows every Tk widget is a window of its own,
+    and a menu of rows made of labels - forty-odd windows - took 70 ms to
+    open, over 40 of them painting. Drawn as text on a canvas it is one
+    window, and opens in under 20."""
+
+    ROW_PAD, SEP_H, EDGE = 10, 11, 5
 
     def __init__(self, master, kit, items: Items, x, y, keyboard=False,
                  on_close=None, over=None, step=None):
+        from tkinter import font as tkfont
         C, F = kit.C, kit.F
         self.kit, self.items = kit, items
         self.on_close, self.over, self.step = on_close, over, step
-        self.rows = []                # (entry, [widgets]) for each choosable row
+        self.rows = []                # (entry, canvas ids) for each choosable row
+        self._bands = []              # (y0, y1, row index or None) down the menu
         self.active = None
         self.top = top = tk.Toplevel(master, bg=C["line_hi"])
         top.withdraw()
@@ -97,72 +111,124 @@ class Dropdown:
             top.attributes("-topmost", True)     # over everything, as a menu is
         except tk.TclError:
             pass
-        body = tk.Frame(top, bg=C["menu"], pady=5)
-        body.pack(padx=1, pady=1, fill="both", expand=True)
+        body, small = tkfont.Font(font=F["body"]), tkfont.Font(font=F["small"])
+        row_h = body.metrics("linespace") + self.ROW_PAD
+        label_w = max([body.measure(e["label"]) for e in items.entries
+                       if e["kind"] != "separator"] or [0])
+        acc_w = max([small.measure(e["accelerator"]) for e in items.entries
+                     if e["kind"] != "separator" and e["accelerator"]] or [0])
+        self.width = w = max(210, 36 + label_w + (28 + acc_w if acc_w else 0) + 16)
+        h = self.EDGE * 2 + sum(self.SEP_H if e["kind"] == "separator" else row_h
+                                for e in items.entries)
+        self.canvas = c = tk.Canvas(top, width=w, height=h, bg=C["menu"],
+                                    highlightthickness=0, borderwidth=0)
+        c.pack(padx=1, pady=1)
+        y0 = self.EDGE
         for e in items.entries:
             if e["kind"] == "separator":
-                tk.Frame(body, bg=C["line"], height=1).pack(fill="x", padx=10,
-                                                           pady=5)
+                mid = y0 + self.SEP_H // 2
+                c.create_line(10, mid, w - 10, mid, fill=C["line"])
+                self._bands.append((y0, y0 + self.SEP_H, None))
+                y0 += self.SEP_H
                 continue
             on = e["state"] != "disabled"
-            row = tk.Frame(body, bg=C["menu"])
-            row.pack(fill="x")
+            mid = y0 + row_h // 2
+            band = c.create_rectangle(0, y0, w, y0 + row_h, fill=C["menu"],
+                                      outline="")
             mark = "✓" if e["kind"] == "check" else "•"
-            tick = tk.Label(row, text=mark if Items.ticked(e) else "", width=2,
-                            font=F["body"], bg=C["menu"], fg=C["accent"])
-            tick.pack(side="left", padx=(6, 0), pady=3)
-            text = tk.Label(row, text=e["label"], font=F["body"], bg=C["menu"],
-                            fg=C["ink"] if on else C["faint"], anchor="w")
-            text.pack(side="left", fill="x", expand=True, padx=(2, 0))
-            acc = tk.Label(row, text=e["accelerator"], font=F["small"],
-                           bg=C["menu"], fg=C["dim"] if on else C["faint"])
-            acc.pack(side="right", padx=(28, 14))
-            parts = [row, tick, text, acc]
+            tick = c.create_text(20, mid, text=mark if Items.ticked(e) else "",
+                                 fill=C["accent"], font=F["body"])
+            c.create_text(36, mid, text=e["label"], anchor="w", font=F["body"],
+                          fill=C["ink"] if on else C["faint"])
+            if e["accelerator"]:
+                c.create_text(w - 14, mid, text=e["accelerator"], anchor="e",
+                              font=F["small"], fill=C["dim"] if on else C["faint"])
+            index = None
             if on:
-                i = len(self.rows)
-                self.rows.append((e, parts))
-                for w in parts:
-                    w.bind("<Enter>", lambda _e, i=i: self.light(i))
-                    w.bind("<ButtonRelease-1>", lambda _e, i=i: self.choose(i))
-        body.configure(width=210)
-        top.update_idletasks()
-        w, h = max(210, top.winfo_reqwidth()), top.winfo_reqheight()
+                index = len(self.rows)
+                self.rows.append((e, (band, tick)))
+            self._bands.append((y0, y0 + row_h, index))
+            y0 += row_h
+        c.bind("<Motion>", lambda ev: self._hover(ev.y), add="+")
+        c.bind("<Leave>", lambda _e: self.light(None))
+        c.bind("<ButtonRelease-1>", lambda ev: self._release(ev.y))
+        w, h = w + 2, h + 2
         sw, sh = master.winfo_screenwidth(), master.winfo_screenheight()
         if 0 <= x < sw and x + w > sw:
             x = sw - w - 4
         if 0 <= y < sh and y + h > sh:
             y = max(0, y - h)
         top.geometry(f"{w}x{h}+{x}+{y}")
+        # Shown transparent until its rows have painted: an empty grey box a
+        # frame before the menu - filmed - is gone.
+        fade = sys.platform == "win32"
+        if fade:
+            top.attributes("-alpha", 0.0)
         top.deiconify()
         top.lift()
+        if fade:
+            ui_theme.paint(top)             # its rows painted, unseen
+            if self.alive():
+                top.attributes("-alpha", 1.0)
 
-        for seq, fn in (("<Escape>", lambda _e: self.close()),
-                        ("<Up>", lambda _e: self.move(-1)),
-                        ("<Down>", lambda _e: self.move(1)),
-                        ("<Return>", lambda _e: self.choose()),
-                        ("<KP_Enter>", lambda _e: self.choose()),
-                        ("<space>", lambda _e: self.choose()),
-                        ("<Left>", lambda _e: self._step(-1)),
-                        ("<Right>", lambda _e: self._step(1)),
-                        ("<ButtonPress>", self._press),
-                        ("<Motion>", self._motion),
-                        ("<FocusOut>", self._focus_out)):
-            top.bind(seq, fn)
+        self._keys = {"Escape": self.close, "Up": lambda: self.move(-1),
+                      "Down": lambda: self.move(1), "Return": self.choose,
+                      "KP_Enter": self.choose, "space": self.choose,
+                      "Left": lambda: self._step(-1), "Right": lambda: self._step(1)}
+        top.bind("<Key>", self._key)
+        top.bind("<ButtonPress>", self._press)
+        top.bind("<Motion>", self._motion)
+        self._keyed = None            # the widget whose keys come to us
         self._hold()
+        self._watch()
         if keyboard:
             self.move(1)
 
     def _hold(self, tries=10) -> None:
-        """Take the pointer and the keys. X refuses a grab until the window is
-        on screen, which is a moment after it is asked for."""
+        """Take the pointer; and the keys, WITHOUT the focus. A menu that took
+        the focus made the main window's title bar go inactive and back each
+        time one opened - a flicker, filmed. So the keys are borrowed from
+        whatever has the focus: a tag put first in its bindings while the
+        menu is open, and taken out when it closes. X refuses a grab until
+        the window is on screen, which is a moment after it is asked for."""
         if not self.alive():
             return
         try:
             self.top.grab_set()
-            self.top.focus_force()
         except tk.TclError:
             if tries:
                 self.top.after(30, lambda: self._hold(tries - 1))
+            return
+        try:
+            w = self.top.focus_get()
+        except (tk.TclError, KeyError):
+            w = None
+        if w is not None and w is not self.top:
+            w.bind_class(KEY_TAG, "<Key>", lambda e: _MENU_KEYS[-1]._key(e)
+                         if _MENU_KEYS else None)
+            w.bindtags((KEY_TAG,) + tuple(t for t in w.bindtags() if t != KEY_TAG))
+            self._keyed = w
+            _MENU_KEYS.append(self)
+
+    def _key(self, e):
+        fn = self._keys.get(e.keysym)
+        if fn is None:
+            return None
+        fn()
+        return "break"
+
+    def _watch(self) -> None:
+        """Close when the program is left - another one clicked, Alt+Tab."""
+        if not self.alive():
+            return
+        try:
+            gone = self.top.focus_get() is None
+        except (tk.TclError, KeyError):
+            gone = False
+        if gone:
+            self.close()
+            return
+        self.top.after(150, self._watch)
 
     # ------------------------------------------------------------ choosing
     def alive(self) -> bool:
@@ -172,12 +238,34 @@ class Dropdown:
             return False
 
     def light(self, i) -> None:
+        if i == self.active:
+            return
         C = self.kit.C
-        for j, (_, parts) in enumerate(self.rows):
-            bg = C["menu_hi"] if j == i else C["menu"]
-            for w in parts:
-                w.configure(bg=bg)
+        for j in (self.active, i):
+            if j is not None and 0 <= j < len(self.rows):
+                self.canvas.itemconfigure(self.rows[j][1][0],
+                                          fill=C["menu_hi"] if j == i else C["menu"])
         self.active = i
+
+    def tick(self, i) -> str:
+        """The mark by row i: a tick, a dot, or nothing."""
+        return self.canvas.itemcget(self.rows[i][1][1], "text")
+
+    def _row_at(self, y):
+        for y0, y1, index in self._bands:
+            if y0 <= y < y1:
+                return index
+        return None
+
+    def _hover(self, y) -> None:
+        i = self._row_at(y)
+        if i is not None:
+            self.light(i)
+
+    def _release(self, y) -> None:
+        i = self._row_at(y)
+        if i is not None:
+            self.choose(i)
 
     def move(self, d) -> None:
         if not self.rows:
@@ -197,6 +285,14 @@ class Dropdown:
     def close(self) -> None:
         if not self.alive():
             return
+        if self in _MENU_KEYS:
+            _MENU_KEYS.remove(self)
+        w, self._keyed = self._keyed, None
+        if w is not None:
+            try:
+                w.bindtags(tuple(t for t in w.bindtags() if t != KEY_TAG))
+            except tk.TclError:
+                pass                      # it went while the menu was open
         try:
             self.top.grab_release()
             self.top.destroy()
@@ -228,18 +324,9 @@ class Dropdown:
         if self.step:
             self.step(d)
 
-    def _focus_out(self, _e=None) -> None:
-        # Another program was clicked: the app lost the focus altogether.
-        def check():
-            try:
-                if self.alive() and self.top.focus_get() is None:
-                    self.close()
-            except (tk.TclError, KeyError):
-                self.close()
-        try:
-            self.top.after(80, check)
-        except tk.TclError:
-            pass
+
+
+_MENU_KEYS = []                   # open menus borrowing keys, newest last
 
 
 def popup(master, kit, fill, x, y) -> Dropdown:

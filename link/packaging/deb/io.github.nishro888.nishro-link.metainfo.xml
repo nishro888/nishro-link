@@ -41,6 +41,12 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.13.1" date="2026-09-28">
+      <description>
+        <p>Windows and menus open cleanly - no flash - and menus open four
+        times faster.</p>
+      </description>
+    </release>
     <release version="0.13.0" date="2026-09-28">
       <description>
         <p>Shake the mouse to find the pointer, and less lag on Wi-Fi.</p>

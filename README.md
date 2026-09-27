@@ -77,7 +77,7 @@ there is no fixed "server with the keyboard".
 
 ### Windows 10 / 11
 
-Download **`NishroLink-Setup-0.13.0.exe`** from the [Releases](../../releases)
+Download **`NishroLink-Setup-0.13.1.exe`** from the [Releases](../../releases)
 page and run it. Click through the wizard and approve the one permission
 prompt. Nishro Link then:
 
@@ -91,11 +91,11 @@ time: choose **More info → Run anyway**.
 
 ### Ubuntu, Debian and derivatives (Wayland and X11)
 
-Download **`nishro-link_0.13.0-beta_all.deb`** from the
+Download **`nishro-link_0.13.1-beta_all.deb`** from the
 [Releases](../../releases) page and open it - the App Center installs it - or:
 
 ```bash
-sudo apt install ./nishro-link_0.13.0-beta_all.deb
+sudo apt install ./nishro-link_0.13.1-beta_all.deb
 ```
 
 It installs everything it needs and runs Nishro Link in the background from

@@ -318,7 +318,7 @@ def test_a_greyed_item_cannot_be_chosen(app, opened):
 def test_a_ticked_item_shows_its_tick(app, opened):
     app.show_page("devices")
     dd = opened("View")
-    ticks = [parts[1].cget("text") for _, parts in dd.rows]
+    ticks = [dd.tick(i) for i in range(len(dd.rows))]
     assert ticks == ["", "•", "", "", "",       # the pages
                      "", "", "•"]               # System, Light, Dark
 

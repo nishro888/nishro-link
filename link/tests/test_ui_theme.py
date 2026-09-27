@@ -155,7 +155,7 @@ def test_a_control_on_a_card_is_drawn_for_the_card(app):
 
 def test_the_title_bar_follows_the_theme(app, monkeypatch):
     calls = []
-    monkeypatch.setattr(ui_theme, "title_bar", lambda w: calls.append(
+    monkeypatch.setattr(ui_theme, "title_bar", lambda w, **kw: calls.append(
         ui_theme.current()))
     app.set_theme("light")
     app.set_theme("dark")

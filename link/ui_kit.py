@@ -350,6 +350,7 @@ class Tooltip:
             tip = tk.Toplevel(self.widget)
         except tk.TclError:
             return
+        tip.withdraw()                    # shown once, drawn: ui_theme.reveal
         tip.wm_overrideredirect(True)
         try:
             tip.attributes("-topmost", True)
@@ -361,6 +362,7 @@ class Tooltip:
                  justify="left", wraplength=300, padx=10, pady=7).pack()
         tip.geometry(f"+{x}+{y}")
         self._tip = tip
+        ui_theme.reveal(tip)
 
     def hide(self, _e=None) -> None:
         self._cancel()

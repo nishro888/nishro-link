@@ -40,6 +40,7 @@ class DeviceDetails:
         self.dev_id = (d or {}).get("id")
 
         self.top = tk.Toplevel(parent, bg=self.C["panel"])
+        self.top.withdraw()                   # built hidden: see ui_theme.reveal
         self.top.title(f"{name} - Nishro Link")
         self.top.transient(parent)
         self.top.resizable(True, False)
@@ -56,7 +57,7 @@ class DeviceDetails:
             self.top.geometry(f"+{max(0, x)}+{max(0, y)}")
         except tk.TclError:
             pass
-        ui_theme.dark_title_bar(self.top)
+        ui_theme.reveal(self.top)
         self._poll_id = self.top.after(POLL_MS, self._poll)
 
     # --------------------------------------------------------------- data
