@@ -1,11 +1,13 @@
 """The pointer's movement across the desk, and when it leaves this machine.
 
-desk.py says where every display is; this module moves a pointer over them the
-way an operating system moves its own across its monitors:
+desk.py says where every display is and compiles where each border leads; this
+module moves a pointer over them the way an operating system moves its own
+across its monitors:
 
-  - a move that stays on displays happens as asked, whichever machines those
-    displays belong to - crossing where two machines' displays share an edge
-    needs no special case, it is just more display;
+  - the pointer moves in the pixels of the machine it is on, always. However
+    big a machine's box is drawn, its pointer moves at the same speed; the
+    size matters only at a border, where the doorway carries the pointer to
+    the matching point of the next machine's border;
   - a move that would leave every display slides along the wall it hit: the
     axis that is blocked stops, the other carries on;
   - a corner is not a doorway - displays touching only at a corner do not
@@ -27,6 +29,8 @@ coordinate now happens to fall.
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+MAX_STEPS = 256          # doors one move may go through: a fence, never reached
 
 
 @dataclass(frozen=True)
@@ -72,12 +76,19 @@ class Cursor:
 
     # ---- movement ----
     def move(self, dx: int, dy: int, allowed=None) -> Spot:
-        """Advance by a mouse delta, crossing machines where displays touch.
+        """Advance by a mouse delta, crossing machines through the doorways.
+
+        The delta is pixels of the machine the cursor is on, and it moves the
+        cursor that many pixels - however big anyone drew that machine's box.
+        Only at a border does the arrangement matter: there the doorway
+        carries the pointer across to the matching point of the other
+        machine's border, and what is left of the delta carries on there.
 
         Tries the horizontal part then the vertical, and the other way round,
-        and keeps whichever ends nearer where the delta pointed. That is what
-        makes a diagonal push along a wall slide instead of stick, and what
-        stops a diagonal move squeezing through a corner.
+        and keeps whichever threw less of the movement away against walls
+        (the horizontal-first one if equal). That is what makes a diagonal
+        push along a wall slide instead of stick, and what stops a diagonal
+        move squeezing through a corner.
 
         `allowed` is the machines the pointer may enter - the ones connected
         right now. Any other machine is a wall, however it is arranged. The
@@ -86,20 +97,12 @@ class Cursor:
         """
         desk = self.layout
         dx, dy = int(dx), int(dy)
-        start = desk.to_world(self._screen, self._x, self._y)
-        want = (start[0] + dx, start[1] + dy)
-        rects = [r for n, _, r in desk.rects()
-                 if allowed is None or n in allowed or n == self._screen]
-        a = _slide_y(rects, _slide_x(rects, start, dx), dy)
-        b = _slide_x(rects, _slide_y(rects, start, dy), dx)
-        end = a if _dist(a, want) <= _dist(b, want) else b
-        hit = _at(desk, end, allowed, self._screen)
-        if hit is None:                      # cannot happen from a real display
-            return self.spot()
-        name, lx, ly = hit
-        crossed = name != self._screen
-        self._screen, self._x, self._y = name, lx, ly
-        return self.spot(crossed)
+        here = (self._screen, self._x, self._y)
+        a = _walk(desk, here, dx, dy, allowed, "xy")
+        b = _walk(desk, here, dx, dy, allowed, "yx")
+        end = a if a[4] <= b[4] else b
+        self._screen, self._x, self._y = end[0], end[1], end[2]
+        return self.spot(end[3])
 
     def warp(self, screen: str, x: int, y: int) -> Spot:
         """Put the cursor somewhere directly (a claim, the failsafe, a restore)."""
@@ -144,35 +147,63 @@ def exits(machine, x: int, y: int, dx: int, dy: int) -> tuple:
     return eat_x, eat_y
 
 
-def _at(desk, p, allowed, current):
-    """The machine under a world point, among those the pointer may enter."""
-    for m in desk.machines():
-        if allowed is not None and m.name not in allowed and m.name != current:
-            continue
-        if m.inside(p[0] - m.x, p[1] - m.y):
-            return m.name, p[0] - m.x, p[1] - m.y
-    return None
+def _walk(desk, here, dx, dy, allowed, order):
+    """One way of carrying out a move: axis by axis in `order`. Returns
+    (machine, x, y, crossed, pixels lost against walls).
+
+    Terminates: every pass round the loop either uses up the delta or goes
+    through a door, and going through a door uses one pixel of it. The step
+    limit is a second fence, for arithmetic no one has thought of yet."""
+    screen, x, y = here
+    crossed, lost = False, 0
+    start = screen
+    for axis in order:
+        n = dx if axis == "x" else dy
+        steps = 0
+        while n:
+            steps += 1
+            if steps > MAX_STEPS:
+                lost += abs(n)
+                break
+            rects = desk.get(screen).displays()
+            if axis == "x":
+                nx = _slide(rects, x, y, n, "x")
+                n -= nx - x
+                x = nx
+            else:
+                ny = _slide(rects, x, y, n, "y")
+                n -= ny - y
+                y = ny
+            if not n:
+                break
+            fwd = n > 0
+            if axis == "x":
+                side, edge, t = ("right" if fwd else "left"), (x + 1 if fwd else x), y
+            else:
+                side, edge, t = ("bottom" if fwd else "top"), (y + 1 if fwd else y), x
+            door = desk.door_at(screen, side, edge, t)
+            if door is None or (allowed is not None and door.dst not in allowed
+                                and door.dst != start):
+                lost += abs(n)
+                break
+            u = door.map(t)
+            if axis == "x":
+                x, y = door.land, u
+            else:
+                x, y = u, door.land
+            screen, crossed = door.dst, True
+            n += -1 if fwd else 1
+    return screen, x, y, crossed, lost
 
 
-# ------------------------------------------------------------------ sliding
-def _slide_x(rects, p, dx):
-    """Move along the row, as far as displays continue unbroken."""
-    if not dx:
-        return p
-    iv = _interval([(r.x, r.right) for r in rects if r.y <= p[1] < r.bottom], p[0])
-    if iv is None:
-        return p
-    return max(iv[0], min(iv[1] - 1, p[0] + dx)), p[1]
-
-
-def _slide_y(rects, p, dy):
-    """Move along the column, as far as displays continue unbroken."""
-    if not dy:
-        return p
-    iv = _interval([(r.y, r.bottom) for r in rects if r.x <= p[0] < r.right], p[1])
-    if iv is None:
-        return p
-    return p[0], max(iv[0], min(iv[1] - 1, p[1] + dy))
+def _slide(rects, x, y, n, axis):
+    """Move along the row (or column) as far as this machine's displays run
+    unbroken - the operating system's own rule for its monitors."""
+    if axis == "x":
+        iv = _interval([(r.x, r.right) for r in rects if r.y <= y < r.bottom], x)
+        return x if iv is None else max(iv[0], min(iv[1] - 1, x + n))
+    iv = _interval([(r.y, r.bottom) for r in rects if r.x <= x < r.right], y)
+    return y if iv is None else max(iv[0], min(iv[1] - 1, y + n))
 
 
 def _interval(spans, at):
@@ -188,10 +219,6 @@ def _interval(spans, at):
     if run and run[0] <= at < run[1]:
         return run
     return None
-
-
-def _dist(a, b) -> int:
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
 def _onto(m, x: int, y: int) -> tuple:

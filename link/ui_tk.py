@@ -95,12 +95,16 @@ class App:
         self.root = root if root is not None else tk.Tk(className=WM_CLASS)
         self.root.title("Nishro Link")
         try:
-            # Its own icon in the title bar and the taskbar, not Tk's feather.
-            from .icon import PNG_64
-            self._icon = tk.PhotoImage(master=self.root, data=PNG_64)
-            self.root.iconphoto(True, self._icon)
-        except (ImportError, tk.TclError):
-            pass
+            # Its own icon in the title bar and the taskbar, not Tk's feather:
+            # every size drawn for it, so Windows picks 16 for the title bar
+            # and 24-48 for the taskbar rather than shrinking one picture.
+            from . import icon
+            icons = [tk.PhotoImage(master=self.root, data=d) for d in icon.SIZES]
+            self._icon_by_px = {int(i.width()): i for i in icons}
+            self._icon = self._icon_by_px.get(64)
+            self.root.iconphoto(True, *sorted(icons, key=lambda i: -i.width()))
+        except (ImportError, tk.TclError, AttributeError):
+            self._icon_by_px = {}
         self.root.protocol("WM_DELETE_WINDOW", self._quit)
         self.root.minsize(MIN_W, MIN_H)
         self._size_to_fit()
@@ -151,11 +155,9 @@ class App:
         self.sidebar.pack_propagate(False)
         brand = tk.Frame(self.sidebar, bg=C["sidebar"])
         brand.pack(fill="x", padx=16, pady=(16, 18))
-        icon = getattr(self, "_icon", None)
+        icon = getattr(self, "_icon_by_px", {}).get(24)
         if icon is not None:
-            self._brand_icon = icon.zoom(3).subsample(8)       # 24 px
-            tk.Label(brand, image=self._brand_icon, bg=C["sidebar"]
-                     ).pack(side="left")
+            tk.Label(brand, image=icon, bg=C["sidebar"]).pack(side="left")
         self.brand_text = tk.Label(brand, text="Nishro Link", font=F["h2"],
                                    bg=C["sidebar"], fg=C["ink"])
         self.brand_text.pack(side="left", padx=(8, 0))
@@ -706,6 +708,20 @@ class App:
                small=True).pack(side="left")
         Button(bar, kit, "In a column", lambda: self.arranger.stack(),
                small=True).pack(side="left", padx=6)
+        # What can be done to the selected box: lit only when it applies.
+        tk.Frame(bar, bg=C["line"], width=1, height=22).pack(side="left", padx=8)
+        self.arr_btns = {}
+        for what, text, tip in (
+                ("copy", "Add copy", "Place this machine again - a doorway "
+                                     "back to it, for wrapping round"),
+                ("aspect", "Aspect ratio", "Back to the machine's own "
+                                           "proportions"),
+                ("actual", "Actual size", "One unit per pixel again")):
+            b = Button(bar, kit, text, lambda w=what: self._arr_do(w), small=True)
+            b.pack(side="left", padx=(0, 6))
+            b.set_enabled(False)
+            Tooltip(b, kit, tip)
+            self.arr_btns[what] = b
         # No Apply: a change is in force - on every device - the moment the box
         # is let go. Reported: "changing arrangement in one device instantly
         # isn't synced with peers". Undo makes that safe to do.
@@ -720,7 +736,8 @@ class App:
         holder.pack(fill="both", expand=True)
         self.arranger = ui_arrange.Arranger(holder, [], "?", palette=C, height=320,
                                             on_change=self._arranged,
-                                            on_select=lambda _n: self._arr_text())
+                                            on_select=lambda _n: self._arr_text(),
+                                            on_menu=self._arr_menu)
         info = tk.Frame(box, bg=C["panel"])
         info.pack(fill="x", pady=(10, 0))
         self.arr_info = self._wrap(label(info, kit, "", "body", "ink"))
@@ -731,8 +748,9 @@ class App:
         self.arr_problems.pack(anchor="w", fill="x", pady=(4, 0))
         for w in info.winfo_children():
             w.configure(bg=C["panel"])
-        hints = keys(info, kit, (("Drag", "move"), ("← ↑ → ↓", "nudge"),
-                                 ("Shift", "bigger steps"), ("Ctrl+Z", "undo")))
+        hints = keys(info, kit, (("Drag", "move"), ("Handles", "resize"),
+                                 ("← ↑ → ↓", "nudge"), ("Right-click", "more"),
+                                 ("Ctrl+Z", "undo")))
         hints.pack(side="left", pady=(10, 0))
         legend = tk.Frame(info, bg=C["panel"])
         legend.pack(side="right", pady=(10, 0))
@@ -1557,6 +1575,35 @@ class App:
         self.arr_info.configure(text=self.arranger.describe())
         problems = self.arranger.problems()
         self.arr_problems.configure(text="\n".join("⚠  " + p for p in problems))
+        for what, b in self.arr_btns.items():
+            b.set_enabled(self.arranger.can(what))
+
+    def _arr_do(self, what) -> None:
+        a = self.arranger
+        {"copy": a.add_copy, "remove_copy": a.remove_copy,
+         "aspect": a.keep_aspect, "actual": a.actual_size}[what]()
+        self._arr_text()
+
+    def _arr_menu(self, e) -> None:
+        """Right-click on a box: everything that can be done to it."""
+        a = self.arranger
+        if a.selected is None:
+            return
+        name = a.selected if isinstance(a.selected, str) else a.selected[0]
+        state = lambda w: "normal" if a.can(w) else "disabled"   # noqa: E731
+
+        def fill(m):
+            m.add_command(label=f"Add a copy of {name}", state=state("copy"),
+                          command=lambda: self._arr_do("copy"))
+            m.add_command(label="Remove this copy", accelerator="Delete",
+                          state=state("remove_copy"),
+                          command=lambda: self._arr_do("remove_copy"))
+            m.add_separator()
+            m.add_command(label="Back to aspect ratio", state=state("aspect"),
+                          command=lambda: self._arr_do("aspect"))
+            m.add_command(label="Actual size", state=state("actual"),
+                          command=lambda: self._arr_do("actual"))
+        self._menu = ui_menu.popup(self.root, self.kit, fill, e.x_root, e.y_root)
 
     def _apply_arrangement(self, boxes=None, undoing=False) -> None:
         self._apply_id = None
@@ -1789,8 +1836,13 @@ def _parts(d) -> list:
 
 
 def _same_boxes(a, b) -> bool:
+    """The same arrangement - machines, copies, positions and sizes - in any
+    order. Displays inside a machine are its own business, so not compared."""
+    import json
+
     def key(boxes):
-        return sorted((x["name"], x["x"], x["y"], x["w"], x["h"]) for x in boxes or [])
+        return sorted(json.dumps({k: v for k, v in x.items() if k != "parts"},
+                                 sort_keys=True) for x in boxes or [])
     return key(a) == key(b)
 
 

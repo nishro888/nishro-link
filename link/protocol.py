@@ -66,7 +66,10 @@ import secrets
 import socket
 import threading
 
-VERSION = 6
+VERSION = 7
+# v7: boxes can be resized and machines placed again as copies (desk.py): the
+# pointer crosses through compiled doorways, in proportion along a border. A
+# v6 peer would read copies as broken screens and cross in the wrong places.
 # v6: the link is encrypted (secure.py). "auth" and "hello" carry each side's
 # Diffie-Hellman public value, both are bound into the password proofs, and
 # every frame after "welcome" is sealed.

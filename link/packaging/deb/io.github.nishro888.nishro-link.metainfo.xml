@@ -41,6 +41,12 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.12.0" date="2026-09-27">
+      <description>
+        <p>Resize any screen's box so borders meet exactly where you want,
+        place copies of a machine for wrap-around, and a new icon.</p>
+      </description>
+    </release>
     <release version="0.11.1" date="2026-09-27">
       <description>
         <p>Follows a dark desktop theme on Ubuntu, and the Windows setup no

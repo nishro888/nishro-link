@@ -185,11 +185,20 @@ def test_when_the_machine_being_driven_leaves_everything_comes_home(trio):
     trio["aio2"].stop()
     trio["aio2"].ch.close()                                    # aio2 goes away
     trio.wait(lambda: trio.core("laptop").holds(), "the laptop to take control back")
+    # aio1 steers nothing that is gone: control is the laptop's, and aio1's
+    # mouse waits to claim it - on behalf of a machine that is there.
     trio.wait(lambda: trio.core("aio1").cursor.screen != "aio2"
-              and not trio.core("aio1").suppress_mouse(),
+              and trio.core("aio1").baton.holder == "laptop",
               "aio1 to stop steering a machine that is gone")
     trio.wait(lambda: trio.core("aio1").online == {"laptop"},
               "aio1 to learn aio2 has left")
+    # Nor does it take control back by itself. It used to, now and then: its
+    # own earlier request, left open, was "retried" after the handover.
+    time.sleep(1.0)                        # well past CLAIM_RETRY_MS, twice
+    assert trio.core("laptop").holds() and not trio.core("aio1").holds()
+    # Its mouse, moved, takes control as it always does.
+    trio.caps["aio1"].sink.on_pointer(700, 500, 20, 0)
+    trio.wait(lambda: trio.core("aio1").holds(), "aio1's mouse to take control")
 
 
 def test_the_others_stay_connected_when_one_leaves(trio):

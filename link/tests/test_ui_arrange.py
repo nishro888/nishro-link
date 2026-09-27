@@ -277,3 +277,90 @@ def test_a_crossing_to_a_machine_that_is_offline_does_not_look_live(root):
     a.set_online(["laptop"])
     assert not a.canvas.find_withtag("crossing")
     assert a.canvas.find_withtag("crossing_off")
+
+
+# ------------------------------------------------ resizing and copies
+def handle(a, which):
+    return a._handles()[which]
+
+
+def test_the_selected_box_has_handles_and_others_do_not(root):
+    a = arranger(root)
+    assert not a.canvas.find_withtag("handle")
+    a.select("aio")
+    assert len(a.canvas.find_withtag("handle")) == 8
+
+
+def test_a_corner_handle_resizes_and_the_opposite_corner_stays(root):
+    a = arranger(root)
+    a.select("aio")
+    before = a.desk.instance("aio")
+    hx, hy = handle(a, "se")
+    a._grab(ev(hx, hy))
+    a._drag(ev(hx - 40, hy - 30))
+    a._drop(ev(hx - 40, hy - 30))
+    after = a.desk.instance("aio")
+    assert after.ww < before.ww and after.wh < before.wh
+    assert a.dirty, "and it is a change, to be put in force"
+
+
+def test_a_side_handle_moves_one_border_alone(root):
+    a = arranger(root)
+    a.select("aio")
+    before = a.desk.instance("aio")
+    hx, hy = handle(a, "s")
+    a._grab(ev(hx, hy))
+    a._drag(ev(hx + 50, hy - 25))                 # sideways is ignored
+    a._drop(ev(hx + 50, hy - 25))
+    after = a.desk.instance("aio")
+    assert after.ww == before.ww and after.wh < before.wh
+
+
+def test_resizing_never_changes_the_machines_pixels(root):
+    a = arranger(root)
+    a.select("aio")
+    hx, hy = handle(a, "e")
+    a._grab(ev(hx, hy))
+    a._drag(ev(hx + 60, hy))
+    a._drop(ev(hx + 60, hy))
+    m = a.desk.get("aio")
+    assert (m.w, m.h) == (1920, 1080) and m.scaled
+
+
+def test_a_copy_is_placed_selected_and_drawn_dashed(root):
+    a = arranger(root)
+    a.select("laptop")
+    assert a.can("copy") and not a.can("remove_copy")
+    a.add_copy()
+    assert a.selected == ("laptop", 1)
+    assert a.desk.copies()[0].key == ("laptop", 1)
+    assert a.can("remove_copy")
+    a.remove_copy()
+    assert a.desk.copies() == [] and a.selected is None
+
+
+def test_delete_removes_the_selected_copy_and_nothing_else(root):
+    a = arranger(root)
+    a.select("aio")
+    a.canvas.event_generate("<Delete>")
+    assert "aio" in a.desk.names(), "a machine is never deleted from here"
+
+
+def test_aspect_ratio_and_actual_size_are_offered_only_when_they_apply(root):
+    a = arranger(root)
+    a.select("aio")
+    assert not a.can("aspect") and not a.can("actual")
+    a.desk.set_size("aio", 1000, 900)
+    assert a.can("aspect") and a.can("actual")
+    a.keep_aspect()
+    assert not a.can("aspect") and a.can("actual")
+    a.actual_size()
+    assert not a.desk.get("aio").scaled
+
+
+def test_a_refresh_keeps_a_size_not_yet_in_force(root):
+    a = arranger(root)
+    a.desk.set_size("aio", 1500, 1080)
+    a.dirty = True
+    a.set_boxes(boxes())
+    assert a.desk.instance("aio").ww == 1500

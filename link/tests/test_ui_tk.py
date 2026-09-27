@@ -666,3 +666,41 @@ def test_a_placeholder_is_shown_but_never_read(tk_root):
         assert hint.winfo_manager() == "place"
     finally:
         top.destroy()
+
+
+# ------------------------------------------- resizing and copies, end to end
+def test_a_copy_placed_on_the_page_is_in_force_on_the_link(app):
+    app._render(app.api.status())
+    app.show_page("arrange")
+    app.arranger.select("aio")
+    assert app.arr_btns["copy"].enabled
+    app._arr_do("copy")
+    app._apply_arrangement()
+    lay = app.api.node.core.layout
+    assert [p.key for p in lay.copies()] == [("aio", 1)]
+    assert "copy_of" in str(app.api.status()["placement"])
+
+
+def test_a_resized_box_is_in_force_on_the_link(app):
+    app._render(app.api.status())
+    app.arranger.desk.set_size("aio", 960, 540)
+    app._apply_arrangement(app.arranger.boxes)
+    m = app.api.node.core.layout.get("aio")
+    assert (m.ww, m.wh) == (960, 540) and (m.w, m.h) == (1920, 1080)
+
+
+def test_the_right_click_menu_offers_what_applies(app):
+    app._render(app.api.status())
+    app.show_page("arrange")
+    app.arranger.select("aio")
+
+    class E:
+        x_root = y_root = 20
+    app._arr_menu(E())
+    try:
+        m = app._menu.items
+        assert m.state("Add a copy of aio") == "normal"
+        assert m.state("Remove this copy") == "disabled"
+        assert m.state("Actual size") == "disabled"
+    finally:
+        app._menu.close()

@@ -63,3 +63,31 @@ def test_stopping_the_others_spares_this_process_and_its_launcher(monkeypatch):
     kill = next(a for a in ran if a[0] == "taskkill")
     spared = {kill[i + 1] for i, a in enumerate(kill) if a == "/FI"}
     assert spared == {f"PID ne {os.getpid()}", f"PID ne {os.getppid()}"}
+
+
+def test_the_ico_has_every_size_windows_asks_for():
+    """16 for a title bar, 20-40 for the taskbar and shortcuts as the display
+    scale goes from 100% to 250%, 48 for Explorer, 256 for large icons. A
+    missing size is scaled from another by Windows - which is the blur."""
+    import struct
+    data = (ROOT / "link" / "packaging" / "assets" / "nishro-link.ico").read_bytes()
+    _, kind, count = struct.unpack_from("<HHH", data, 0)
+    assert kind == 1
+    sizes = {data[6 + 16 * i] or 256 for i in range(count)}
+    assert {16, 20, 24, 32, 40, 48, 64, 256} <= sizes
+
+
+def test_the_window_gets_an_icon_drawn_for_each_size():
+    import base64
+    import struct
+    for data in icon.SIZES:
+        png = base64.b64decode(data)
+        assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    widths = [struct.unpack(">I", base64.b64decode(d)[16:20])[0] for d in icon.SIZES]
+    assert widths == [16, 24, 32, 48, 64]
+
+
+def test_the_vector_icon_is_well_formed():
+    import xml.etree.ElementTree as ET
+    root = ET.parse(ROOT / "link" / "packaging" / "deb" / "nishro-link.svg").getroot()
+    assert root.tag.endswith("svg") and root.get("viewBox") == "0 0 256 256"

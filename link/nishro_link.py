@@ -58,8 +58,14 @@ def build_desk(cfg, here, peer_label="peer"):
     # forced in the config is a different screen, so it gets none.
     parts = here.parts if screen == here.size else ()
     placement = cfg.get("placement")
-    if placement:
-        lay = desk.place(cfg["node"], placement)
+    try:
+        lay = desk.place(cfg["node"], placement) if placement else None
+    except ValueError:
+        # A saved arrangement that no longer reads - hand-edited, or from a
+        # build that is not this one - is no reason not to start. The hub's
+        # arrangement arrives as soon as it connects.
+        lay = None
+    if lay is not None:
         if cfg["node"] in lay.names():
             lay.resize(cfg["node"], screen[0], screen[1], parts)
         else:

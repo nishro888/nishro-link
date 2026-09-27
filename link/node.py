@@ -283,21 +283,24 @@ class NodeCore:
     def check_arrangement(self, boxes):
         """The desk these boxes describe, or ValueError saying what is wrong."""
         from . import desk as _desk
-        if not boxes:
+        if not boxes or not isinstance(boxes, (list, tuple)):
             raise ValueError("no screens given")
-        need = {"name", "w", "h", "x", "y"}
         for b in boxes:
+            if not isinstance(b, dict):
+                raise ValueError("a screen is not described properly")
+            need = ({"copy_of", "x", "y"} if "copy_of" in b
+                    else {"name", "w", "h", "x", "y"})
             missing = need - set(b)
             if missing:
                 raise ValueError(f"a screen is missing {sorted(missing)}")
-        names = [b["name"] for b in boxes]
+        names = [b["name"] for b in boxes if "copy_of" not in b]
         if len(set(names)) != len(names):
             raise ValueError("two screens have the same name")
         try:
             lay = _desk.place(self.node, boxes)
         except (KeyError, TypeError) as e:
             raise ValueError(str(e)) from e
-        lay.check()                  # no screen of ours, or two overlapping
+        lay.check()          # no screen of ours, an overlap, a border to two places
         return lay
 
     def arrange(self, boxes) -> Actions:
@@ -646,6 +649,13 @@ class NodeCore:
             return
         if not self.baton.apply(g):
             return                       # stale grant, ignore
+        if g.holder == self.node:
+            # Our request is answered - settled HERE, not when check_claim next
+            # looks. Left for it, a handover that came first (the hub taking
+            # control back when a machine left) found the request still open
+            # and "retried" it: control jumped back to a machine nobody had
+            # touched. Seen as a test that passed only by that accident.
+            self._claim_at, self._claim_tries = None, 0
         # P3: whatever we were holding down on behalf of the old holder goes up.
         # The grant's own `held` set is authoritative for what should be down,
         # and across a handover that set is empty by construction.
@@ -671,6 +681,10 @@ class NodeCore:
             a.send.append(m if spot.crossed else self._to_owner(m))
         else:
             self.home = (spot.screen, spot.x, spot.y)
+            if spot.crossed and not was_remote:
+                # Through a copy of this machine and back onto it - the wrap
+                # round. The OS pointer is still at the border it left by.
+                a.inject.append(("move_abs", spot.x, spot.y))
             if was_remote:
                 # It came home. Put the real pointer where the virtual one is,
                 # or it would resume from wherever we parked it.

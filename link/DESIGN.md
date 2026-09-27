@@ -214,17 +214,35 @@ same module, what the screen shows is exactly what the pointer does.
 
 ### The model: rectangles on one plane
 
-A desk is a plane of integer pixels. On it sit **machines**; a machine is a rigid
+A desk is a plane of integer units. On it sit **machines**; a machine is a rigid
 group of **displays**, each a rectangle in that machine's own desktop
-coordinates, exactly as its operating system arranges them. A laptop with an
-external monitor to its left is one machine with two displays, and their
+coordinates, in pixels, exactly as its operating system arranges them. A laptop
+with an external monitor to its left is one machine with two displays, and their
 relative position is Windows' business - never changed here. What is arranged is
-where each *machine* sits: one `(x, y)` per machine.
+where each *machine* sits, and how big its box is drawn.
 
 ```
-Machine: name, owner, x, y, w, h, parts     w, h = the whole desktop
-                                            parts = its displays, (x, y, w, h)
+Machine: name, owner, x, y, w, h, parts, sw, sh
+                          w, h   = the whole desktop, in pixels
+                          parts  = its displays, (x, y, w, h), in pixels
+                          sw, sh = the box's size on the plane (0: its pixels)
+Copy:    copy_of, n, x, y, sw, sh      the same machine, placed again
 ```
+
+**A box can be resized, freely** - it need not keep its aspect ratio. The
+size says only *where borders meet*, never how fast the pointer moves: the
+pointer always moves in the pixels of the machine it is on. Only at a border
+is the size used, to carry the crossing point across in proportion. So a
+768-pixel laptop panel drawn as tall as a 1080-pixel AIO meets it along its
+whole height: the panel's top pixel reaches the AIO's top, its bottom the
+AIO's bottom. "Aspect ratio" and "Actual size" put a box back.
+
+**A machine can be placed again, as a copy** - always the whole machine. A copy
+is a doorway, never a place: where another box touches it, the pointer crosses
+to the *real* machine, at the same point of the real machine's border, and
+back. That is the wrap-round: a copy of the laptop to the right of the AIO
+makes right from the AIO arrive at the laptop's left, and left from the
+laptop arrive at the AIO's right.
 
 **The pointer crosses wherever a display of one machine shares an edge with a
 display of another**, and keeps its physical position across the edge. Where no
@@ -233,13 +251,40 @@ its own monitors, and it is what makes "the AIO above the laptop's second
 monitor" mean what it looks like: up from the second monitor reaches the AIO; up
 from the panel beside it is a wall, because nothing is above the panel.
 
-Two rules the whole thing rests on:
+The rules the whole thing rests on:
 
-- **Machines must touch to connect.** A gap is a wall - dragging snaps, and the
+- **Boxes must touch to connect.** A gap is a wall - dragging snaps, and the
   screen names any machine the pointer cannot reach.
-- **Machines never overlap.** A point would belong to two machines at once. A
-  machine dropped on another is pushed clear the short way; anything left
+- **Boxes never overlap** - no machine, no copy. A point would belong to two.
+  A box dropped on another is pushed clear the short way; anything left
   overlapping is refused by `Desk.check()`.
+- **No stretch of a border leads to two places.** With copies it could - the
+  laptop's left border touching one thing and its copy's left border
+  another. Refused, and named. A new copy is therefore placed clear of
+  everything, touching nothing, until it is dragged where it belongs.
+
+### Doorways: the arrangement, compiled
+
+The pointer never reads the picture. `Desk.doors()` compiles it: for each
+machine, each side and each border line of its desktop, the stretches that
+lead somewhere - which machine, which border, which stretch - in pixels on
+both sides, with the mapping between them:
+
+```
+u = c + ((2(t - a) + 1)(d - c)) div (2(b - a))      t in [a, b) -> u in [c, d)
+```
+
+Integer arithmetic only, pixel centre to pixel centre: equal lengths map one to
+one, and one pixel across and one back returns to the start (within a pixel
+of the longer side, where the two lengths differ). Doors are indexed by
+(machine, side, border line) and found by bisection, so a crossing costs a
+dictionary lookup and a binary search. Compiling is where every rule is
+checked; it happens once per change, not per movement.
+
+Everything that arrives as an arrangement - from the window, over the network
+from the hub, from a saved file - goes through `desk.place()`, which accepts
+it or raises `ValueError`. Nothing else: sizes, positions, scales and copies
+are bounded (`MAX_*` in desk.py), and a fuzz test throws junk at it.
 
 Rectangles are half-open: a display at `x=0, w=1920` covers 0..1919, and its
 neighbour starts at 1920. Touching means one's right equals the other's left.
@@ -252,13 +297,20 @@ crossed gaps, which made a sloppy drop behave differently from the picture.
 
 ### Movement (`motion.py`)
 
-A move that stays on displays happens as asked, whichever machines those
-displays belong to - crossing needs no special case, it is just more display. A
-move that would leave every display slides along the wall it hit: tried as
-horizontal-then-vertical and vertical-then-horizontal, keeping whichever ends
-nearer where the delta pointed. That is what makes a diagonal push along a wall
-slide instead of stick, and it is also why **a corner is not a doorway** - two
-displays touching only at a corner do not connect, as with real monitors.
+A move happens in the pixels of the machine the cursor is on, sliding across
+that machine's own displays as its OS would. At the edge of its desktop the
+door for that point carries the cursor across, and the rest of the delta
+carries on over there. Where there is no door, the move slides along the wall
+it hit: tried as horizontal-then-vertical and vertical-then-horizontal,
+keeping whichever threw less movement away against walls. That is what makes
+a diagonal push along a wall slide instead of stick, and it is also why **a
+corner is not a doorway** - two displays touching only at a corner share no
+border, so no door.
+
+The walk always ends: each pass either uses up the delta or goes through a
+door, which costs one pixel of it. With no resizing and no copies it does
+exactly what the older one-plane engine did - a test keeps that engine and
+runs both over thousands of random arrangements and moves.
 
 The cursor remembers *which machine* it is on and where on that machine's
 desktop, not a point on the plane: if the arrangement changes while it is on the
@@ -307,8 +359,14 @@ beside it so nothing ends up underneath.
   it was let go was a real bug
 - a machine that is not connected right now is drawn dimmed
 
+Resizing: the selected box has eight handles - the corners, and the middle of
+each side to move one border alone - and a moving border snaps to other boxes'
+borders. Copies are placed and removed from the page's buttons, the right-click
+menu, or Delete; they are drawn dashed.
+
 Protocol version 3: a version-2 peer would read the new layout as screens with no
 links and never cross, so it is refused with a message to update both sides.
+Version 7 does the same for boxes with sizes and copies.
 
 ---
 

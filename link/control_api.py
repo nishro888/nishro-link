@@ -928,8 +928,10 @@ class ControlAPI:
         err = self.node.arrange(boxes)
         if err:
             return {"error": err}
-        self.log("arrangement changed: "
-                 + ", ".join(f"{b['name']}@{b['x']},{b['y']}" for b in boxes))
+        self.log("arrangement changed: " + ", ".join(
+            (f"{b['name']}@" if "copy_of" not in b else
+             f"copy {b.get('n')} of {b['copy_of']}@") + f"{b['x']},{b['y']}"
+            + (f" {b['sw']}x{b['sh']}" if "sw" in b else "") for b in boxes))
         connected = self.node.ch is not None
         if self.node.core.is_hub:
             reach = "both" if connected else "here"

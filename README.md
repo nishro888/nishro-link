@@ -10,7 +10,7 @@ there is no fixed "server with the keyboard".
 |---|---|
 | ![The Home page, light](docs/screenshots/overview.png) | ![The Home page, dark](docs/screenshots/overview-dark.png) |
 
-> **Status: beta (v0.11).** Developed and tested on a Windows 10 laptop and an
+> **Status: beta (v0.12).** Developed and tested on a Windows 10 laptop and an
 > Ubuntu (Wayland) desktop, with an automated test suite - read
 > [Limitations](#limitations) first.
 
@@ -36,6 +36,13 @@ there is no fixed "server with the keyboard".
   Drag them to match your desk - beside, above, below, against a particular
   monitor - and bright lines show exactly where the pointer will cross. A
   change reaches every device the moment you drop it; Ctrl+Z undoes.
+- **Borders exactly where you want them.** Resize any box by its handles, free
+  of its aspect ratio, so a small laptop screen can meet a big monitor along
+  its whole edge. Only where the borders meet changes - never the pointer's
+  speed. *Aspect ratio* and *Actual size* put it back.
+- **Wrap-around.** Place a copy of a machine anywhere, and pushing into the
+  copy lands you on the machine itself: put a copy of the laptop to the right
+  of the AIO, and right from the AIO comes back round to the laptop.
 - **Monitors plugged in or out** are noticed within seconds and the arrangement
   updates everywhere.
 - **Shared clipboard** (text).
@@ -64,7 +71,7 @@ there is no fixed "server with the keyboard".
 
 ### Windows 10 / 11
 
-Download **`NishroLink-Setup-0.11.1.exe`** from the [Releases](../../releases)
+Download **`NishroLink-Setup-0.12.0.exe`** from the [Releases](../../releases)
 page and run it. Click through the wizard and approve the one permission
 prompt. Nishro Link then:
 
@@ -78,11 +85,11 @@ time: choose **More info → Run anyway**.
 
 ### Ubuntu, Debian and derivatives (Wayland and X11)
 
-Download **`nishro-link_0.11.1-beta_all.deb`** from the
+Download **`nishro-link_0.12.0-beta_all.deb`** from the
 [Releases](../../releases) page and open it - the App Center installs it - or:
 
 ```bash
-sudo apt install ./nishro-link_0.11.1-beta_all.deb
+sudo apt install ./nishro-link_0.12.0-beta_all.deb
 ```
 
 It installs everything it needs and runs Nishro Link in the background from
@@ -141,9 +148,10 @@ who holds control (the *baton*) so two machines can never both think they are
 driving. That is an administrative role only - any machine's mouse can drive.
 
 The arrangement is a plane of rectangles: each machine is a rigid group of its
-displays, and the pointer crosses wherever displays of two machines share an
-edge, keeping its physical position - the way an operating system treats its
-own monitors. `link/desk.py` knows where everything is; `link/motion.py` moves
+displays, drawn at any size, and the pointer crosses wherever boxes share an
+edge - the way an operating system treats its own monitors. The arrangement is
+compiled into doorways, and the pointer moves in each machine's own pixels,
+crossing only through them. `link/desk.py` knows where everything is; `link/motion.py` moves
 the pointer across it; the arrangement screen draws `desk.py`, so what it shows
 is what the pointer does.
 
