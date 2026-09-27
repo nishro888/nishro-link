@@ -140,10 +140,12 @@ def control(ver: str, files: dict) -> bytes:
             f"Architecture: all\n"
             f"Maintainer: {MAINTAINER}\n"
             f"Installed-Size: {(size + 1023) // 1024}\n"
-            f"Depends: python3 (>= 3.10), python3-tk, python3-evdev\n"
             # xclip, not wl-clipboard: on GNOME, wl-clipboard can only reach
-            # the clipboard by flashing a window the dock shows (clip.py).
-            f"Recommends: pkexec | policykit-1, x11-xserver-utils, xclip\n"
+            # the clipboard by flashing a window the dock shows (clip.py). A
+            # dependency, not a recommendation: apt does not add a new
+            # Recommends when it upgrades a package (found on the AIO).
+            f"Depends: python3 (>= 3.10), python3-tk, python3-evdev, xclip\n"
+            f"Recommends: pkexec | policykit-1, x11-xserver-utils\n"
             f"Suggests: wl-clipboard\n"
             f"Section: utils\n"
             f"Priority: optional\n"

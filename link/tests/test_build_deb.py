@@ -151,10 +151,11 @@ def test_the_dock_can_match_the_window_to_the_menu_entry(deb):
     assert f"\nStartupWMClass={wm_class}\n" in entry
 
 
-def test_xclip_is_recommended_not_wl_clipboard(deb):
-    """On GNOME, wl-clipboard flashes a window in the dock at every read."""
+def test_xclip_is_required_not_wl_clipboard(deb):
+    """On GNOME, wl-clipboard flashes a window in the dock at every read - and
+    a Recommends is not installed when an existing package is upgraded."""
     f = fields(deb)
-    assert "xclip" in f["Recommends"] and "wl-clipboard" not in f["Recommends"]
+    assert "xclip" in f["Depends"] and "wl-clipboard" not in f["Depends"]
 
 
 def test_the_service_starts_at_boot_and_the_window_attaches(deb):
