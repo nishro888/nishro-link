@@ -6,7 +6,7 @@ computer's. Type, and it goes to whichever screen the pointer is on. Copy on one
 machine, paste on another. Any machine's own mouse can take over at any time -
 there is no fixed "server with the keyboard".
 
-![The Overview page](docs/screenshots/overview.png)
+![The Home page](docs/screenshots/overview.png)
 
 > **Status: beta (v0.10).** Developed and tested on a Windows 10 laptop and an
 > Ubuntu (Wayland) desktop, with an automated test suite - read
@@ -44,14 +44,18 @@ there is no fixed "server with the keyboard".
   in doubt, local input is restored at once. Pressing **both Ctrl keys**
   together, or *Release input* in the window, always frees the machine you are
   at.
+- **A proper program.** A setup wizard, a Start Menu entry, an uninstaller, a
+  menu bar - File, View, Sharing, Help - with keyboard shortcuts, a quick start
+  guide, and an About window with the version - and any device running a
+  different one.
 
 | Devices | Arrangement |
 |---|---|
 | ![Devices](docs/screenshots/devices.png) | ![Arrangement](docs/screenshots/arrange.png) |
 
-| Adding a device |
-|---|
-| ![Add a device](docs/screenshots/add.png) |
+| Adding a device | About |
+|---|---|
+| ![Add a device](docs/screenshots/add.png) | ![About Nishro Link](docs/screenshots/about.png) |
 
 ## Install
 

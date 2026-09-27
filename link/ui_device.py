@@ -56,6 +56,7 @@ class DeviceDetails:
             self.top.geometry(f"+{max(0, x)}+{max(0, y)}")
         except tk.TclError:
             pass
+        ui_theme.dark_title_bar(self.top)
         self._poll_id = self.top.after(POLL_MS, self._poll)
 
     # --------------------------------------------------------------- data

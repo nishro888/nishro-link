@@ -587,21 +587,16 @@ def test_a_right_click_offers_everything_that_can_be_done(app):
 
     class E:
         x_root = y_root = 0
-    import tkinter
-    popped = []
-    orig = tkinter.Menu.tk_popup
-    tkinter.Menu.tk_popup = lambda self, x, y, entry="": popped.append(self)
+    app._card_menu(E(), "aio")
+    m = app._menu.items
     try:
-        app._card_menu(E(), "aio")
+        items = {label: m.state(label) for label in m.labels()}
+        assert items["Details…"] == "normal" and items["Rename…"] == "normal"
+        assert items["Remove from the group…"] == "normal"
+        assert items["Control rights…"] == "disabled", "aio is switched off"
+        assert card
     finally:
-        tkinter.Menu.tk_popup = orig
-    m = popped[0]
-    items = {m.entrycget(i, "label"): m.entrycget(i, "state")
-             for i in range(m.index("end") + 1) if m.type(i) == "command"}
-    assert items["Details…"] == "normal" and items["Rename…"] == "normal"
-    assert items["Remove from the group…"] == "normal"
-    assert items["Control rights…"] == "disabled", "aio is switched off"
-    assert card
+        app._menu.close()
 
 
 # ------------------------------------------------------------ the copy

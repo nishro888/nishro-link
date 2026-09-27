@@ -182,3 +182,14 @@ def test_the_app_center_has_a_page_and_every_icon_size(deb):
     for n in bd.ICON_SIZES:
         png = deb["data"][f"./usr/share/icons/hicolor/{n}x{n}/apps/nishro-link.png"][1]
         assert png[:8] == b"\x89PNG\r\n\x1a\n", n
+
+
+def test_the_version_carries_the_stage_from_one_place():
+    import link
+    stage = f"~{link.__stage__}" if link.__stage__ else ""
+    assert bd.version() == link.__version__ + stage
+
+
+def test_the_description_says_the_link_is_encrypted():
+    assert "not encrypted" not in bd.DESCRIPTION
+    assert "encrypted" in bd.DESCRIPTION

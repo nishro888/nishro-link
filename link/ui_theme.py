@@ -94,3 +94,34 @@ def fonts(root) -> dict:
         "mono": (mono, 9),
         "mono_big": (mono, 13, "bold"),
     }
+
+
+def dark_title_bar(win) -> None:
+    """Ask Windows for a dark title bar. Windows 10 (2004 and later) and 11
+    draw a white one unless asked - the one bright strip on a dark window.
+    Elsewhere, or on an older Windows, nothing happens."""
+    import sys
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL("user32")
+        dwm = ctypes.WinDLL("dwmapi")
+        user32.GetParent.argtypes = [wintypes.HWND]
+        user32.GetParent.restype = wintypes.HWND
+        dwm.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD,
+                                              ctypes.c_void_p, wintypes.DWORD]
+        win.update_idletasks()
+        hwnd = user32.GetParent(win.winfo_id())
+        on = ctypes.c_int(1)
+        # 20 is DWMWA_USE_IMMERSIVE_DARK_MODE; builds before 20H1 used 19.
+        for attr in (20, 19):
+            if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(on),
+                                         ctypes.sizeof(on)) == 0:
+                break
+        # Windows 10 repaints the title bar only when the frame changes.
+        win.attributes("-alpha", 0.99)
+        win.attributes("-alpha", 1.0)
+    except Exception:
+        pass

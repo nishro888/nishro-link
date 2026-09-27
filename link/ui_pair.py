@@ -123,6 +123,7 @@ class AddDevice:
             self._list()
         self.top.update_idletasks()
         self._centre(parent)
+        ui_theme.dark_title_bar(self.top)
         try:
             self.top.grab_set()
         except tk.TclError:

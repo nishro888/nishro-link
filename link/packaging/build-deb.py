@@ -39,7 +39,6 @@ LINK = ROOT / "link"
 DEB = pathlib.Path(__file__).resolve().parent / "deb"
 
 PACKAGE = "nishro-link"
-STAGE = "~beta"          # sorts before the final 0.9.0; drop it for a release
 MAINTAINER = "nishro888 <nishro888@users.noreply.github.com>"
 HOMEPAGE = "https://github.com/nishro888/nishro-link"
 LIB = "usr/lib/nishro-link"
@@ -71,15 +70,22 @@ one mouse and keyboard across several computers
  the next machine. Works between Windows and Linux (X11 and Wayland), with a
  drag-and-drop screen arrangement and pairing by device name.
  .
- The link is authenticated but not encrypted: use it on a network you trust."""
+ Every link is encrypted, with a fresh key each connection. It runs as a
+ system service, so it also works on the login and lock screens."""
 
 
 def version() -> str:
     text = (LINK / "__init__.py").read_text(encoding="utf-8")
+    found = {}
     for line in text.splitlines():
-        if line.startswith("__version__"):
-            return line.split("=", 1)[1].strip().strip("\"'") + STAGE
-    raise SystemExit("link/__init__.py has no __version__")
+        for key in ("__version__", "__stage__"):
+            if line.startswith(key):
+                found[key] = line.split("=", 1)[1].split("#")[0].strip().strip("\"'")
+    if "__version__" not in found:
+        raise SystemExit("link/__init__.py has no __version__")
+    # ~beta sorts before the final release of the same number.
+    stage = found.get("__stage__")
+    return found["__version__"] + (f"~{stage}" if stage else "")
 
 
 def epoch() -> int:

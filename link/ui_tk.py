@@ -8,9 +8,10 @@ cards, pills, switches) - this file only lays pages out and says what they show.
 It calls ControlAPI's status()/command() in-process, NOT over HTTP: this window
 and the web page drive exactly the same code.
 
-LAYOUT. A sidebar of pages - Overview, Devices, Arrangement, Activity, Settings
-- and a header that always says the one thing worth knowing: whether linking is
-on, and how many machines are here. The sidebar folds down to icons on a narrow
+LAYOUT. A menu bar - File, View, Sharing, Help - as any program has; a sidebar
+of pages - Home, Devices, Arrangement, Activity, Settings - and a header that
+always says the one thing worth knowing: whether linking is on, and how many
+machines are here. The sidebar folds down to icons on a narrow
 window; every page scrolls when it has to; text wraps to the window. The minimum
 fits a netbook, and the opening size is clamped to the actual display - the
 first version asked for 780 pixels of height on a 768-pixel laptop.
@@ -28,7 +29,8 @@ import time
 import tkinter as tk
 from tkinter import messagebox
 
-from . import autostart, ui_arrange, ui_device, ui_pair, ui_theme
+from . import (__version__, autostart, ui_arrange, ui_device, ui_help,
+               ui_menu, ui_pair, ui_theme)
 from .ui_kit import (Button, Card, Dot, Kit, Metric, Monitors, Pill, Scroll,
                      Segmented, Toggle, Tooltip, ago, field, info, keys, label)
 
@@ -38,7 +40,7 @@ MIN_W, MIN_H = 560, 440            # small enough for a netbook
 WANT_W, WANT_H = 1040, 700         # clamped to the display before use
 NARROW = 820                       # below this the sidebar folds to icons
 
-PAGES = (("overview", "Overview", "◈"),
+PAGES = (("overview", "Home", "⌂"),
          ("devices", "Devices", "▣"),
          ("arrange", "Arrangement", "⊞"),
          ("activity", "Activity", "≡"),
@@ -76,6 +78,7 @@ class App:
         self._nearby_at = 0.0
         self._nearby_sig = None
         self._renaming = False
+        self._sheets = {}             # the Help menu's windows, one of each
         # How to look for devices nearby. Tests swap it for a canned answer.
         self._nearby_search = lambda: self.api.command("/api/discover", {})
 
@@ -104,12 +107,17 @@ class App:
         self.kit = Kit(self.C, self.F)
         self.root.configure(bg=self.C["bg"])
 
+        self._page_var = tk.StringVar(master=self.root, value="overview")
         self._build()
         self.show_page("overview")
         self.root.bind("<Configure>", self._reflow)
         for i, (name, _, _) in enumerate(PAGES, start=1):
             self.root.bind(f"<Control-Key-{i}>", lambda _e, n=name: self.show_page(n))
         self.root.bind("<Control-z>", lambda _e: self.page == "arrange" and self._undo_arrangement())
+        self.root.bind("<Control-n>", lambda _e: self._add_device())
+        self.root.bind("<Control-q>", lambda _e: self._quit())
+        self.root.bind("<F1>", lambda _e: self._quick_start())
+        ui_theme.dark_title_bar(self.root)
         self._reflow()
         self._poll()
 
@@ -126,6 +134,10 @@ class App:
     # ================================================================ frame
     def _build(self) -> None:
         C, F, kit = self.C, self.F, self.kit
+        self.menubar = ui_menu.MenuBar(self.root, kit, (
+            ("File", self._menu_file), ("View", self._menu_view),
+            ("Sharing", self._menu_sharing), ("Help", self._menu_help)))
+        self.menubar.pack(side="top", fill="x")
         # ---- sidebar
         self.sidebar = tk.Frame(self.root, bg=C["sidebar"], width=200)
         self.sidebar.pack(side="left", fill="y")
@@ -159,6 +171,12 @@ class App:
         Button(row, kit, "Hide", self.hide, kind="ghost", small=True).pack(side="left")
         Button(row, kit, "Close" if self.remote else "Quit", self._quit,
                kind="ghost", small=True).pack(side="right")
+        self.side_version = tk.Label(foot, text=f"Version {ui_help.version()}",
+                                     font=F["tiny"], bg=C["sidebar"],
+                                     fg=C["faint"], cursor="hand2")
+        self.side_version.pack(anchor="w", pady=(10, 0))
+        self.side_version.bind("<Button-1>", lambda _e: self._about())
+        Tooltip(self.side_version, kit, "About Nishro Link")
 
         # ---- main
         self.main = tk.Frame(self.root, bg=C["panel"])
@@ -263,6 +281,7 @@ class App:
         if self.page:
             self.pages[self.page].pack_forget()
         self.page = name
+        self._page_var.set(name)
         self.pages[name].pack(fill="both", expand=True)
         C = self.C
         for n, item in self.nav.items():
@@ -285,6 +304,8 @@ class App:
                 item["text"].pack_forget()
             elif not item["text"].winfo_manager():
                 item["text"].pack(side="left", fill="x", expand=True)
+        self.side_version.configure(
+            text=__version__ if narrow else f"Version {ui_help.version()}")
         if narrow:
             self.brand_text.pack_forget()
             self.side_status.pack_forget()
@@ -644,28 +665,24 @@ class App:
             card.configure(highlightbackground=self.C["line"])
 
     def _card_menu(self, e, name) -> None:
-        C = self.C
         s = self._last or {}
         d = next((x for x in s.get("devices") or [] if x["name"] == name), {})
         manage = bool(s.get("can_manage"))
-        m = tk.Menu(self.root, tearoff=0, bg=C["card_hi"], fg=C["ink"],
-                    activebackground=C["accent"], activeforeground=C["accent_ink"],
-                    disabledforeground=C["faint"], relief="flat", borderwidth=1)
-        m.add_command(label="Details…", command=lambda: self._details(name))
-        m.add_command(label="Rename…", command=lambda: self._details(name, rename=True),
-                      state="normal" if manage else "disabled")
-        m.add_command(label="Control rights…", command=lambda: self._details(name),
-                      state="normal" if manage and d.get("online") else "disabled")
-        m.add_separator()
-        can_remove = manage and not (s.get("role") == "member" and d.get("hub"))
-        m.add_command(label="Remove from the group…",
-                      command=lambda: self._remove_device(name),
-                      state="normal" if can_remove else "disabled")
-        self._menu = m
-        try:
-            m.tk_popup(e.x_root, e.y_root)
-        finally:
-            m.grab_release()
+
+        def fill(m):
+            m.add_command(label="Details…", command=lambda: self._details(name))
+            m.add_command(label="Rename…",
+                          command=lambda: self._details(name, rename=True),
+                          state="normal" if manage else "disabled")
+            m.add_command(label="Control rights…",
+                          command=lambda: self._details(name),
+                          state="normal" if manage and d.get("online") else "disabled")
+            m.add_separator()
+            can_remove = manage and not (s.get("role") == "member" and d.get("hub"))
+            m.add_command(label="Remove from the group…",
+                          command=lambda: self._remove_device(name),
+                          state="normal" if can_remove else "disabled")
+        self._menu = ui_menu.popup(self.root, self.kit, fill, e.x_root, e.y_root)
 
     # ========================================================== Arrangement
     def _arrange(self):
@@ -1001,6 +1018,99 @@ class App:
         if entry.get() != value:
             entry.delete(0, "end")
             entry.insert(0, value)
+
+    # ================================================================ menus
+    def _menu_file(self, m) -> None:
+        m.add_command(label="Add a device…", accelerator="Ctrl+N",
+                      command=self._add_device)
+        m.add_command(label="Search nearby", command=self._menu_nearby)
+        m.add_separator()
+        m.add_command(label="Settings", accelerator="Ctrl+5",
+                      command=lambda: self.show_page("settings"))
+        m.add_separator()
+        m.add_command(label="Hide window", command=self.hide)
+        m.add_command(label="Close" if self.remote else "Quit",
+                      accelerator="Ctrl+Q", command=self._quit)
+
+    def _menu_view(self, m) -> None:
+        for i, (name, text, _) in enumerate(PAGES, start=1):
+            m.add_radiobutton(label=text, value=name, variable=self._page_var,
+                              accelerator=f"Ctrl+{i}",
+                              command=lambda n=name: self.show_page(n))
+
+    def _menu_sharing(self, m) -> None:
+        s = self._last or {}
+        member = s.get("role") == "member"
+        m.add_checkbutton(label="Sharing", variable=self.sharing,
+                          command=self._toggle)
+        m.add_command(label="Release input", accelerator="Both Ctrl",
+                      command=self._release)
+        m.add_separator()
+        m.add_command(label="Copy password", command=self._copy_password)
+        m.add_command(label="New password…", command=self._new_password,
+                      state="disabled" if member else "normal")
+        if member:
+            m.add_command(label="Leave the group…", command=self._leave)
+        m.add_separator()
+        m.add_command(label="Arrange in a row",
+                      command=lambda: self._arrange_by(self.arranger.tidy))
+        m.add_command(label="Arrange in a column",
+                      command=lambda: self._arrange_by(self.arranger.stack))
+        m.add_command(label="Undo arrangement", accelerator="Ctrl+Z",
+                      command=self._undo_arrangement,
+                      state="normal" if self._undo else "disabled")
+
+    def _menu_help(self, m) -> None:
+        m.add_command(label="Quick start", accelerator="F1",
+                      command=self._quick_start)
+        m.add_command(label="Keyboard shortcuts", command=self._shortcuts)
+        m.add_separator()
+        m.add_command(label="Documentation",
+                      command=lambda: self._browse(ui_help.DOCS))
+        m.add_command(label="Report a problem",
+                      command=lambda: self._browse(ui_help.ISSUES))
+        m.add_command(label="Downloads",
+                      command=lambda: self._browse(ui_help.RELEASES))
+        m.add_separator()
+        m.add_command(label="Open log folder", command=self._open_log)
+        m.add_separator()
+        m.add_command(label="About Nishro Link", command=self._about)
+
+    def _menu_nearby(self) -> None:
+        self.show_page("devices")
+        self._search_nearby(force=True)
+
+    def _arrange_by(self, how) -> None:
+        self.show_page("arrange")
+        how()
+
+    def _sheet(self, kind, make):
+        """One window of each kind: asking again brings it forward."""
+        old = self._sheets.get(kind)
+        if old is not None and old.alive():
+            old.raise_()
+            return old
+        self._sheets[kind] = sheet = make()
+        return sheet
+
+    def _about(self):
+        return self._sheet("about", lambda: ui_help.About(
+            self.root, self.kit, self._last or self.api.status(),
+            browse=self._browse))
+
+    def _quick_start(self):
+        return self._sheet("start", lambda: ui_help.QuickStart(
+            self.root, self.kit, add=self._add_device))
+
+    def _shortcuts(self):
+        return self._sheet("keys", lambda: ui_help.Shortcuts(self.root, self.kit))
+
+    def _browse(self, url) -> None:
+        import webbrowser
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            self._say(f"Could not open {url}: {e}", self.C["bad"])
 
     # ============================================================== actions
     def _toggle(self) -> None:
