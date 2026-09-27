@@ -1,19 +1,19 @@
-"""The menu bar - File, View, Sharing, Help - and the menus it opens.
+"""Menus drawn on the theme - the right-click menus of device cards and of
+the arrangement's boxes.
 
-Both are drawn on the theme. Tk's own menus were tried first: on Windows the
-system draws their border and separators white and embosses a disabled item
-in white, which on a dark window looks broken; and its native menu bar is a
-white strip that ignores every colour. So a menu here is a small borderless
-window of the app's own, and it behaves as menus do:
+Tk's own menus were tried first: on Windows the system draws their border and
+separators white and embosses a disabled item in white, which on a dark window
+looks broken. So a menu here is a small borderless window of the app's own,
+and it behaves as menus do: Up/Down/Enter/Escape, a click anywhere else
+closes it (and does nothing else), and it closes when the program is left.
 
-  - click a title, or Alt and its underlined letter (F10 for the first)
-  - with one open, the pointer slides onto the next title and it opens
-  - Up/Down/Enter/Escape, and Left/Right to the neighbouring menu
-  - a click anywhere else closes it - and does nothing else
+(There was a menu bar too - File, View, Sharing, Help. Beside the navigation
+pane it offered most things twice, and read as clutter; the pane has Settings
+and Help at its foot instead, as Windows' own Settings does.)
 
-A menu is filled when it opens, so it offers what is true now - a tick by the
-page on show, Leave the group only for a member. fill(menu) is written as for
-a tk.Menu: add_command, add_checkbutton, add_radiobutton, add_separator.
+A menu is filled when it opens, so it offers what is true now. fill(menu) is
+written as for a tk.Menu: add_command, add_checkbutton, add_radiobutton,
+add_separator.
 """
 from __future__ import annotations
 
@@ -334,97 +334,3 @@ def popup(master, kit, fill, x, y) -> Dropdown:
     items = Items()
     fill(items)
     return Dropdown(master, kit, items, x, y)
-
-
-class MenuBar(tk.Frame):
-    def __init__(self, parent, kit, menus):
-        """menus: [(title, fill)] - fill(menu) adds the entries when it opens."""
-        C, F = kit.C, kit.F
-        super().__init__(parent, bg=C["sidebar"])
-        self.kit = kit
-        self.menus = dict(menus)
-        self.titles = {}
-        self.open = None              # the Dropdown showing, if any
-        self.open_title = None
-        row = tk.Frame(self, bg=C["sidebar"])
-        row.pack(fill="x", padx=6)
-        for title in self.menus:
-            lb = tk.Label(row, text=title, font=F["body"], bg=C["sidebar"],
-                          fg=C["dim"], padx=10, pady=4, underline=0)
-            lb.pack(side="left")
-            lb.bind("<ButtonPress-1>", lambda _e, t=title: self.post(t))
-            lb.bind("<Enter>", lambda _e, t=title: self._light(t, True))
-            lb.bind("<Leave>", lambda _e, t=title: self._light(t, False))
-            self.titles[title] = lb
-        tk.Frame(self, bg=C["line"], height=1).pack(fill="x")
-
-        top = parent.winfo_toplevel()
-        for title in self.menus:
-            for key in {title[0].lower(), title[0].upper()}:
-                top.bind(f"<Alt-Key-{key}>",
-                         lambda _e, t=title: self.post(t, keyboard=True))
-        first = next(iter(self.menus))
-        top.bind("<F10>", lambda _e: self.post(first, keyboard=True))
-
-    def build(self, title) -> Items:
-        """The menu as it would open now. The tests read and invoke it."""
-        items = Items()
-        self.menus[title](items)
-        return items
-
-    def post(self, title, keyboard=False):
-        if self.open is not None and self.open.alive():
-            self.open.close()
-        lb = self.titles[title]
-        self.open_title = title
-        self._paint()
-        self.open = Dropdown(self, self.kit, self.build(title),
-                             lb.winfo_rootx(), lb.winfo_rooty() + lb.winfo_height(),
-                             keyboard=keyboard, on_close=self._closed,
-                             over=self._over, step=self._step)
-        return "break"
-
-    def _closed(self, dd) -> None:
-        if dd is self.open:
-            self.open = self.open_title = None
-            self._paint()
-
-    def _title_at(self, x, y):
-        for title, lb in self.titles.items():
-            if (lb.winfo_rootx() <= x < lb.winfo_rootx() + lb.winfo_width()
-                    and lb.winfo_rooty() <= y < lb.winfo_rooty() + lb.winfo_height()):
-                return title
-        return None
-
-    def _over(self, x, y, click) -> None:
-        """The pointer, outside the open menu, is over (x, y) - moving, or
-        clicking. On another title either opens that menu; a click on the
-        open menu's own title just closes it, as the caller then does."""
-        title = self._title_at(x, y)
-        if title and title != self.open_title and self.open is not None:
-            self.post(title)
-
-    def _step(self, d) -> None:
-        names = list(self.menus)
-        i = names.index(self.open_title) if self.open_title in names else 0
-        self.post(names[(i + d) % len(names)], keyboard=True)
-
-    def _light(self, title, on) -> None:
-        if title == self.open_title:
-            return
-        C = self.kit.C
-        try:
-            self.titles[title].configure(bg=C["card_hi"] if on else C["sidebar"],
-                                         fg=C["ink"] if on else C["dim"])
-        except tk.TclError:
-            pass
-
-    def _paint(self) -> None:
-        C = self.kit.C
-        for title, lb in self.titles.items():
-            on = title == self.open_title
-            try:
-                lb.configure(bg=C["card_hi"] if on else C["sidebar"],
-                             fg=C["ink"] if on else C["dim"])
-            except tk.TclError:
-                pass

@@ -274,7 +274,12 @@ def fonts(root) -> dict:
     else:
         def strong(size):
             return (sans, size, "bold")
+    # Windows' own icons, where they exist: Segoe Fluent Icons (11), Segoe MDL2
+    # Assets (10). None elsewhere - the pages then show plain symbols.
+    icons = next((f for f in ("Segoe Fluent Icons", "Segoe MDL2 Assets")
+                  if f in have), None)
     return {
+        "icon": (icons, 12) if icons else None,
         "h1": strong(18),
         "h2": strong(13),
         "h3": strong(10),

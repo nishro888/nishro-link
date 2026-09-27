@@ -8,10 +8,12 @@ cards, pills, switches) - this file only lays pages out and says what they show.
 It calls ControlAPI's status()/command() in-process, NOT over HTTP: this window
 and the web page drive exactly the same code.
 
-LAYOUT. A menu bar - File, View, Sharing, Help - as any program has; a sidebar
-of pages - Home, Devices, Arrangement, Activity, Settings - and a header that
-always says the one thing worth knowing: whether linking is on, and how many
-machines are here. The sidebar folds down to icons on a narrow
+LAYOUT. One navigation pane, as in Windows' own Settings: the pages at the top
+- Home, Devices, Arrangement, Activity - and Settings and Help at its foot,
+with what must always be in reach below them: the state, Release input, Find
+the pointer. A header says the one thing worth knowing: whether sharing is
+on, and how many machines are here. (A menu bar above the pane offered most
+of this twice over, and read as clutter; it went.) The sidebar folds down to icons on a narrow
 window; every page scrolls when it has to; text wraps to the window. The minimum
 fits a netbook, and the opening size is clamped to the actual display - the
 first version asked for 780 pixels of height on a 768-pixel laptop.
@@ -46,7 +48,13 @@ PAGES = (("overview", "Home", "⌂"),
          ("devices", "Devices", "▣"),
          ("arrange", "Arrangement", "⊞"),
          ("activity", "Activity", "≡"),
-         ("settings", "Settings", "⚙"))
+         ("settings", "Settings", "⚙"),
+         ("help", "Help", "?"))
+FOOT_PAGES = ("settings", "help")      # at the foot of the pane
+
+# Windows' own icons (Segoe MDL2 Assets / Fluent Icons), where the font is.
+ICONS = {"overview": "\uE80F", "devices": "\uE772", "arrange": "\uE7F4",
+         "activity": "\uE81C", "settings": "\uE713", "help": "\uE897"}
 
 
 class App:
@@ -80,7 +88,6 @@ class App:
         self._nearby_at = 0.0
         self._nearby_sig = None
         self._renaming = False
-        self._sheets = {}             # the Help menu's windows, one of each
         self._dialogs = []            # Add a device, device details: open ones
         # How to look for devices nearby. Tests swap it for a canned answer.
         self._nearby_search = lambda: self.api.command("/api/discover", {})
@@ -128,7 +135,7 @@ class App:
         self.root.bind("<Control-z>", lambda _e: self.page == "arrange" and self._undo_arrangement())
         self.root.bind("<Control-n>", lambda _e: self._add_device())
         self.root.bind("<Control-q>", lambda _e: self._quit())
-        self.root.bind("<F1>", lambda _e: self._quick_start())
+        self.root.bind("<F1>", lambda _e: self.show_page("help"))
         self._reflow()
         ui_theme.reveal(self.root)
         self._poll()
@@ -146,11 +153,7 @@ class App:
     # ================================================================ frame
     def _build(self) -> None:
         C, F, kit = self.C, self.F, self.kit
-        self.menubar = ui_menu.MenuBar(self.root, kit, (
-            ("File", self._menu_file), ("View", self._menu_view),
-            ("Sharing", self._menu_sharing), ("Help", self._menu_help)))
-        self.menubar.pack(side="top", fill="x")
-        # ---- sidebar
+        # ---- the navigation pane
         self.sidebar = tk.Frame(self.root, bg=C["sidebar"], width=200)
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
@@ -165,10 +168,11 @@ class App:
 
         self.nav = {}
         for name, text, glyph in PAGES:
-            self.nav[name] = self._nav_item(name, text, glyph)
+            if name not in FOOT_PAGES:
+                self.nav[name] = self._nav_item(name, text, glyph)
 
         foot = tk.Frame(self.sidebar, bg=C["sidebar"])
-        foot.pack(side="bottom", fill="x", padx=12, pady=14)
+        foot.pack(side="bottom", fill="x", padx=12, pady=(8, 14))
         st = tk.Frame(foot, bg=C["sidebar"])
         st.pack(fill="x", pady=(0, 10))
         self.dot = Dot(st, kit, size=10)
@@ -179,17 +183,33 @@ class App:
         self.btn_release = Button(foot, kit, "Release input", self._release,
                                   kind="secondary", small=True)
         self.btn_release.pack(fill="x")
-        row = tk.Frame(foot, bg=C["sidebar"])
-        row.pack(fill="x", pady=(8, 0))
-        Button(row, kit, "Hide", self.hide, kind="ghost", small=True).pack(side="left")
-        Button(row, kit, "Close" if self.remote else "Quit", self._quit,
-               kind="ghost", small=True).pack(side="right")
+        Tooltip(self.btn_release, kit, "Give this computer back its own mouse "
+                                       "and keyboard - or press both Ctrl keys")
+        self.btn_find = Button(foot, kit, "Find the pointer", self._find_pointer,
+                               kind="ghost", small=True)
+        self.btn_find.pack(fill="x", pady=(4, 0))
+        Tooltip(self.btn_find, kit, "Show where the pointer is - or shake the mouse")
+        if not self.remote:
+            # This window runs the link itself: hiding keeps it running, and
+            # quitting stops it. A window onto the service has only its X.
+            row = tk.Frame(foot, bg=C["sidebar"])
+            row.pack(fill="x", pady=(6, 0))
+            Button(row, kit, "Hide", self.hide, kind="ghost", small=True
+                   ).pack(side="left")
+            Button(row, kit, "Quit", self._quit, kind="ghost", small=True
+                   ).pack(side="right")
         self.side_version = tk.Label(foot, text=f"Version {ui_help.version()}",
                                      font=F["tiny"], bg=C["sidebar"],
                                      fg=C["faint"], cursor="hand2")
         self.side_version.pack(anchor="w", pady=(10, 0))
-        self.side_version.bind("<Button-1>", lambda _e: self._about())
+        self.side_version.bind("<Button-1>", lambda _e: self.show_page("help"))
         Tooltip(self.side_version, kit, "About Nishro Link")
+        # Settings and Help at the foot of the pane, above what is always in
+        # reach - as in Windows' own Settings.
+        for name, text, glyph in reversed([p for p in PAGES if p[0] in FOOT_PAGES]):
+            self.nav[name] = self._nav_item(name, text, glyph, side="bottom")
+        tk.Frame(self.sidebar, bg=C["line"], height=1).pack(
+            side="bottom", fill="x", padx=16, pady=(0, 6))
 
         # ---- main
         self.main = tk.Frame(self.root, bg=C["panel"])
@@ -259,23 +279,27 @@ class App:
         self.stack.pack(fill="both", expand=True, pady=(6, 0))
         self.pages = {"overview": self._overview(), "devices": self._devices(),
                       "arrange": self._arrange(), "activity": self._activity(),
-                      "settings": self._settings()}
+                      "settings": self._settings(), "help": self._help()}
         # Notices float over the bottom right of every page.
         self.toasts = tk.Frame(self.main, bg=C["panel"])
 
-    def _nav_item(self, name, text, glyph):
+    def _nav_item(self, name, text, glyph, side="top"):
+        """One page in the pane: its icon and its name. The page showing has a
+        filled row and a short accent pill at its left edge - Windows 11's
+        own mark for it."""
         C, F = self.C, self.F
         row = tk.Frame(self.sidebar, bg=C["sidebar"], cursor="hand2")
-        row.pack(fill="x", padx=10, pady=1)
-        bar = tk.Frame(row, bg=C["sidebar"], width=3)
-        bar.pack(side="left", fill="y")
-        g = tk.Label(row, text=glyph, font=F["h2"], bg=C["sidebar"], fg=C["dim"],
+        row.pack(side=side, fill="x", padx=8, pady=1)
+        icon_font = F.get("icon")
+        g = tk.Label(row, text=ICONS[name] if icon_font else glyph,
+                     font=icon_font or F["h2"], bg=C["sidebar"], fg=C["dim"],
                      width=2)
-        g.pack(side="left", padx=(8, 4), pady=7)
+        g.pack(side="left", padx=(12, 6), pady=8)
         t = tk.Label(row, text=text, font=F["nav"], bg=C["sidebar"], fg=C["dim"],
                      anchor="w")
         t.pack(side="left", fill="x", expand=True)
-        for w in (row, g, t, bar):
+        bar = tk.Frame(row, bg=C["accent"], width=3, height=16)
+        for w in (row, g, t):
             w.bind("<Button-1>", lambda _e, n=name: self.show_page(n))
             w.bind("<Enter>", lambda _e, n=name: self._nav_hover(n, True))
             w.bind("<Leave>", lambda _e, n=name: self._nav_hover(n, False))
@@ -299,10 +323,13 @@ class App:
         C = self.C
         for n, item in self.nav.items():
             on = n == name
-            bg = C["card"] if on else C["sidebar"]
+            bg = C["card_hi"] if on else C["sidebar"]
             for k in ("row", "glyph", "text"):
                 item[k].configure(bg=bg)
-            item["bar"].configure(bg=C["accent"] if on else C["sidebar"])
+            if on:
+                item["bar"].place(x=0, rely=0.5, anchor="w")
+            else:
+                item["bar"].place_forget()
             item["glyph"].configure(fg=C["accent"] if on else C["dim"])
             item["text"].configure(fg=C["ink"] if on else C["dim"])
         self.title.configure(text=dict((n, t) for n, t, _ in PAGES)[name])
@@ -927,6 +954,7 @@ class App:
     def _render(self, s: dict) -> None:
         C = self.C
         self._last = s
+        self.help_page.show(s)
         devs = s.get("devices") or []
         online = sum(1 for d in devs if d["online"])
         self.subtitle.configure(text=f"{s['node']}  ·  {_role_words(s)}  ·  "
@@ -1071,98 +1099,22 @@ class App:
             entry.delete(0, "end")
             entry.insert(0, value)
 
-    # ================================================================ menus
-    def _menu_file(self, m) -> None:
-        m.add_command(label="Add a device…", accelerator="Ctrl+N",
-                      command=self._add_device)
-        m.add_command(label="Search nearby", command=self._menu_nearby)
-        m.add_separator()
-        m.add_command(label="Settings", accelerator="Ctrl+5",
-                      command=lambda: self.show_page("settings"))
-        m.add_separator()
-        m.add_command(label="Hide window", command=self.hide)
-        m.add_command(label="Close" if self.remote else "Quit",
-                      accelerator="Ctrl+Q", command=self._quit)
+    # ================================================================= help
+    def _help(self):
+        page, box = self._page()
+        self.help_page = ui_help.HelpPage(
+            box, self.kit, icon=getattr(self, "_icon_by_px", {}).get(64),
+            add=self._add_device, copy=self._copy_text, browse=self._browse,
+            log=self._open_log)
+        return page
 
-    def _menu_view(self, m) -> None:
-        for i, (name, text, _) in enumerate(PAGES, start=1):
-            m.add_radiobutton(label=text, value=name, variable=self._page_var,
-                              accelerator=f"Ctrl+{i}",
-                              command=lambda n=name: self.show_page(n))
-        m.add_separator()
-        for mode, text in THEMES:
-            m.add_radiobutton(label=f"{text} theme", value=mode,
-                              variable=self._theme_var,
-                              command=lambda v=mode: self.set_theme(v))
-
-    def _menu_sharing(self, m) -> None:
-        s = self._last or {}
-        member = s.get("role") == "member"
-        m.add_checkbutton(label="Sharing", variable=self.sharing,
-                          command=self._toggle)
-        m.add_command(label="Release input", accelerator="Both Ctrl",
-                      command=self._release)
-        m.add_command(label="Find the pointer", accelerator="Shake",
-                      command=self._find_pointer)
-        m.add_separator()
-        m.add_command(label="Copy password", command=self._copy_password)
-        m.add_command(label="New password…", command=self._new_password,
-                      state="disabled" if member else "normal")
-        if member:
-            m.add_command(label="Leave the group…", command=self._leave)
-        m.add_separator()
-        m.add_command(label="Arrange in a row",
-                      command=lambda: self._arrange_by(self.arranger.tidy))
-        m.add_command(label="Arrange in a column",
-                      command=lambda: self._arrange_by(self.arranger.stack))
-        m.add_command(label="Undo arrangement", accelerator="Ctrl+Z",
-                      command=self._undo_arrangement,
-                      state="normal" if self._undo else "disabled")
-
-    def _menu_help(self, m) -> None:
-        m.add_command(label="Quick start", accelerator="F1",
-                      command=self._quick_start)
-        m.add_command(label="Keyboard shortcuts", command=self._shortcuts)
-        m.add_separator()
-        m.add_command(label="Documentation",
-                      command=lambda: self._browse(ui_help.DOCS))
-        m.add_command(label="Report a problem",
-                      command=lambda: self._browse(ui_help.ISSUES))
-        m.add_command(label="Downloads",
-                      command=lambda: self._browse(ui_help.RELEASES))
-        m.add_separator()
-        m.add_command(label="Open log folder", command=self._open_log)
-        m.add_separator()
-        m.add_command(label="About Nishro Link", command=self._about)
-
-    def _menu_nearby(self) -> None:
-        self.show_page("devices")
-        self._search_nearby(force=True)
-
-    def _arrange_by(self, how) -> None:
-        self.show_page("arrange")
-        how()
-
-    def _sheet(self, kind, make):
-        """One window of each kind: asking again brings it forward."""
-        old = self._sheets.get(kind)
-        if old is not None and old.alive():
-            old.raise_()
-            return old
-        self._sheets[kind] = sheet = make()
-        return sheet
-
-    def _about(self):
-        return self._sheet("about", lambda: ui_help.About(
-            self.root, self.kit, self._last or self.api.status(),
-            browse=self._browse))
-
-    def _quick_start(self):
-        return self._sheet("start", lambda: ui_help.QuickStart(
-            self.root, self.kit, add=self._add_device))
-
-    def _shortcuts(self):
-        return self._sheet("keys", lambda: ui_help.Shortcuts(self.root, self.kit))
+    def _copy_text(self, text) -> None:
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self._toast("Details copied.", "ok")
+        except tk.TclError:
+            pass
 
     def _browse(self, url) -> None:
         import webbrowser
@@ -1529,12 +1481,12 @@ class App:
         """Draw the whole window again in the theme now chosen. Everything on
         it comes from the status poll, so nothing is lost but open dialogs."""
         page = self.page or "overview"
-        for d in self._dialogs + list(self._sheets.values()):
+        for d in self._dialogs:
             try:
                 d.close()
             except Exception:
                 pass
-        self._dialogs, self._sheets = [], {}
+        self._dialogs = []
         if sys.platform == "win32":
             # Out of sight while it is redrawn: not a window being torn down
             # and put back piece by piece, but one theme, then the other.

@@ -224,7 +224,8 @@ after a rest.
 
 Shaking the mouse (`shake.py`: far, fast, doubling back sharply at least four
 times, within a small patch - circles, drags and zig-zags do not count) or
-*Sharing > Find the pointer* shows where the pointer is, **on the machine it
+*Find the pointer* (at the foot of the navigation) shows where the pointer
+is, **on the machine it
 is on**: the node that notices sends `find` to its owner. Only movement of a
 machine that is driving counts: movement that merely asks for control has not
 moved the pointer yet. On Windows a click-through layered window darkens every

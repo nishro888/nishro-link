@@ -1,8 +1,14 @@
-"""Help: About, Quick start and Keyboard shortcuts - the Help menu's windows.
+"""Help: the page at the bottom of the navigation - About, Get started,
+Keyboard shortcuts, Support.
 
-About says which Nishro Link this is and where it runs, and copies the same as
-text for a bug report. The copy leaves out addresses and the password: it is
-made to be pasted somewhere public.
+It was a menu of small windows, beside a navigation pane that did most of what
+the menu bar did too - two ways to everything, which read as clutter. Now
+there is one navigation, as in Windows' own Settings: pages at the top, and
+Settings and Help at the bottom.
+
+About says which Nishro Link this is and where it runs, and Copy details puts
+the same on the clipboard for a bug report. The copy leaves out addresses and
+the password: it is made to be pasted somewhere public.
 """
 from __future__ import annotations
 
@@ -11,8 +17,8 @@ import platform
 import sys
 import tkinter as tk
 
-from . import __stage__, __version__, protocol, ui_theme
-from .ui_kit import Button, Kit, Pill
+from . import __stage__, __version__, protocol
+from .ui_kit import Button, Card, Kit, Pill
 
 HOME = "https://github.com/nishro888/nishro-link"
 DOCS = HOME + "#readme"
@@ -62,7 +68,7 @@ def group_line(s: dict) -> str:
 
 
 def details(s: dict) -> list:
-    """(label, value) for the About window - and, with more, for the copy."""
+    """(label, value) for About - and, with more, for the copy."""
     return [
         ("This device", s.get("node") or "—"),
         ("Device ID", s.get("device_id") or "—"),
@@ -84,135 +90,6 @@ def copy_text(s: dict) -> str:
     return "\n".join(rows)
 
 
-# ================================================================ windows
-class Sheet:
-    """A small window of the app's own: themed, centred on the app, closed by
-    Escape. One of each kind at a time - asking again brings it forward."""
-
-    title = "Nishro Link"
-
-    def __init__(self, parent, kit: Kit):
-        self.parent, self.kit = parent, kit
-        C = kit.C
-        self.top = tk.Toplevel(parent, bg=C["panel"])
-        self.top.withdraw()                   # built hidden: see ui_theme.reveal
-        self.top.title(self.title)
-        self.top.transient(parent)
-        self.top.resizable(False, False)
-        self.top.protocol("WM_DELETE_WINDOW", self.close)
-        self.top.bind("<Escape>", lambda _e: self.close())
-        self.box = tk.Frame(self.top, bg=C["panel"], padx=26, pady=22)
-        self.box.pack(fill="both", expand=True)
-        self.fill(self.box)
-        self.top.update_idletasks()
-        try:
-            x = parent.winfo_rootx() + (parent.winfo_width()
-                                        - self.top.winfo_reqwidth()) // 2
-            y = parent.winfo_rooty() + max(40, (parent.winfo_height()
-                                                - self.top.winfo_reqheight()) // 3)
-            self.top.geometry(f"+{max(0, x)}+{max(0, y)}")
-        except tk.TclError:
-            pass
-        ui_theme.reveal(self.top, then=self.top.focus_set)
-
-    def fill(self, box) -> None:
-        raise NotImplementedError
-
-    def alive(self) -> bool:
-        try:
-            return bool(self.top.winfo_exists())
-        except tk.TclError:
-            return False
-
-    def raise_(self) -> None:
-        self.top.deiconify()
-        self.top.lift()
-        self.top.focus_set()
-
-    def close(self) -> None:
-        try:
-            self.top.destroy()
-        except tk.TclError:
-            pass
-
-    def _buttons(self, box):
-        bar = tk.Frame(box, bg=self.kit.C["panel"])
-        bar.pack(fill="x", pady=(20, 0))
-        Button(bar, self.kit, "Close", self.close).pack(side="right")
-        return bar
-
-
-class About(Sheet):
-    title = "About Nishro Link"
-
-    def __init__(self, parent, kit, status, copy=None, browse=None):
-        self.status = status or {}
-        self.copy = copy
-        self.browse = browse
-        super().__init__(parent, kit)
-
-    def fill(self, box) -> None:
-        C, F, kit = self.kit.C, self.kit.F, self.kit
-        head = tk.Frame(box, bg=C["panel"])
-        head.pack(fill="x")
-        try:
-            from .icon import PNG_64
-            self._icon = tk.PhotoImage(master=box, data=PNG_64)
-            tk.Label(head, image=self._icon, bg=C["panel"]).pack(side="left",
-                                                                 padx=(0, 16))
-        except (ImportError, tk.TclError):
-            pass
-        words = tk.Frame(head, bg=C["panel"])
-        words.pack(side="left", fill="x")
-        tk.Label(words, text="Nishro Link", font=F["hero"], bg=C["panel"],
-                 fg=C["ink"]).pack(anchor="w")
-        tk.Label(words, text="One mouse and keyboard across your computers",
-                 font=F["small"], bg=C["panel"], fg=C["dim"]).pack(anchor="w")
-        v = tk.Frame(words, bg=C["panel"])
-        v.pack(anchor="w", pady=(8, 0))
-        self.version = tk.Label(v, text=f"Version {__version__}", font=F["h3"],
-                                bg=C["panel"], fg=C["ink"])
-        self.version.pack(side="left")
-        if __stage__:
-            Pill(v, kit, __stage__.upper(), "accent").pack(side="left", padx=8)
-
-        tk.Frame(box, bg=C["line"], height=1).pack(fill="x", pady=16)
-        grid = tk.Frame(box, bg=C["panel"])
-        grid.pack(fill="x")
-        self.rows = {}
-        for i, (k, val) in enumerate(details(self.status)):
-            tk.Label(grid, text=k, font=F["small"], bg=C["panel"], fg=C["dim"]
-                     ).grid(row=i, column=0, sticky="w", padx=(0, 18), pady=2)
-            mono = k == "Device ID"
-            self.rows[k] = tk.Label(grid, text=val, bg=C["panel"], fg=C["ink"],
-                                    font=F["mono"] if mono else F["body"])
-            self.rows[k].grid(row=i, column=1, sticky="w", pady=2)
-
-        tk.Frame(box, bg=C["line"], height=1).pack(fill="x", pady=16)
-        for text in (f"{COPYRIGHT} · MIT License",
-                     "Password words from the EFF list · CC BY 3.0 US",
-                     "Controls: Sun Valley theme by rdbende · MIT"):
-            tk.Label(box, text=text, font=F["small"], bg=C["panel"],
-                     fg=C["faint"]).pack(anchor="w")
-
-        bar = self._buttons(box)
-        self.btn_copy = Button(bar, kit, "Copy details", self._copy)
-        self.btn_copy.pack(side="left")
-        Button(bar, kit, "Website", lambda: self.browse and self.browse(HOME),
-               kind="ghost").pack(side="left", padx=(8, 0))
-
-    def _copy(self) -> None:
-        text = copy_text(self.status)
-        if self.copy:
-            self.copy(text)
-        else:
-            self.top.clipboard_clear()
-            self.top.clipboard_append(text)
-        self.btn_copy.set_text("Copied")
-        self.top.after(1500, lambda: self.alive() and
-                       self.btn_copy.set_text("Copy details"))
-
-
 STEPS = (
     ("Install on each computer", "Every computer that shares needs Nishro Link."),
     ("Add a device", "Enter the other computer's name and password."),
@@ -220,66 +97,133 @@ STEPS = (
     ("Move across", "Push the pointer off the edge. The keyboard follows."),
 )
 
-
-class QuickStart(Sheet):
-    title = "Quick start"
-
-    def __init__(self, parent, kit, add=None):
-        self.add = add
-        super().__init__(parent, kit)
-
-    def fill(self, box) -> None:
-        C, F, kit = self.kit.C, self.kit.F, self.kit
-        tk.Label(box, text="Quick start", font=F["h1"], bg=C["panel"],
-                 fg=C["ink"]).pack(anchor="w", pady=(0, 14))
-        for i, (head, line) in enumerate(STEPS, start=1):
-            row = tk.Frame(box, bg=C["panel"])
-            row.pack(fill="x", pady=6)
-            tk.Label(row, text=str(i), font=F["h3"], width=2, bg=C["accent"],
-                     fg=C["accent_ink"]).pack(side="left", anchor="n", padx=(0, 14))
-            words = tk.Frame(row, bg=C["panel"])
-            words.pack(side="left", fill="x")
-            tk.Label(words, text=head, font=F["h3"], bg=C["panel"], fg=C["ink"]
-                     ).pack(anchor="w")
-            tk.Label(words, text=line, font=F["small"], bg=C["panel"], fg=C["dim"]
-                     ).pack(anchor="w")
-        tip = tk.Frame(box, bg=C["card"], highlightthickness=1,
-                       highlightbackground=C["line"])
-        tip.pack(fill="x", pady=(16, 0))
-        tk.Label(tip, text="Stuck?", font=F["h3"], bg=C["card"], fg=C["warn"]
-                 ).pack(side="left", padx=(12, 8), pady=10)
-        tk.Label(tip, text="Press both Ctrl keys to get your mouse back.",
-                 font=F["small"], bg=C["card"], fg=C["ink"]).pack(side="left")
-        bar = self._buttons(box)
-        if self.add:
-            Button(bar, kit, "Add a device", lambda: (self.close(), self.add()),
-                   kind="primary").pack(side="left")
-
-
 SHORTCUTS = (
     ("Both Ctrl keys", "Release input, on every computer"),
+    ("Shake the mouse", "Find the pointer"),
+    ("Ctrl+1 … Ctrl+6", "Go to a page"),
     ("Ctrl+N", "Add a device"),
-    ("Ctrl+1 … Ctrl+5", "Go to a page"),
     ("Arrow keys", "Move the selected screen · Shift for more"),
     ("Ctrl+Z", "Undo an arrangement change"),
-    ("Alt+F, V, S, H", "Open a menu"),
-    ("F1", "Quick start"),
+    ("F1", "Help"),
     ("Ctrl+Q", "Quit"),
 )
 
 
-class Shortcuts(Sheet):
-    title = "Keyboard shortcuts"
+class HelpPage:
+    """The Help page's cards, built into `box`. `on` holds what the buttons
+    do: add, copy, browse, log."""
 
-    def fill(self, box) -> None:
-        C, F = self.kit.C, self.kit.F
-        tk.Label(box, text="Keyboard shortcuts", font=F["h1"], bg=C["panel"],
-                 fg=C["ink"]).pack(anchor="w", pady=(0, 14))
-        grid = tk.Frame(box, bg=C["panel"])
-        grid.pack(fill="x")
+    def __init__(self, box, kit: Kit, icon=None, **on):
+        C, F = kit.C, kit.F
+        self.kit, self.on = kit, on
+        self.rows = {}
+
+        # ---- About
+        about = Card(box, kit, "About")
+        about.pack(fill="x")
+        head = tk.Frame(about.body, bg=C["card"])
+        head.pack(fill="x")
+        if icon is not None:
+            tk.Label(head, image=icon, bg=C["card"]).pack(side="left", padx=(0, 16))
+        words = tk.Frame(head, bg=C["card"])
+        words.pack(side="left", fill="x")
+        tk.Label(words, text="Nishro Link", font=F["h2"], bg=C["card"],
+                 fg=C["ink"]).pack(anchor="w")
+        tk.Label(words, text="One mouse and keyboard across your computers",
+                 font=F["small"], bg=C["card"], fg=C["dim"]).pack(anchor="w")
+        v = tk.Frame(words, bg=C["card"])
+        v.pack(anchor="w", pady=(6, 0))
+        self.version = tk.Label(v, text=f"Version {__version__}", font=F["h3"],
+                                bg=C["card"], fg=C["ink"])
+        self.version.pack(side="left")
+        if __stage__:
+            Pill(v, kit, __stage__.upper(), "accent").pack(side="left", padx=8)
+        grid = tk.Frame(about.body, bg=C["card"])
+        grid.pack(fill="x", pady=(14, 0))
+        for i, (k, val) in enumerate(details({})):
+            tk.Label(grid, text=k, font=F["small"], bg=C["card"], fg=C["dim"]
+                     ).grid(row=i, column=0, sticky="w", padx=(0, 18), pady=2)
+            self.rows[k] = tk.Label(grid, text=val, bg=C["card"], fg=C["ink"],
+                                    font=F["mono"] if k == "Device ID" else F["body"])
+            self.rows[k].grid(row=i, column=1, sticky="w", pady=2)
+        for text in (f"{COPYRIGHT} · MIT License",
+                     "Password words from the EFF list · CC BY 3.0 US",
+                     "Controls: Sun Valley theme by rdbende · MIT"):
+            tk.Label(about.body, text=text, font=F["small"], bg=C["card"],
+                     fg=C["faint"]).pack(anchor="w")
+        bar = tk.Frame(about.body, bg=C["card"])
+        bar.pack(fill="x", pady=(12, 0))
+        self.btn_copy = Button(bar, kit, "Copy details", self._copy, small=True)
+        self.btn_copy.pack(side="left")
+        Button(bar, kit, "Website", lambda: self._do("browse", HOME), kind="ghost",
+               small=True).pack(side="left", padx=(6, 0))
+
+        # ---- Get started
+        start = Card(box, kit, "Get started")
+        start.pack(fill="x", pady=(12, 0))
+        for i, (headline, line) in enumerate(STEPS, start=1):
+            row = tk.Frame(start.body, bg=C["card"])
+            row.pack(fill="x", pady=4)
+            tk.Label(row, text=str(i), font=F["h3"], width=2, bg=C["accent"],
+                     fg=C["accent_ink"]).pack(side="left", anchor="n", padx=(0, 14))
+            words = tk.Frame(row, bg=C["card"])
+            words.pack(side="left", fill="x")
+            tk.Label(words, text=headline, font=F["h3"], bg=C["card"],
+                     fg=C["ink"]).pack(anchor="w")
+            tk.Label(words, text=line, font=F["small"], bg=C["card"],
+                     fg=C["dim"]).pack(anchor="w")
+        tip = tk.Frame(start.body, bg=C["card"])
+        tip.pack(fill="x", pady=(10, 0))
+        tk.Label(tip, text="Stuck?", font=F["h3"], bg=C["card"], fg=C["warn"]
+                 ).pack(side="left", padx=(0, 8))
+        tk.Label(tip, text="Press both Ctrl keys to get your mouse back.",
+                 font=F["small"], bg=C["card"], fg=C["ink"]).pack(side="left")
+        Button(start.body, kit, "Add a device", lambda: self._do("add"),
+               kind="primary", small=True).pack(anchor="w", pady=(12, 0))
+
+        # ---- Keyboard shortcuts
+        keys = Card(box, kit, "Keyboard shortcuts")
+        keys.pack(fill="x", pady=(12, 0))
+        g = tk.Frame(keys.body, bg=C["card"])
+        g.pack(fill="x")
         for i, (key, what) in enumerate(SHORTCUTS):
-            tk.Label(grid, text=key, font=F["caps"], bg=C["card_hi"], fg=C["ink"],
-                     padx=8, pady=2).grid(row=i, column=0, sticky="w", pady=4)
-            tk.Label(grid, text=what, font=F["body"], bg=C["panel"], fg=C["dim"]
-                     ).grid(row=i, column=1, sticky="w", padx=(16, 0), pady=4)
-        self._buttons(box)
+            tk.Label(g, text=key, font=F["caps"], bg=C["card_hi"], fg=C["ink"],
+                     padx=8, pady=2).grid(row=i, column=0, sticky="w", pady=3)
+            tk.Label(g, text=what, font=F["body"], bg=C["card"], fg=C["dim"]
+                     ).grid(row=i, column=1, sticky="w", padx=(16, 0), pady=3)
+
+        # ---- Support
+        sup = Card(box, kit, "Support")
+        sup.pack(fill="x", pady=(12, 0))
+        row = tk.Frame(sup.body, bg=C["card"])
+        row.pack(fill="x")
+        for text, what, arg in (("Documentation", "browse", DOCS),
+                                ("Report a problem", "browse", ISSUES),
+                                ("Downloads", "browse", RELEASES),
+                                ("Open log folder", "log", None)):
+            Button(row, kit, text, lambda w=what, a=arg: self._do(w, a),
+                   small=True).pack(side="left", padx=(0, 6))
+
+    def _do(self, what, *args) -> None:
+        fn = self.on.get(what)
+        if fn:
+            fn(*[a for a in args if a is not None])
+
+    def show(self, s: dict) -> None:
+        """Fill About from the status - on each poll, changing only what did."""
+        self.status = s
+        for k, val in details(s):
+            lb = self.rows.get(k)
+            if lb is not None and lb.cget("text") != val:
+                lb.configure(text=val)
+
+    def _copy(self) -> None:
+        self._do("copy", copy_text(getattr(self, "status", {}) or {}))
+        self.btn_copy.set_text("Copied")
+
+        def back():
+            try:
+                self.btn_copy.set_text("Copy details")
+            except tk.TclError:
+                pass                          # the page was redrawn meanwhile
+        self.btn_copy.after(1500, back)

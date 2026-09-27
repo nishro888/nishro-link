@@ -22,7 +22,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from link import ui_theme                                  # noqa: E402
 from link.ui_kit import Button, Segmented, Toggle, field   # noqa: E402
-from test_ui_help import entries                           # noqa: E402
 from test_ui_tk import all_text, app, tk_root              # noqa: E402,F401
 
 
@@ -70,13 +69,11 @@ def test_the_window_works_after_a_switch(app):
 
 
 def test_a_switch_closes_open_dialogs_first(app):
-    about = app._about()
     details = app._details("aio")
     app.set_theme("light")
     try:
-        assert not about.alive()
         assert not details._alive
-        assert app._dialogs == [] and app._sheets == {}
+        assert app._dialogs == []
     finally:
         app.set_theme("dark")
 
@@ -110,10 +107,9 @@ def test_an_unknown_or_unreadable_choice_is_system(tmp_path, monkeypatch):
 
 
 # ------------------------------------------------------- where to choose
-def test_the_view_menu_offers_the_themes(app):
-    got = [e[1] for e in entries(app.menubar.build("View"))]
-    assert got[-3:] == ["System theme", "Light theme", "Dark theme"]
-    app.menubar.build("View").invoke("Light theme")
+def test_the_theme_is_chosen_in_settings(app):
+    app._theme_var.set("light")
+    app.set_theme(app._theme_var.get())
     try:
         assert ui_theme.current() == "light" and saved() == "light"
     finally:

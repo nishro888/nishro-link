@@ -41,6 +41,12 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.14.0" date="2026-09-28">
+      <description>
+        <p>A cleaner window: one navigation pane with Settings and Help at its
+        foot, as in Windows' own Settings, and a Help page with About.</p>
+      </description>
+    </release>
     <release version="0.13.1" date="2026-09-28">
       <description>
         <p>Windows and menus open cleanly - no flash - and menus open four

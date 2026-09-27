@@ -10,7 +10,7 @@ there is no fixed "server with the keyboard".
 |---|---|
 | ![The Home page, light](docs/screenshots/overview.png) | ![The Home page, dark](docs/screenshots/overview-dark.png) |
 
-> **Status: beta (v0.13).** Developed and tested on a Windows 10 laptop and an
+> **Status: beta (v0.14).** Developed and tested on a Windows 10 laptop and an
 > Ubuntu (Wayland) desktop, with an automated test suite - read
 > [Limitations](#limitations) first.
 
@@ -45,7 +45,7 @@ there is no fixed "server with the keyboard".
   of the AIO, and right from the AIO comes back round to the laptop.
 - **Find the pointer.** Lost it among the screens? Shake the mouse: every screen
   but a circle round the pointer darkens - on whichever computer it is (on
-  Ubuntu, GNOME's own ripple). Also in the Sharing menu; can be turned off.
+  Ubuntu, GNOME's own ripple). Also a button in the window; can be turned off.
 - **Quick on Wi-Fi.** A machine being controlled keeps its Wi-Fi radio awake,
   so the pointer does not stall after a pause, and bursts of mouse reports go
   out together.
@@ -59,25 +59,26 @@ there is no fixed "server with the keyboard".
   in doubt, local input is restored at once. Pressing **both Ctrl keys**
   together, or *Release input* in the window, always frees the machine you are
   at.
-- **A proper program.** Windows 11-style buttons, switches and text boxes, in
-  a light and a dark theme that follow the computer's setting (or pick one). A
-  setup wizard, a Start Menu entry, an uninstaller, a menu bar - File, View,
-  Sharing, Help - with keyboard shortcuts, a quick start guide, and an About
-  window with the version - and any device running a different one.
+- **A proper program.** Laid out like Windows' own Settings: one navigation
+  pane with Windows' own icons, Settings and Help at its foot. Windows 11-style
+  buttons, switches and text boxes, in a light and a dark theme that follow the
+  computer's setting (or pick one). A setup wizard, a Start Menu entry, an
+  uninstaller, keyboard shortcuts, and a Help page with About - the version,
+  and any device running a different one.
 
 | Devices | Arrangement |
 |---|---|
 | ![Devices](docs/screenshots/devices.png) | ![Arrangement](docs/screenshots/arrange.png) |
 
-| Adding a device | About |
+| Adding a device | Help |
 |---|---|
-| ![Add a device](docs/screenshots/add.png) | ![About Nishro Link](docs/screenshots/about.png) |
+| ![Add a device](docs/screenshots/add.png) | ![Help and About](docs/screenshots/help.png) |
 
 ## Install
 
 ### Windows 10 / 11
 
-Download **`NishroLink-Setup-0.13.1.exe`** from the [Releases](../../releases)
+Download **`NishroLink-Setup-0.14.0.exe`** from the [Releases](../../releases)
 page and run it. Click through the wizard and approve the one permission
 prompt. Nishro Link then:
 
@@ -91,11 +92,11 @@ time: choose **More info → Run anyway**.
 
 ### Ubuntu, Debian and derivatives (Wayland and X11)
 
-Download **`nishro-link_0.13.1-beta_all.deb`** from the
+Download **`nishro-link_0.14.0-beta_all.deb`** from the
 [Releases](../../releases) page and open it - the App Center installs it - or:
 
 ```bash
-sudo apt install ./nishro-link_0.13.1-beta_all.deb
+sudo apt install ./nishro-link_0.14.0-beta_all.deb
 ```
 
 It installs everything it needs and runs Nishro Link in the background from

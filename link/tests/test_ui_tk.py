@@ -78,9 +78,23 @@ def _walk(w):
 
 
 # ------------------------------------------------------------------ pages
-def test_five_pages_in_the_sidebar(app):
-    assert list(app.nav) == ["overview", "devices", "arrange", "activity", "settings"]
+def test_one_navigation_with_settings_and_help_at_its_foot(app):
+    """Reported: a menu bar AND five tabs looked a mess - most things were
+    there twice. One pane now, as in Windows' own Settings."""
+    assert set(app.nav) == {"overview", "devices", "arrange", "activity",
+                            "settings", "help"}
     assert app.page == "overview"
+    assert not hasattr(app, "menubar")
+    ys = {n: app.nav[n]["row"].winfo_y() for n in app.nav}
+    top = max(ys[n] for n in ("overview", "devices", "arrange", "activity"))
+    assert ys["settings"] > top and ys["help"] > ys["settings"]
+
+
+def test_the_page_showing_is_marked(app):
+    app.show_page("devices")
+    app.root.update()
+    assert app.nav["devices"]["bar"].winfo_manager() == "place"
+    assert not app.nav["overview"]["bar"].winfo_manager()
 
 
 def test_switching_pages_shows_one_at_a_time(app):
@@ -707,13 +721,15 @@ def test_the_right_click_menu_offers_what_applies(app):
 
 
 # ------------------------------------------------- finding the pointer
-def test_the_sharing_menu_finds_the_pointer(app, monkeypatch):
+def test_find_the_pointer_is_always_in_reach(app, monkeypatch):
     called = []
     monkeypatch.setattr(app.api.node.core, "find",
                         lambda a=None: called.append(1) or __import__(
                             "link.node", fromlist=["Actions"]).Actions())
-    app.menubar.build("Sharing").invoke("Find the pointer")
-    assert called == [1]
+    for page in ("overview", "settings"):
+        app.show_page(page)
+        app.btn_find.invoke()
+    assert called == [1, 1]
 
 
 def test_shake_to_find_is_a_switch_that_applies_at_once(app):
