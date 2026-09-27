@@ -168,3 +168,30 @@ def test_the_theme_files_ship_with_their_licence():
                  "spritesheet_dark.png", "LICENSE"):
         assert (ui_theme.THEME_DIR / name).is_file(), name
     assert "MIT License" in (ui_theme.THEME_DIR / "LICENSE").read_text()
+
+
+@pytest.mark.parametrize("scheme, gtk, env, want", [
+    ("'prefer-dark'", "'Yaru'", "", "dark"),
+    ("'prefer-light'", "'Yaru-dark'", "", "light"),
+    ("'default'", "'Yaru'", "", "light"),
+    # The AIO: no colour-scheme key at all, dark only by the theme's name.
+    (None, "'Yaru-sage-dark'", "", "dark"),
+    (None, "'Adwaita'", "", "light"),
+    (None, None, "Adwaita:dark", "dark"),
+    (None, None, "", "light"),
+])
+def test_linux_desktops_are_read_as_they_say(monkeypatch, scheme, gtk, env, want):
+    import subprocess
+
+    class R:
+        def __init__(self, out):
+            self.stdout, self.returncode = (out or "") + "\n", 0 if out else 1
+
+    def fake_run(args, **kw):
+        if args[0] != "gsettings":
+            raise OSError
+        return R({"color-scheme": scheme, "gtk-theme": gtk}[args[-1]])
+    monkeypatch.setattr(ui_theme.sys, "platform", "linux")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("GTK_THEME", env)
+    assert ui_theme.system_mode() == want

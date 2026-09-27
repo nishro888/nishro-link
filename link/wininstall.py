@@ -61,15 +61,20 @@ def state() -> str:
 
 def _stop_everything(log) -> None:
     """The service - even one stuck starting - and any copy started by hand.
-    Not this process: the wizard runs it from the same exe name."""
+
+    Not this process, and not its parent: the exe is one file, which runs as
+    a small launcher that unpacks the program and waits for it - both named
+    NishroLink.exe. Killing the launcher was killing the process the setup
+    wizard waits on, so the wizard said the service had not started while
+    this process went on to start it."""
     if state():
         _run(["sc", "stop", NAME], log)
         for _ in range(20):
             if state() in ("STOPPED", ""):
                 break
             time.sleep(0.5)
-    _run(["taskkill", "/F", "/IM", "NishroLink.exe", "/FI", f"PID ne {os.getpid()}"],
-         log)
+    _run(["taskkill", "/F", "/IM", "NishroLink.exe",
+          "/FI", f"PID ne {os.getpid()}", "/FI", f"PID ne {os.getppid()}"], log)
     time.sleep(0.5)
 
 

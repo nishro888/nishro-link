@@ -46,3 +46,20 @@ def test_no_line_of_the_setup_script_starts_with_a_hash():
            if l.lstrip().startswith("#") and not l.lstrip().startswith(
                ("#ifndef", "#define", "#endif"))]
     assert bad == []
+
+
+def test_stopping_the_others_spares_this_process_and_its_launcher(monkeypatch):
+    """The exe is one file: a launcher, and the program it unpacks, both named
+    NishroLink.exe. The setup wizard waits on the launcher. Killing it made
+    the wizard report "the background service did not start" every time,
+    while the program went on and started it."""
+    import os
+    from link import wininstall
+    ran = []
+    monkeypatch.setattr(wininstall, "state", lambda: "")
+    monkeypatch.setattr(wininstall, "_run", lambda args, log, **kw: ran.append(args))
+    monkeypatch.setattr(wininstall.time, "sleep", lambda s: None)
+    wininstall._stop_everything(lambda line: None)
+    kill = next(a for a in ran if a[0] == "taskkill")
+    spared = {kill[i + 1] for i, a in enumerate(kill) if a == "/FI"}
+    assert spared == {f"PID ne {os.getpid()}", f"PID ne {os.getppid()}"}

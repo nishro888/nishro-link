@@ -146,17 +146,26 @@ def system_mode() -> str:
                     else "dark"
         except OSError:
             return "light"
+    # GNOME's colour scheme says it outright - where it has one. Not every
+    # desktop does: the AIO's Ubuntu has no such key, and is dark only by its
+    # theme's name (Yaru-sage-dark). So the theme's name is asked too.
+    scheme = _gsetting("color-scheme")
+    if "dark" in scheme:
+        return "dark"
+    if "light" in scheme:
+        return "light"
+    theme = _gsetting("gtk-theme") or os.environ.get("GTK_THEME", "")
+    return "dark" if "dark" in theme.lower() else "light"
+
+
+def _gsetting(key: str) -> str:
+    """GNOME's org.gnome.desktop.interface `key`, or '' if it has none."""
     try:
-        out = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface",
-                              "color-scheme"], capture_output=True, text=True,
-                             timeout=2).stdout
-        if "dark" in out:
-            return "dark"
-        if out.strip():
-            return "light"
+        r = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface",
+                            key], capture_output=True, text=True, timeout=2)
     except (OSError, subprocess.SubprocessError):
-        pass
-    return "dark" if ":dark" in os.environ.get("GTK_THEME", "") else "light"
+        return ""
+    return r.stdout.strip().strip("'") if r.returncode == 0 else ""
 
 
 def resolve(mode: str) -> str:
