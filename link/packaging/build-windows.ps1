@@ -15,6 +15,13 @@ if ($LASTEXITCODE -ne 0) {
     python -m pip install --quiet pyinstaller
     if ($LASTEXITCODE -ne 0) { throw "could not install PyInstaller" }
 }
+# The link's encryption (secure.py) - bundled into the exe with the rest.
+python -c "import cryptography.hazmat.primitives.ciphers.aead" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Installing cryptography..." -ForegroundColor Yellow
+    python -m pip install --quiet "cryptography>=3.4"
+    if ($LASTEXITCODE -ne 0) { throw "could not install cryptography" }
+}
 
 # --windowed now that there is a real window: a console behind a GUI looks
 # unfinished, and the log is visible IN the window as well as on disk. Startup

@@ -67,7 +67,9 @@ import secrets
 import socket
 import threading
 
-VERSION = 7
+VERSION = 8
+# v8: the link's encryption is X25519 + HKDF-SHA256 + ChaCha20-Poly1305 from
+# the `cryptography` library (secure.py); a v7 peer would derive other keys.
 # v7: boxes can be resized and machines placed again as copies (desk.py): the
 # pointer crosses through compiled doorways, in proportion along a border. A
 # v6 peer would read copies as broken screens and cross in the wrong places.

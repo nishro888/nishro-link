@@ -4,7 +4,6 @@ Asked for before the lock and login screens are made to work: those are where
 passwords are typed, and until now every keystroke crossed the network in the
 clear.
 """
-import random
 import socket
 import threading
 import time
@@ -16,28 +15,21 @@ from link import protocol, secure
 from test_node_live import Pair
 
 
-def _probably_prime(n, rounds=12):
-    d, r = n - 1, 0
-    while d % 2 == 0:
-        d //= 2
-        r += 1
-    for _ in range(rounds):
-        x = pow(random.randrange(2, n - 2), d, n)
-        if x in (1, n - 1):
-            continue
-        for _ in range(r - 1):
-            x = pow(x, 2, n)
-            if x == n - 1:
-                break
-        else:
-            return False
-    return True
+def test_the_exchange_is_x25519_as_published():
+    """RFC 7748, section 6.1: Alice's private key and Bob's public key give
+    the published shared secret. Standard, not home-made."""
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+    alice = X25519PrivateKey.from_private_bytes(bytes.fromhex(
+        "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a"))
+    bob_public = "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f"
+    assert secure.shared(alice, bob_public).hex() == (
+        "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742")
 
 
-def test_the_group_is_the_rfc_3526_safe_prime():
-    """Written out from the RFC; a slip in any digit would not be prime."""
-    assert secure.P.bit_length() == 2048
-    assert _probably_prime(secure.P) and _probably_prime(secure.Q)
+def test_every_connection_gets_a_new_key():
+    _, a = secure.keypair()
+    _, b = secure.keypair()
+    assert a != b and len(a) == len(b) == secure.KEY_HEX
 
 
 def test_both_ends_agree_on_the_secret():
@@ -46,8 +38,12 @@ def test_both_ends_agree_on_the_secret():
     assert secure.shared(a, B) == secure.shared(b, A)
 
 
-@pytest.mark.parametrize("bad", ["1", format(secure.P - 1, "x"), "0", "zz",
-                                 format(secure.P + 5, "x")])
+@pytest.mark.parametrize("bad", [
+    "1", "0", "zz", "", None, "00" * 31, "ab" * 33,
+    "00" * 32,                               # the zero point: an all-zero secret
+    "01" + "00" * 31,                        # a point of low order: likewise
+    "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800",
+])
 def test_a_degenerate_key_is_refused(bad):
     x, _ = secure.keypair()
     with pytest.raises(secure.SecureError):

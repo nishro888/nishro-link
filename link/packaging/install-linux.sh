@@ -56,6 +56,14 @@ if ! python3 -c "import evdev" 2>/dev/null; then
 fi
 ok "evdev"
 
+# The link's encryption (secure.py): X25519 and ChaCha20-Poly1305.
+if ! python3 -c "import cryptography.hazmat.primitives.ciphers.aead" 2>/dev/null; then
+  warn "installing python cryptography"
+  python3 -m pip install --user --quiet "cryptography>=3.4" \
+    || die "could not install cryptography. Try: sudo apt install python3-cryptography"
+fi
+ok "cryptography"
+
 # ------------------------------------------------------------ permissions
 # Two different things, and they fail in different ways if you skip one:
 #   reading /dev/input/*  -> capture. Needs the 'input' group.

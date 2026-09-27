@@ -169,7 +169,8 @@ def control(ver: str, files: dict) -> bytes:
             # the clipboard by flashing a window the dock shows (clip.py). A
             # dependency, not a recommendation: apt does not add a new
             # Recommends when it upgrades a package (found on the AIO).
-            f"Depends: python3 (>= 3.10), python3-tk, python3-evdev, xclip\n"
+            f"Depends: python3 (>= 3.10), python3-tk, python3-evdev, "
+            f"python3-cryptography (>= 3.4), xclip\n"
             f"Recommends: pkexec | policykit-1, x11-xserver-utils\n"
             f"Suggests: wl-clipboard\n"
             f"Section: utils\n"
