@@ -170,3 +170,15 @@ def test_the_service_starts_at_boot_and_the_window_attaches(deb):
     assert "PKEXEC_UID" in post
     pre = deb["control"]["./prerm"][1].decode()
     assert "systemctl disable nishro-link.service" in pre
+
+
+def test_the_app_center_has_a_page_and_every_icon_size(deb):
+    """A normal app: a proper page when the .deb is opened, and a sharp icon
+    in every menu and dock."""
+    meta = deb["data"]["./usr/share/metainfo/io.github.nishro888.nishro-link.metainfo.xml"]
+    text = meta[1].decode()
+    assert "<name>Nishro Link</name>" in text
+    assert '<launchable type="desktop-id">nishro-link.desktop</launchable>' in text
+    for n in bd.ICON_SIZES:
+        png = deb["data"][f"./usr/share/icons/hicolor/{n}x{n}/apps/nishro-link.png"][1]
+        assert png[:8] == b"\x89PNG\r\n\x1a\n", n

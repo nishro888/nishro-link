@@ -21,9 +21,35 @@ if ($LASTEXITCODE -ne 0) {
 # failures are caught in entry.py and shown in a dialog, because a windowed app
 # that dies silently tells the user nothing at all.
 # --onefile so there is a single artifact to copy to the other machine.
+# Name, version and publisher in the exe's Properties, as any program has -
+# and the same version the installer and the .deb carry.
+$ver = (python -c "import sys; sys.path.insert(0, r'$root'); import link; print(link.__version__)").Trim()
+$parts = ($ver.Split(".") + @("0", "0", "0"))[0..3] -join ", "
+New-Item -ItemType Directory -Force -Path "$root\build" | Out-Null
+@"
+VSVersionInfo(
+  ffi=FixedFileInfo(filevers=($parts), prodvers=($parts), mask=0x3f, flags=0x0,
+                    OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('CompanyName', 'nishro888'),
+      StringStruct('FileDescription', 'Nishro Link - one mouse and keyboard across your computers'),
+      StringStruct('FileVersion', '$ver'),
+      StringStruct('InternalName', 'NishroLink'),
+      StringStruct('LegalCopyright', 'Copyright (c) 2026 nishro888. MIT License.'),
+      StringStruct('OriginalFilename', 'NishroLink.exe'),
+      StringStruct('ProductName', 'Nishro Link'),
+      StringStruct('ProductVersion', '$ver')])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+"@ | Set-Content -Encoding UTF8 "$root\build\version.txt"
+
 $pyi = @(
     "--onefile", "--windowed",
     "--name", "NishroLink",
+    "--icon", "$root\link\packaging\assets\nishro-link.ico",
+    "--version-file", "$root\build\version.txt",
     "--distpath", "$root\dist",
     "--workpath", "$root\build\pyinstaller",
     "--specpath", "$root\build",
@@ -84,5 +110,20 @@ if (-not $up) { throw "the built exe does not START: its control page never answ
 Write-Host "  starts, and its control page answers"
 python -c "import tkinter" 2>$null
 if ($LASTEXITCODE -eq 0) { Write-Host "  tkinter is bundled (window will open)" }
+# The setup wizard around it - what people download and double-click.
+$iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+          "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+          "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+    Where-Object { Test-Path $_ } | Select-Object -First 1
 Write-Host ""
-Write-Host "Install it with:  link\packaging\install-windows.ps1" -ForegroundColor Cyan
+if ($iscc) {
+    & $iscc /Q "/DAppVersion=$ver" "$root\link\packaging\windows\NishroLink.iss"
+    if ($LASTEXITCODE -ne 0) { throw "the setup wizard did not build" }
+    $setup = "$root\dist\NishroLink-Setup-$ver.exe"
+    $smb = [math]::Round((Get-Item $setup).Length / 1MB, 1)
+    Write-Host "Built $setup  ($smb MB)" -ForegroundColor Green
+    Write-Host "Install it by running that file." -ForegroundColor Cyan
+} else {
+    Write-Host "Inno Setup 6 not found - the setup wizard was not built." -ForegroundColor Yellow
+    Write-Host "Install it with:  link\packaging\install-windows.ps1" -ForegroundColor Cyan
+}

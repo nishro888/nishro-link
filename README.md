@@ -57,74 +57,44 @@ there is no fixed "server with the keyboard".
 
 ### Windows 10 / 11
 
-Download `NishroLink.exe` from the [Releases](../../releases) page and run it.
-It is a single file with Python built in; nothing else is needed.
+Download **`NishroLink-Setup-0.10.0.exe`** from the [Releases](../../releases)
+page and run it. Click through the wizard and approve the one permission
+prompt. Nishro Link then:
 
-- The exe is not code-signed yet, so Windows SmartScreen may warn the first
-  time: choose **More info → Run anyway**.
-- When Windows Firewall asks, **allow it on private networks**. If that prompt
-  is dismissed, Windows blocks the program and other devices cannot find it -
-  the window will say so and offer an *Allow through the firewall* button.
+- runs in the background from the moment Windows starts - so another computer's
+  mouse and keyboard also work on the lock and sign-in screens;
+- is allowed through the firewall on private networks;
+- appears in the Start Menu, and in **Settings → Apps** for uninstalling.
 
-**To use it on the lock screen and the sign-in screen**, install it as a
-service - it then starts with Windows, before anyone signs in, and stays
-connected through locks, sign-ins and sign-outs:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File link\packaging\install-windows-service.ps1
-```
-
-It asks for administrator rights once, installs to Program Files and carries
-your pairing across. The Start Menu entry then opens a window onto the service;
-closing it stops nothing. `-Uninstall` removes it again.
-
-Without the service: **Settings → Start when I log in** starts it after you
-sign in.
-
-To build it yourself and install it for your user (Start Menu entry, optional
-start at sign-in):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File link\packaging\build-windows.ps1
-powershell -ExecutionPolicy Bypass -File link\packaging\install-windows.ps1 -Autostart
-```
+The installer is not code-signed yet, so Windows SmartScreen may warn the first
+time: choose **More info → Run anyway**.
 
 ### Ubuntu, Debian and derivatives (Wayland and X11)
 
-Download `nishro-link_0.10.0-beta_all.deb` from the [Releases](../../releases)
-page and open it in the App Center (Software Install), or:
+Download **`nishro-link_0.10.0-beta_all.deb`** from the
+[Releases](../../releases) page and open it - the App Center installs it - or:
 
 ```bash
 sudo apt install ./nishro-link_0.10.0-beta_all.deb
 ```
 
-It installs what it needs (`python3-tk`, `python3-evdev`, and `xclip` for the
-clipboard) and runs Nishro Link as a **system service**: it starts with the
-computer - before anyone logs in - and works on the login screen and the lock
-screen. Your pairing is carried across. **Nishro Link** in the app menu opens a
-window onto the service; closing it stops nothing.
+It installs everything it needs and runs Nishro Link in the background from
+boot, so it also works on the login and lock screens. **Nishro Link** appears
+in the app menu. Log out and back in once afterwards (the window says so if it
+is needed).
 
-The window needs your account in the `input` group: installed with `sudo apt`,
-it adds you; otherwise the window offers to. **Log out and back in once**
-afterwards.
-
-If a firewall (ufw) is running: `sudo ufw allow 8770` (the link is TCP 8770,
-finding devices by name is UDP 8770; that command opens both). To remove it:
+If a firewall (ufw) is running: `sudo ufw allow 8770`. To remove it:
 `sudo apt remove nishro-link`.
 
-### Other Linux, or without root
+### Building it, or installing without an installer
 
-```bash
-git clone https://github.com/nishro888/nishro-link.git
-cd nishro-link
-./link/packaging/install-linux.sh
+```powershell
+powershell -ExecutionPolicy Bypass -File link\packaging\build-windows.ps1   # exe + setup wizard
 ```
-
-The script installs for your user only, in `~/.local/share/nishro-link`, with a
-`nishro-link` command. It sets up the same two device permissions - reading
-`/dev/input` (the `input` group) and writing `/dev/uinput` (a udev rule) - and
-where that needs `sudo` it prints the exact commands. For the window:
-`sudo apt install python3-tk` or your distribution's equivalent.
+```bash
+python link/packaging/build-deb.py                                           # the .deb
+./link/packaging/install-linux.sh                                            # any Linux, your user only
+```
 
 ## Getting started
 

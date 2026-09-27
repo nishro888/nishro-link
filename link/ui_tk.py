@@ -88,6 +88,13 @@ class App:
         # class is "Tk", which the dock shows as an unknown program.
         self.root = root if root is not None else tk.Tk(className=WM_CLASS)
         self.root.title("Nishro Link")
+        try:
+            # Its own icon in the title bar and the taskbar, not Tk's feather.
+            from .icon import PNG_64
+            self._icon = tk.PhotoImage(master=self.root, data=PNG_64)
+            self.root.iconphoto(True, self._icon)
+        except (ImportError, tk.TclError):
+            pass
         self.root.protocol("WM_DELETE_WINDOW", self._quit)
         self.root.minsize(MIN_W, MIN_H)
         self._size_to_fit()

@@ -58,7 +58,10 @@ FILES = (
      "usr/share/polkit-1/actions/io.github.nishro888.nishro-link.policy", 0o644),
     ("60-nishro-link.rules", "usr/lib/udev/rules.d/60-nishro-link.rules", 0o644),
     ("nishro-link.service", "usr/lib/systemd/system/nishro-link.service", 0o644),
+    ("io.github.nishro888.nishro-link.metainfo.xml",
+     "usr/share/metainfo/io.github.nishro888.nishro-link.metainfo.xml", 0o644),
 )
+ICON_SIZES = (16, 24, 32, 48, 64, 128, 256, 512)
 SCRIPTS = ("postinst", "prerm", "postrm")
 
 DESCRIPTION = """\
@@ -95,6 +98,12 @@ def payload(ver: str) -> dict:
     files = {}
     for src, dst, mode in FILES:
         files[dst] = (lf((DEB / src).read_bytes()), mode)
+    # The icon at every size the desktop asks for, beside the vector one:
+    # docks and menus pick the nearest PNG, and some draw an SVG blurred.
+    assets = pathlib.Path(__file__).resolve().parent / "assets"
+    for n in ICON_SIZES:
+        files[f"usr/share/icons/hicolor/{n}x{n}/apps/nishro-link.png"] = (
+            (assets / f"nishro-link-{n}.png").read_bytes(), 0o644)
     for p in sorted(LINK.glob("*.py")):          # top level only: no tests
         files[f"{LIB}/link/{p.name}"] = (lf(p.read_bytes()), 0o644)
     files["usr/lib/modules-load.d/nishro-link.conf"] = (b"uinput\n", 0o644)
@@ -281,7 +290,7 @@ def check(path: pathlib.Path) -> list:
             problems.append(f"{name}: mode {oct(info.mode)}")
         if want_exec and not body.startswith(b"#!"):
             problems.append(f"{name}: no shebang")
-        if not name.endswith(".gz") and CRLF in body:
+        if not name.endswith((".gz", ".png")) and CRLF in body:
             problems.append(f"{name}: has CRLF line endings")
 
     listed = {}

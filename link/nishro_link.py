@@ -172,6 +172,12 @@ def build_parser():
                     help="run without the application window (headless/service)")
     ap.add_argument("--agent", nargs=2, metavar=("PORT", "TOKEN"),
                     help=argparse.SUPPRESS)       # started by the Windows service
+    # Run by the Windows setup wizard, elevated (wininstall.py).
+    ap.add_argument("--install-service", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--uninstall-service", action="store_true",
+                    help=argparse.SUPPRESS)
+    ap.add_argument("--from-config", help=argparse.SUPPRESS)
+    ap.add_argument("--purge", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--service", action="store_true",
                     help="run as the system service: from boot, without a window "
                          "(the window attaches to it)")
@@ -324,6 +330,12 @@ def _no_access() -> int:
 
 def main() -> int:
     args, cfg = settings()
+
+    if args.install_service or args.uninstall_service:
+        from . import wininstall
+        if args.install_service:
+            return wininstall.install(sys.executable, args.from_config)
+        return wininstall.uninstall(purge=args.purge)
 
     if args.agent:
         # The Windows service's hands on the desktop that is showing (agent.py).

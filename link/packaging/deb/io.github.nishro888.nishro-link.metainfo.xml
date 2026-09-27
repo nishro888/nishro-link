@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What the App Center shows about Nishro Link: its page when the .deb is
+     opened, and its entry among installed apps. -->
+<component type="desktop-application">
+  <id>io.github.nishro888.nishro-link</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Nishro Link</name>
+  <summary>One mouse and keyboard across your computers</summary>
+  <developer id="io.github.nishro888">
+    <name>nishro888</name>
+  </developer>
+  <description>
+    <p>
+      Push the pointer off the edge of one screen and it carries on onto the
+      next computer, with the keyboard following it. Nishro Link works between
+      Windows and Linux (Wayland and X11).
+    </p>
+    <ul>
+      <li>Add a computer by its name and a four-word password - no addresses</li>
+      <li>Arrange the screens to match your desk, with every monitor drawn</li>
+      <li>A shared clipboard for text</li>
+      <li>Encrypted, with a fresh key every connection</li>
+      <li>Runs from boot, so it also works on the login and lock screens</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">nishro-link.desktop</launchable>
+  <url type="homepage">https://github.com/nishro888/nishro-link</url>
+  <url type="bugtracker">https://github.com/nishro888/nishro-link/issues</url>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>keyboard</keyword>
+    <keyword>mouse</keyword>
+    <keyword>kvm</keyword>
+    <keyword>share</keyword>
+  </keywords>
+  <provides>
+    <binary>nishro-link</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.10.0" date="2026-09-27">
+      <description>
+        <p>Encryption, word passwords, adding and managing devices from any
+        computer, a system service for the login and lock screens, and a new
+        look.</p>
+      </description>
+    </release>
+  </releases>
+</component>
