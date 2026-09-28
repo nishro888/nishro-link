@@ -2255,6 +2255,12 @@ class Node:
                               f"IS running, it is probably firewalled. On it, "
                               f"allow inbound TCP {self.port} for Nishro Link.")
                 continue
+            # Two seconds to connect, but longer for the handshake: a hub's
+            # first one after it starts derives its password key (PBKDF2,
+            # half a second on a Celeron; more on a busy machine), and with
+            # two seconds for that too every attempt could time out while
+            # the hub was still working. The same 8 as adding a device.
+            sock.settimeout(8)
             ch = protocol.LineChannel(sock)
             try:
                 if not self._say_hello(ch, addr):

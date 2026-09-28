@@ -19,6 +19,10 @@ Works with 0.15.0: the same protocol.
 ### Fixed
 - On Python 3.8, a device renamed while it was switched off could never
   connect again: the hub's reply used a Python 3.9 feature and failed.
+- Reconnecting to a hub that had just started could time out again and again
+  on a slow or busy computer: it was given two seconds for a handshake in
+  which the hub first works out its password key. Now eight, as when adding
+  a device.
 
 ## [0.15.0] - 2026-09-28
 
