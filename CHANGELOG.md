@@ -6,6 +6,15 @@ beta: until 1.0, a minor version may change the protocol, and **all computers in
 a group must run the same minor version** - 0.15.0 and 0.15.1 work together,
 0.14 and 0.15 do not (a different protocol is refused, with a message).
 
+## [Unreleased]
+
+### Fixed
+- Linux: a keyboard or mouse that appeared after Nishro Link started - a
+  wireless one waking up, a Bluetooth one connecting after login, one plugged
+  back in - was never read, so typing on it while the pointer was on another
+  computer typed on this one instead. New devices are now picked up within two
+  seconds.
+
 ## [0.15.1] - 2026-09-28
 
 Works with 0.15.0: the same protocol.

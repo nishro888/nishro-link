@@ -18,13 +18,16 @@ itself while unsuppressed.
 from __future__ import annotations
 
 import glob
+import os
 import selectors
 import threading
+import time
 
 from .inject import VIRTUAL_DEVICE_NAME
 
 KEY_LEFTCTRL, KEY_RIGHTCTRL = 29, 97
 KEY_A, BTN_LEFT, REL_X = 30, 272, 0   # for should_capture, which takes no evdev
+RESCAN_S = 2.0      # how often to look for a keyboard or mouse that has just appeared
 
 
 def is_own_virtual_device(name: str) -> bool:
@@ -54,6 +57,9 @@ class LinuxCapture:
         self._sup_kb = False
         self._x, self._y = self.sw // 2, self.sh // 2   # our own idea of the pointer
         self._devs = []
+        self._paths = {}          # /dev/input/eventN -> the device open there
+        self._skipped = {}        # path -> inode: looked at, not a keyboard or mouse
+        self._lock = threading.Lock()   # the device list: the reader vs set_suppress
         self._grabbed = False
         self._held = set()
         self._perm_denied = False
@@ -97,10 +103,25 @@ class LinuxCapture:
 
     # ---- internals ----
     def _open_devices(self):
-        # glob directly rather than evdev.list_devices(), which silently hides
-        # nodes we cannot read - making a permission problem invisible.
+        """Open every keyboard and mouse not open already: at start, and every
+        RESCAN_S after it. Once was not enough - a keyboard that appears later
+        (a wireless one waking, a Bluetooth one connecting after login, one
+        plugged back in) was never read, so its keys typed here while the
+        pointer was on another computer. Seen on the AIO.
+
+        glob directly rather than evdev.list_devices(), which silently hides
+        nodes we cannot read - making a permission problem invisible."""
         from evdev import InputDevice, ecodes as ec
-        for path in sorted(glob.glob("/dev/input/event*")):
+        present = sorted(glob.glob("/dev/input/event*"))
+        for path in list(self._skipped):
+            if path not in present:
+                del self._skipped[path]
+        for path in present:
+            if path in self._paths:
+                continue
+            ino = _inode(path)
+            if ino is not None and self._skipped.get(path) == ino:
+                continue                 # the same node as last time: still not ours
             try:
                 d = InputDevice(path)
             except PermissionError:
@@ -110,47 +131,71 @@ class LinuxCapture:
                 continue
             try:
                 caps = d.capabilities()
-                if should_capture(d.name, caps.get(ec.EV_KEY, []), caps.get(ec.EV_REL, [])):
-                    self._devs.append(d)
-                    self._sel.register(d, selectors.EVENT_READ)
-                else:
-                    d.close()
+                wanted = should_capture(d.name, caps.get(ec.EV_KEY, []),
+                                        caps.get(ec.EV_REL, []))
             except Exception:
-                try:
-                    d.close()
-                except Exception:
-                    pass
+                wanted = False
+            if not wanted:
+                self._skipped[path] = ino
+                _close(d)
+                continue
+            with self._lock:
+                self._devs.append(d)
+                self._paths[path] = d
+                self._sel.register(d, selectors.EVENT_READ)
+                if self._grabbed:        # arrived while input is going elsewhere
+                    try:
+                        d.grab()
+                    except Exception:
+                        pass
+
+    def _drop(self, d):
+        """A device that went away. Left registered, select() spins at 100% CPU."""
+        with self._lock:
+            try:
+                self._sel.unregister(d)
+            except (KeyError, ValueError):
+                pass
+            if d in self._devs:
+                self._devs.remove(d)
+            for path, dev in list(self._paths.items()):
+                if dev is d:
+                    del self._paths[path]
+        _close(d)
 
     def _set_grab(self, on):
-        if on and not self._grabbed:
-            for d in self._devs:
-                try:
-                    d.grab()
-                except Exception:
-                    pass
-            self._grabbed = True
-        elif not on and self._grabbed:
-            for d in self._devs:
-                try:
-                    d.ungrab()
-                except Exception:
-                    pass
-            self._grabbed = False
+        with self._lock:
+            if on and not self._grabbed:
+                for d in self._devs:
+                    try:
+                        d.grab()
+                    except Exception:
+                        pass
+                self._grabbed = True
+            elif not on and self._grabbed:
+                for d in self._devs:
+                    try:
+                        d.ungrab()
+                    except Exception:
+                        pass
+                self._grabbed = False
 
     def _run(self):
         from evdev import ecodes as ec
+        next_scan = time.monotonic() + RESCAN_S
         while not self._stop:
             for k, _ in self._sel.select(timeout=0.2):
                 try:
                     for e in k.fileobj.read():
                         self._handle(e, ec)
                 except OSError:
-                    # unplugged - drop it, or select() spins at 100% CPU
-                    try:
-                        self._sel.unregister(k.fileobj)
-                        self._devs.remove(k.fileobj)
-                    except (KeyError, ValueError):
-                        pass
+                    self._drop(k.fileobj)                  # unplugged
+                except Exception:
+                    pass                                   # P4: fail open
+            if time.monotonic() >= next_scan:
+                next_scan = time.monotonic() + RESCAN_S
+                try:
+                    self._open_devices()
                 except Exception:
                     pass                                   # P4: fail open
         self._set_grab(False)
@@ -196,3 +241,19 @@ class LinuxCapture:
         self._x = max(0, min(self.sw - 1, self._x + dx))
         self._y = max(0, min(self.sh - 1, self._y + dy))
         self.sink.on_pointer(self._x, self._y, dx, dy)
+
+
+def _inode(path):
+    """Which device node this is: udev makes a new one for a new device, even
+    at a path an old one used."""
+    try:
+        return os.stat(path).st_ino
+    except OSError:
+        return None
+
+
+def _close(d):
+    try:
+        d.close()
+    except Exception:
+        pass
