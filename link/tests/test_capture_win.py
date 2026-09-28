@@ -9,7 +9,10 @@ import types
 
 import pytest
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows hooks")
+# Skipped before the import, not by a mark: the module itself needs Windows'
+# ctypes (WINFUNCTYPE), so elsewhere even collecting it fails.
+if sys.platform != "win32":
+    pytest.skip("Windows hooks", allow_module_level=True)
 
 from link.capture_win import (WM_LDOWN, WM_MOUSEMOVE, WM_MOUSEWHEEL,  # noqa: E402
                               WinCapture)
