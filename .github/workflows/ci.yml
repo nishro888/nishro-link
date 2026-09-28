@@ -111,7 +111,7 @@ jobs:
         image: ["ubuntu:20.04", "ubuntu:22.04", "ubuntu:24.04", "debian:11", "debian:12"]
     container: ${{ matrix.image }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: deb
       # Debian 11 is past the end of its long-term support: its security
