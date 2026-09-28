@@ -58,6 +58,11 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.15.3" date="2026-09-29">
+      <description>
+        <p>A device's Details window no longer flickers.</p>
+      </description>
+    </release>
     <release version="0.15.2" date="2026-09-28">
       <description>
         <p>A keyboard or mouse connected after Nishro Link started - a wireless
