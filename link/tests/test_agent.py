@@ -133,7 +133,9 @@ def test_the_lock_screen_showing_moves_the_agent(relay):
     relay["showing"]["name"] = "Winlogon"
     relay["thread"].join(3)
     assert relay["result"]["code"] == 2
-    assert relay["hub"]._desk_name == "Winlogon"
+    # The hub hears "moving to Winlogon" on its own thread, a moment after
+    # the agent has left - not by the time join() returns.
+    wait(lambda: relay["hub"]._desk_name == "Winlogon", "the hub to hear where")
     assert relay["cap"].suppress[-1] == (False, False, False), "input left alive"
 
 
