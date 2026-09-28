@@ -519,7 +519,10 @@ class LineChannel:
 
     def __init__(self, sock: socket.socket, queue_size: int = 512):
         self.sock = sock
-        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        try:
+            self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass     # not TCP (a local socket pair on Linux): nothing to delay
         self._buf = b""
         self._lines = collections.deque()   # complete frames not yet returned
         self.coalesced = 0                  # positions superseded before sending

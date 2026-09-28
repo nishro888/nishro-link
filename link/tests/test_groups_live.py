@@ -62,6 +62,11 @@ def wait(cond, what, nodes=(), timeout=8.0):
     pytest.fail(f"timed out waiting for {what}\n{tail}")
 
 
+def listening(n, timeout=5.0):
+    wait(lambda: any("listening on" in x for x in n.lines),
+         f"{n.core.node} to listen", (n,), timeout)
+
+
 @pytest.fixture
 def running():
     nodes = []
@@ -70,6 +75,12 @@ def running():
         for n in ns:
             nodes.append(n)
             threading.Thread(target=n.run, daemon=True).start()
+        # Every hub listening before the test talks to it. Windows retries a
+        # refused local connect for a second, which hid this race; Linux
+        # refuses at once.
+        for n in ns:
+            if n.core.is_hub:
+                listening(n)
         return ns
     yield start
     for n in nodes:

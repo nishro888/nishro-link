@@ -53,7 +53,10 @@ def exclusive(sock: socket.socket) -> socket.socket:
     """
     if sys.platform == "win32":
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-    else:
+    elif sock.type == socket.SOCK_STREAM:
+        # TCP only. For UDP, Linux reads SO_REUSEADDR as "share this port":
+        # a second copy's discovery socket bound 8770 beside the first, and
+        # both answered. UDP has no TIME_WAIT to get past, so it needs nothing.
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     return sock
 
@@ -193,11 +196,18 @@ class SingleInstance:
 
     def release(self) -> None:
         if self._sock:
+            s, self._sock = self._sock, None
+            # Shut down first: on Linux, closing a socket that watch() is
+            # blocked accept()ing on neither wakes it nor frees the port - the
+            # lock stayed held, and a restart said another copy was running.
             try:
-                self._sock.close()
+                s.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
-            self._sock = None
+            try:
+                s.close()
+            except OSError:
+                pass
 
 
 def firewall_hint(port: int) -> str:
@@ -215,8 +225,8 @@ def firewall_hint(port: int) -> str:
                 f'-Direction Inbound -Program "{exe}" -Action Allow '
                 f'-Profile Private,Domain')
     return (f"nothing has connected yet. If the other machine cannot find or "
-            f"reach this one, check that port {port} is open for both the link "
-            f"and the search: sudo ufw allow {port}")
+            f"reach this one, check that the firewall allows port {port}, for "
+            f"both the link (TCP) and the search (UDP): sudo ufw allow {port}")
 
 
 # Windows Firewall, asked about by rule OBJECTS rather than netsh's text, which

@@ -206,7 +206,7 @@ def test_an_invitation_crosses_the_wire_encrypted():
     runs over the same exchange as every link: after the proofs, nothing of
     the invitation is readable - and the proofs are bound to both key-exchange
     values, so a machine in the middle cannot take it over."""
-    from test_groups_live import accept_invites, device, wait
+    from test_groups_live import accept_invites, device, listening, wait
     laptop = device("laptop", "tiger-lemon-coral-radio")
     aio = device("aio", "bench-grape-molar-stump")
     accept_invites(aio)
@@ -214,6 +214,7 @@ def test_an_invitation_crosses_the_wire_encrypted():
     for n in (laptop, aio):
         threading.Thread(target=n.run, daemon=True).start()
     try:
+        listening(aio)
         r = laptop.invite("aio", "bench-grape-molar-stump", addr="127.0.0.1",
                           port=tap.port)
         assert r["ok"], laptop.adding

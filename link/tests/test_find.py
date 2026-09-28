@@ -225,6 +225,7 @@ def test_without_gnome_nothing_is_pressed():
 
 
 # ============================================ the Windows spotlight's curve
+@pytest.mark.skipif(sys.platform != "win32", reason="spotlight_win needs Windows")
 def test_the_spotlight_shrinks_holds_and_fades():
     from link import spotlight_win as W
     first = W.frame(0.0, 2000, 90)

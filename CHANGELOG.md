@@ -38,6 +38,9 @@ The first public release.
 - A connection reset in the middle of connecting (the other computer
   restarting, for instance) was logged as "link loop stopped" and retried at
   once, over and over, instead of waiting between attempts.
+- Linux: a second copy could bind the discovery port beside the first, and
+  both answered; and releasing the single-instance lock did not free its port
+  while it was being watched.
 
 ## [0.14.0] - 2026-09-28
 ### Changed
