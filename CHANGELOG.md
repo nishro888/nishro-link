@@ -6,6 +6,13 @@ beta: until 1.0, a minor version may change the protocol, and **all computers in
 a group must run the same minor version** - 0.15.0 and 0.15.1 work together,
 0.14 and 0.15 do not (a different protocol is refused, with a message).
 
+## [Unreleased]
+
+### Fixed
+- A device's **Details** window flickered: it rebuilt itself about once a
+  second, because an online device's round trip and "last seen" change all the
+  time. Now it is built once, and only that line changes.
+
 ## [0.15.2] - 2026-09-28
 
 Works with 0.15.0 and 0.15.1: the same protocol.

@@ -205,3 +205,38 @@ def test_a_device_that_leaves_the_group_is_said_to_have_gone(root, api):
         assert any("no longer in this group" in x for x in texts(d.top))
     finally:
         d.close()
+
+
+def test_it_does_not_rebuild_itself_while_nothing_real_changes(root, api):
+    """Reported: the Details window 'glitches'. Its refresh rebuilt every
+    widget whenever the device's record changed - and an online device's
+    round-trip time and 'last seen' change on every poll, so it was torn down
+    and built again about once a second. Only the changing line may change."""
+    online(api)
+    api.node.links["aio"].rtt_ms = 1.8
+    d = details(root, api, "aio")
+    try:
+        name, state = d.name_label, d.state_label
+        for rtt in (2.4, 3.1, 1.2):
+            api.node.links["aio"].rtt_ms = rtt
+            time.sleep(0.01)                     # and last_seen moves on
+            d._render()
+            assert name.winfo_exists() and d.name_label is name, "rebuilt"
+            assert d.state_label is state
+            assert f"{rtt:.1f} ms" in state.cget("text")
+    finally:
+        d.close()
+
+
+def test_a_real_change_still_rebuilds_it(root, api):
+    online(api)
+    d = details(root, api, "aio")
+    try:
+        name = d.name_label
+        api.node.core.peer_online("aio", False)
+        api.node.links.pop("aio", None)
+        d._render()
+        assert d.name_label is not name
+        assert any("offline" in x for x in texts(d.top))
+    finally:
+        d.close()

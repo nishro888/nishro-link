@@ -22,6 +22,9 @@ from . import ui_theme
 from .ui_kit import Button, Kit, Monitors, Pill, Toggle, ago, field
 
 POLL_MS = 700
+# Fields that change by themselves every few moments. The window shows them on
+# one line, updated in place; a change to anything else rebuilds it.
+LIVE = ("rtt_ms", "last_seen")
 
 
 class DeviceDetails:
@@ -84,12 +87,22 @@ class DeviceDetails:
 
     # ------------------------------------------------------------- render
     def _render(self) -> None:
+        """Build the window - but only when something it shows has really
+        changed. An online device's round-trip time and 'last seen' change on
+        every poll; rebuilding for those tore every widget down and built it
+        again about once a second, which is what 'it glitches' was."""
         s = self._status()
         d = self._find(s)
-        sig = repr((d, s.get("role"), s.get("connected")))
+        still = None if d is None else {k: v for k, v in d.items() if k not in LIVE}
+        sig = repr((still, s.get("role"), s.get("connected")))
         if sig == self._sig:
+            if d is not None and getattr(self, "state_label", None) is not None:
+                text = _state_text(d)
+                if self.state_label.cget("text") != text:
+                    self.state_label.configure(text=text)
             return
         self._sig = sig
+        self.state_label = None
         for w in self.box.winfo_children():
             w.destroy()
         C, F, kit = self.C, self.kit.F, self.kit
@@ -124,16 +137,10 @@ class DeviceDetails:
             Pill(row, kit, "THIS DEVICE", "accent").pack(side="left", padx=(10, 0))
         if d["hub"]:
             Pill(row, kit, "HUB", "accent2").pack(side="left", padx=(6, 0))
-        rtt = d.get("rtt_ms")
-        if me:
-            state = "this device"
-        elif d["online"]:
-            state = "● online" + (f"  ·  {rtt:.1f} ms" if rtt else "")
-        else:
-            state = f"○ offline  ·  last seen {ago(d.get('last_seen'))}"
-        tk.Label(words, text=state, font=F["small"], bg=C["panel"],
-                 fg=C["ok"] if d["online"] and not me else C["dim"], anchor="w"
-                 ).pack(anchor="w", pady=(2, 0))
+        self.state_label = tk.Label(
+            words, text=_state_text(d), font=F["small"], bg=C["panel"],
+            fg=C["ok"] if d["online"] and not me else C["dim"], anchor="w")
+        self.state_label.pack(anchor="w", pady=(2, 0))
 
         # ---- name
         self.rename_row = tk.Frame(self.box, bg=C["panel"])
@@ -337,3 +344,14 @@ def _parts(d) -> list:
             parts.append((x, 0, w, h))
             x += w
     return parts
+
+
+def _state_text(d: dict) -> str:
+    """The one line that changes by itself: online and how quick, or when it
+    was last seen."""
+    if d.get("me"):
+        return "this device"
+    if d.get("online"):
+        rtt = d.get("rtt_ms")
+        return "● online" + (f"  ·  {rtt:.1f} ms" if rtt else "")
+    return f"○ offline  ·  last seen {ago(d.get('last_seen'))}"
