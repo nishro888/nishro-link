@@ -94,13 +94,13 @@ another, and **whichever mouse you touch takes control** - there is no fixed
 
 ## Install
 
-Every computer needs Nishro Link, **the same version**, on the **same local
-network**. Downloads are on the [releases page](https://github.com/nishro888/nishro-link/releases/latest).
+Every computer needs Nishro Link, **the same minor version** (0.15.x), on the
+**same local network**. Downloads are on the [releases page](https://github.com/nishro888/nishro-link/releases/latest).
 
 | | Download | Needs |
 |---|---|---|
-| **Windows** | `NishroLink-Setup-0.15.0.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
-| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_0.15.0-beta_all.deb` | Ubuntu 20.04+ or Debian 11+ (or derivatives); Wayland or X11 |
+| **Windows** | `NishroLink-Setup-0.15.1.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
+| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_0.15.1-beta_all.deb` | Ubuntu 20.04+ or Debian 11+ (or derivatives); Wayland or X11 |
 | **Other Linux** | Source code | Python 3.8+, Tk, evdev, cryptography 2.5+ - [instructions](docs/install-linux.md#other-distributions) |
 
 **Windows:** run the setup and approve the one permission prompt. The
@@ -110,7 +110,7 @@ Run anyway**. [Details](docs/install-windows.md).
 **Ubuntu and Debian:** open the `.deb` (the App Center installs it), or
 
 ```bash
-sudo apt install ./nishro-link_0.15.0-beta_all.deb
+sudo apt install ./nishro-link_0.15.1-beta_all.deb
 ```
 
 then log out and back in once. [Details](docs/install-linux.md).

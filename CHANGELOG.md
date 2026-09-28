@@ -3,9 +3,12 @@
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/),
 and versions follow [Semantic Versioning](https://semver.org/). Nishro Link is in
 beta: until 1.0, a minor version may change the protocol, and **all computers in
-a group must run the same version** (a different one is refused, with a message).
+a group must run the same minor version** - 0.15.0 and 0.15.1 work together,
+0.14 and 0.15 do not (a different protocol is refused, with a message).
 
-## [Unreleased]
+## [0.15.1] - 2026-09-28
+
+Works with 0.15.0: the same protocol.
 
 ### Changed
 - Runs on **Python 3.8** and later (was 3.10), and with **cryptography 2.5**
@@ -110,4 +113,5 @@ The first public release.
 ## [0.9.1] and [0.9.0] - 2026-09-26
 Private betas.
 
+[0.15.1]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.1-beta
 [0.15.0]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.0-beta

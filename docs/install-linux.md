@@ -12,7 +12,7 @@ from source for everything else. Wayland and X11 both work. See
    terminal:
 
    ```bash
-   sudo apt install ./nishro-link_0.15.0-beta_all.deb
+   sudo apt install ./nishro-link_0.15.1-beta_all.deb
    ```
 
    Use `apt`, not `dpkg -i`: `apt` also installs what it depends on.
@@ -76,8 +76,9 @@ The window is only a window: closing it does not stop sharing.
 Install the new `.deb` the same way. The service restarts with the new
 version, keeping your devices and arrangement.
 
-**Every computer in a group must run the same version.** A device on another
-version is refused with a message saying so; update them all together.
+**Every computer in a group must run the same minor version** - 0.15.0 and
+0.15.1 work together; 0.14 and 0.15 do not. A device on another is refused with
+a message saying so; update them all together.
 
 ### Uninstall
 
@@ -107,8 +108,8 @@ Fedora, Arch, openSUSE and others: install from source, for your user only.
    run the installer:
 
    ```bash
-   tar xf nishro-link-0.15.0-beta.tar.gz
-   cd nishro-link-0.15.0-beta
+   tar xf nishro-link-0.15.1-beta.tar.gz
+   cd nishro-link-0.15.1-beta
    ./link/packaging/install-linux.sh
    ```
 

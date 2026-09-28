@@ -1,7 +1,7 @@
 # Requirements
 
-Every computer in a group needs Nishro Link, **the same version**, on the
-**same local network**.
+Every computer in a group needs Nishro Link, **the same minor version** (for
+example 0.15.x with 0.15.x), on the **same local network**.
 
 ## Windows
 
