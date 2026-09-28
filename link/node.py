@@ -2272,6 +2272,16 @@ class Node:
                 self._dial_state("retrying", "version" if "version" in str(e)
                                  else "protocol", str(e))
                 self.backoff.on_disconnected()
+            except OSError as e:
+                # The connection broke during the handshake: the other side
+                # restarted, or closed its listening socket just as we reached
+                # it. An ordinary failed attempt - counted, and retried after
+                # the usual wait. Left to the supervisor it was logged as "link
+                # loop stopped" and retried at once, with no backoff at all.
+                self.backoff.on_failure()
+                if not (self._stop or self._reconfig):
+                    self._dial_state("retrying", "unreachable", str(e))
+                    self._log(f"connection to {addr} lost during the handshake: {e}")
             finally:
                 ch.close()
 

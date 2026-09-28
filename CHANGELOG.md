@@ -35,6 +35,9 @@ The first public release.
 ### Fixed
 - *Open log folder* and the Activity page pointed at the wrong file when the
   window was attached to the background service.
+- A connection reset in the middle of connecting (the other computer
+  restarting, for instance) was logged as "link loop stopped" and retried at
+  once, over and over, instead of waiting between attempts.
 
 ## [0.14.0] - 2026-09-28
 ### Changed

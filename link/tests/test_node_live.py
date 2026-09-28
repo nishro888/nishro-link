@@ -6,6 +6,8 @@ has neither and neither does a laptop you are still using.
 """
 import json
 import socket
+import struct
+import sys
 import threading
 import time
 
@@ -615,6 +617,50 @@ def test_repairing_while_waiting_is_not_reported_as_a_crash():
         assert n.core.is_hub is False and n.peer_addr == "127.0.0.1"
     finally:
         n.stop()
+
+
+def test_a_connection_reset_during_the_handshake_is_an_ordinary_retry():
+    """A hub that restarts, or closes its listening socket just as a member
+    reaches it, resets the connection mid-handshake. That escaped the dialling
+    loop: logged as "link loop stopped" and retried at once, with no backoff.
+    Found by CI on Windows, where the race above happened to land this way."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    port = srv.getsockname()[1]
+    resets = []
+
+    def reset_everyone():
+        while True:
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            # SO_LINGER on, 0 s: close with a reset, not a goodbye. (Two
+            # unsigned shorts on Windows, two ints elsewhere.)
+            c.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                         struct.pack("HH" if sys.platform == "win32" else "ii", 1, 0))
+            c.close()
+            resets.append(1)
+    threading.Thread(target=reset_everyone, daemon=True).start()
+
+    lines = []
+    lay = simple("aio", (1920, 1080), "laptop", (1366, 768), "right")
+    n = Node(NodeCore("aio", lay, {}, is_hub=False), FakeCapture(), FakeInjector(),
+             port=port, peer_addr="127.0.0.1")
+    n._log = lines.append
+    threading.Thread(target=n.run, daemon=True).start()
+    try:
+        end = time.monotonic() + 8
+        while time.monotonic() < end and n.backoff.failures < 2:
+            time.sleep(0.02)
+        assert n.backoff.failures >= 2, lines
+        assert not [x for x in lines if "link loop stopped" in x], lines
+        assert any("lost during the handshake" in x for x in lines), lines
+        assert any("retrying in" in x for x in lines), "it waits between attempts"
+    finally:
+        n.stop()
+        srv.close()
 
 
 def test_both_sides_say_the_password_was_checked():
