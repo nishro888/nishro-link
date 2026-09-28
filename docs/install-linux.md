@@ -12,7 +12,7 @@ from source for everything else. Wayland and X11 both work. See
    terminal:
 
    ```bash
-   sudo apt install ./nishro-link_0.15.1-beta_all.deb
+   sudo apt install ./nishro-link_0.15.2-beta_all.deb
    ```
 
    Use `apt`, not `dpkg -i`: `apt` also installs what it depends on.
@@ -108,8 +108,8 @@ Fedora, Arch, openSUSE and others: install from source, for your user only.
    run the installer:
 
    ```bash
-   tar xf nishro-link-0.15.1-beta.tar.gz
-   cd nishro-link-0.15.1-beta
+   tar xf nishro-link-0.15.2-beta.tar.gz
+   cd nishro-link-0.15.2-beta
    ./link/packaging/install-linux.sh
    ```
 

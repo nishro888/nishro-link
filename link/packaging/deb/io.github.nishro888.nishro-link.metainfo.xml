@@ -58,6 +58,13 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.15.2" date="2026-09-28">
+      <description>
+        <p>A keyboard or mouse connected after Nishro Link started - a wireless
+        one waking up, a Bluetooth one, one plugged back in - is now picked
+        up within two seconds.</p>
+      </description>
+    </release>
     <release version="0.15.1" date="2026-09-28">
       <description>
         <p>Runs on older systems too: Python 3.8 and later, so Ubuntu 20.04

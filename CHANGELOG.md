@@ -6,7 +6,9 @@ beta: until 1.0, a minor version may change the protocol, and **all computers in
 a group must run the same minor version** - 0.15.0 and 0.15.1 work together,
 0.14 and 0.15 do not (a different protocol is refused, with a message).
 
-## [Unreleased]
+## [0.15.2] - 2026-09-28
+
+Works with 0.15.0 and 0.15.1: the same protocol.
 
 ### Fixed
 - Linux: a keyboard or mouse that appeared after Nishro Link started - a
@@ -126,5 +128,6 @@ The first public release.
 ## [0.9.1] and [0.9.0] - 2026-09-26
 Private betas.
 
+[0.15.2]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.2-beta
 [0.15.1]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.1-beta
 [0.15.0]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.0-beta
