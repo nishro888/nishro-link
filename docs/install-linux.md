@@ -40,7 +40,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 | **Log** | `/var/log/nishro-link/link.log` |
 | **App menu** | *Nishro Link*, with its icon and an App Center page |
 
-It needs, and `apt` installs: `python3` (3.10 or later), `python3-tk`,
+It needs, and `apt` installs: `python3` (3.8 or later), `python3-tk`,
 `python3-evdev`, `python3-cryptography` and `xclip`. It recommends `pkexec`
 and `x11-xserver-utils`.
 
@@ -95,7 +95,7 @@ Fedora, Arch, openSUSE and others: install from source, for your user only.
 
 1. Install the dependencies with your package manager:
 
-   | | Python 3.10+ | Tk | evdev | cryptography | clipboard |
+   | | Python 3.8+ | Tk | evdev | cryptography 2.5+ | clipboard |
    |---|---|---|---|---|---|
    | **Fedora** | `python3` | `python3-tkinter` | `python3-evdev` | `python3-cryptography` | `xclip` |
    | **Arch** | `python` | `tk` | `python-evdev` | `python-cryptography` | `xclip` |
@@ -137,7 +137,7 @@ rm -rf ~/.local/share/nishro-link ~/.local/bin/nishro-link \
 
 ## Build the .deb yourself
 
-The package is plain Python; it builds on any system with Python 3.10+:
+The package is plain Python; it builds on any system with Python 3.8+:
 
 ```bash
 git clone https://github.com/nishro888/nishro-link
@@ -147,5 +147,5 @@ python3 link/packaging/build-deb.py      # writes dist/nishro-link_<version>_all
 
 The release builds are made the same way, by GitHub Actions, from the tagged
 source ([release.yml](../.github/workflows/release.yml)), and every change is
-test-installed on Ubuntu 22.04, Ubuntu 24.04 and Debian 12
+test-installed on Ubuntu 20.04, 22.04 and 24.04 and on Debian 11 and 12
 ([ci.yml](../.github/workflows/ci.yml)).

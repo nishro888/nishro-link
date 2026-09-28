@@ -86,8 +86,10 @@ source ([release.yml](../.github/workflows/release.yml)).
 
 ## Run from source
 
+With Python 3.8 or later:
+
 ```powershell
-pip install "cryptography>=3.4"
+pip install cryptography
 python -m link.nishro_link
 ```
 

@@ -47,7 +47,7 @@ def test_ar_members_come_in_the_order_dpkg_requires(deb):
 def test_control_names_the_dependencies_the_program_imports(deb):
     f = fields(deb)
     assert f["Package"] == "nishro-link" and f["Architecture"] == "all"
-    for need in ("python3-tk", "python3-evdev", "python3 (>= 3.10)",
+    for need in ("python3-tk", "python3-evdev", "python3 (>= 3.8)",
                  "python3-cryptography"):
         assert need in f["Depends"]
     assert f["Version"].startswith(bd.version().split("~")[0])

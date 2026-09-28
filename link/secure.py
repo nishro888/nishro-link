@@ -53,6 +53,17 @@ class SecureError(Exception):
     """A frame that did not come from the other end, intact and in order."""
 
 
+def _hkdf(length: int, salt: bytes, info: bytes) -> HKDF:
+    """HKDF-SHA256. cryptography before 3.1 (Ubuntu 20.04 has 2.8, Debian 11
+    3.3) insists on a `backend`; later versions need none and ignore one."""
+    try:
+        return HKDF(algorithm=hashes.SHA256(), length=length, salt=salt, info=info)
+    except TypeError:
+        from cryptography.hazmat.backends import default_backend
+        return HKDF(algorithm=hashes.SHA256(), length=length, salt=salt, info=info,
+                    backend=default_backend())
+
+
 # ------------------------------------------------------------ key exchange
 def keypair():
     """(private key, public key as hex) for one connection."""
@@ -84,9 +95,8 @@ def session(secret: bytes, psk: str, hub_nonce: str, dialer_nonce: str,
             role: str):
     """(Sealer, Opener) for this end. `psk` is the password key both sides
     proved; mixing it in means the keys need the password AND the exchange."""
-    okm = HKDF(algorithm=hashes.SHA256(), length=64,
-               salt=f"{hub_nonce}|{dialer_nonce}".encode(),
-               info=b"nishro-link v8 keys").derive(secret + (psk or "").encode())
+    okm = _hkdf(64, f"{hub_nonce}|{dialer_nonce}".encode(),
+                b"nishro-link v8 keys").derive(secret + (psk or "").encode())
     hub_to_dialer, dialer_to_hub = okm[:32], okm[32:]
     send, recv = ((hub_to_dialer, dialer_to_hub) if role == "hub"
                   else (dialer_to_hub, hub_to_dialer))
@@ -95,8 +105,8 @@ def session(secret: bytes, psk: str, hub_nonce: str, dialer_nonce: str,
 
 # ------------------------------------------------------------- one secret
 def _wrap_aead(psk: str, a: str, b: str) -> ChaCha20Poly1305:
-    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=f"{a}|{b}".encode(),
-               info=b"nishro-link v8 wrap").derive((psk or "").encode())
+    key = _hkdf(32, f"{a}|{b}".encode(), b"nishro-link v8 wrap").derive(
+        (psk or "").encode())
     return ChaCha20Poly1305(key)
 
 

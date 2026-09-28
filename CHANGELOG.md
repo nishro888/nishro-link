@@ -5,6 +5,14 @@ and versions follow [Semantic Versioning](https://semver.org/). Nishro Link is i
 beta: until 1.0, a minor version may change the protocol, and **all computers in
 a group must run the same version** (a different one is refused, with a message).
 
+## [Unreleased]
+
+### Changed
+- Runs on **Python 3.8** and later (was 3.10), and with **cryptography 2.5**
+  and later (was 3.4): the `.deb` now installs on **Ubuntu 20.04** and
+  **Debian 11**. CI runs the whole test suite on both, with their own Python
+  and libraries, and on Python 3.8 on Windows.
+
 ## [0.15.0] - 2026-09-28
 
 The first public release.

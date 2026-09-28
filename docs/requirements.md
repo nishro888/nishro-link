@@ -23,8 +23,9 @@ title bar is simply light.
 | | |
 |---|---|
 | **Package** | `.deb` for Ubuntu, Debian and derivatives (Linux Mint, Pop!_OS, Zorin, ...) |
-| **Tested** | Ubuntu 26.04, GNOME on Wayland |
-| **Installs cleanly (checked in CI)** | Ubuntu 22.04, Ubuntu 24.04, Debian 12 |
+| **Tested on hardware** | Ubuntu 26.04, GNOME on Wayland |
+| **Tested in CI** | the full test suite on Ubuntu 20.04 and Debian 11, with their own Python and libraries; the package installs cleanly on Ubuntu 20.04, 22.04, 24.04 and Debian 11, 12 |
+| **Oldest supported** | Ubuntu 20.04 and Debian 11 - anything with Python 3.8 |
 | **Sessions** | Wayland and X11 |
 | **Desktops** | GNOME tested; KDE Plasma and others expected to work, untested |
 | **Other distributions** | Fedora, Arch, openSUSE...: run from source, see [install-linux.md](install-linux.md#other-distributions) |
@@ -34,10 +35,10 @@ What the program needs - the `.deb` brings all of it:
 
 | Needs | Why | Debian/Ubuntu package |
 |---|---|---|
-| Python 3.10 or later | the program | `python3` |
+| Python 3.8 or later | the program | `python3` |
 | Tk | the window | `python3-tk` |
 | python-evdev | reading the mouse and keyboard, and moving the pointer | `python3-evdev` |
-| cryptography 3.4 or later | encryption | `python3-cryptography` |
+| cryptography 2.5 or later | encryption | `python3-cryptography` |
 | xclip | the shared clipboard | `xclip` |
 | `/dev/uinput` | making input - the kernel's `uinput` module | loaded by the package |
 | systemd | running from boot, at the login and lock screens | (present on all of these) |

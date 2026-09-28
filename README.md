@@ -100,8 +100,8 @@ network**. Downloads are on the [releases page](https://github.com/nishro888/nis
 | | Download | Needs |
 |---|---|---|
 | **Windows** | `NishroLink-Setup-0.15.0.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
-| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_0.15.0-beta_all.deb` | Ubuntu 22.04+ or Debian 12+ (or derivatives); Wayland or X11 |
-| **Other Linux** | Source code | Python 3.10+, Tk, evdev, cryptography - [instructions](docs/install-linux.md#other-distributions) |
+| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_0.15.0-beta_all.deb` | Ubuntu 20.04+ or Debian 11+ (or derivatives); Wayland or X11 |
+| **Other Linux** | Source code | Python 3.8+, Tk, evdev, cryptography 2.5+ - [instructions](docs/install-linux.md#other-distributions) |
 
 **Windows:** run the setup and approve the one permission prompt. The
 installer is not code-signed yet: if SmartScreen warns, choose **More info →
@@ -140,8 +140,9 @@ take control from there. The [user guide](docs/user-guide.md) covers the rest.
   computer for the pointer to use the new size (the arrangement updates on its
   own). *Find the pointer* works on GNOME only, for now.
 - **Tested** on Windows 10 22H2 and Ubuntu 26.04 (GNOME, Wayland) as physical
-  machines; groups of three in automated tests only. The `.deb` is test-installed
-  on Ubuntu 22.04, 24.04 and Debian 12 in CI.
+  machines; groups of three in automated tests only. CI runs the tests on
+  Ubuntu 20.04 and Debian 11 with their own Python (3.8, 3.9) and libraries,
+  and test-installs the `.deb` on Ubuntu 20.04, 22.04, 24.04 and Debian 11, 12.
 - **Windows:** any account signed in to the computer can use Nishro Link's
   controls on it ([security](docs/security.md#who-is-trusted)).
 - The Windows installer is **not code-signed** yet, and the code has **not been

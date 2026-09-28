@@ -25,7 +25,10 @@ and three-computer groups are especially valuable - even "it works".
 
 ## Working on the code
 
-Nishro Link is plain Python (3.10+) with Tkinter for the window.
+Nishro Link is plain Python (3.8+) with Tkinter for the window. Code must run
+on Python 3.8 and on the libraries Ubuntu 20.04 and Debian 11 ship - CI runs
+the tests there - so no `match`, no `X | Y` outside annotations, and
+`from __future__ import annotations` wherever annotations use newer syntax.
 
 ```bash
 git clone https://github.com/nishro888/nishro-link.git

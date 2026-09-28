@@ -229,3 +229,22 @@ def test_an_invitation_crosses_the_wire_encrypted():
     finally:
         for n in (laptop, aio):
             n.stop()
+
+
+def test_cryptography_before_3_1_which_insists_on_a_backend(monkeypatch):
+    """Ubuntu 20.04 ships cryptography 2.8 and Debian 11 3.3, whose HKDF
+    refuses to be made without a `backend`. Both ends still agree on the keys."""
+    real = secure.HKDF
+
+    def old_hkdf(*, algorithm, length, salt, info, backend=None):
+        if backend is None:
+            raise TypeError("__init__() missing 1 required positional argument: "
+                            "'backend'")
+        return real(algorithm=algorithm, length=length, salt=salt, info=info)
+    monkeypatch.setattr(secure, "HKDF", old_hkdf)
+    a, pa = secure.keypair()
+    b, pb = secure.keypair()
+    tx, _ = secure.session(secure.shared(a, pb), "k", "n1", "n2", "hub")
+    _, rx = secure.session(secure.shared(b, pa), "k", "n1", "n2", "dialer")
+    assert rx.open(tx.seal(b"key press")) == b"key press"
+    assert secure.unwrap(secure.wrap(b"pw", "k", "a", "b"), "k", "a", "b") == b"pw"

@@ -30,7 +30,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12"]
+        # 3.8: the oldest supported. 3.11: what the Windows program bundles.
+        python: ["3.8", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.12"]
+        python: ["3.10", "3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,6 +57,30 @@ jobs:
       - run: pip install -e ".[dev]"
       # The window's tests need a display: a virtual one.
       - run: xvfb-run -a python -m pytest
+
+  # The oldest systems the .deb claims, with THEIR Python and libraries - not
+  # pip's newest: Ubuntu 20.04 (Python 3.8, cryptography 2.8, evdev 1.3) and
+  # Debian 11 (Python 3.9, cryptography 3.3). Only pytest comes from pip.
+  test-old-distros:
+    name: test (${{ matrix.image }}, its own Python and libraries)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:20.04", "debian:11"]
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update
+      - run: >
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+          python3 python3-tk python3-evdev python3-cryptography python3-pip
+          xvfb xauth
+      - run: python3 -m pip install "pytest>=7,<9"
+      - run: |
+          python3 --version
+          python3 -c "import cryptography, evdev, tkinter; print('cryptography', cryptography.__version__, '| Tk', tkinter.TkVersion)"
+      - run: xvfb-run -a python3 -m pytest -p no:cacheprovider link/tests
 
   deb:
     runs-on: ubuntu-latest
@@ -79,7 +104,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: ["ubuntu:22.04", "ubuntu:24.04", "debian:12"]
+        image: ["ubuntu:20.04", "ubuntu:22.04", "ubuntu:24.04", "debian:11", "debian:12"]
     container: ${{ matrix.image }}
     steps:
       - uses: actions/download-artifact@v4
@@ -92,4 +117,6 @@ jobs:
           python3 -c "import link.secure, link.node, link.desk, link.nishro_link; print('imports: ok')"
           python3 -m link.nishro_link --help > /dev/null && echo "command line: ok"
           test -x /usr/bin/nishro-link && echo "launcher: ok"
+          # The encryption, end to end, with this system's own cryptography.
+          python3 -c "from link import secure as s; a, pa = s.keypair(); b, pb = s.keypair(); tx, _ = s.session(s.shared(a, pb), 'k', 'n1', 'n2', 'hub'); _, rx = s.session(s.shared(b, pa), 'k', 'n1', 'n2', 'dialer'); assert rx.open(tx.seal(b'hi')) == b'hi'; assert s.unwrap(s.wrap(b'pw', 'k', 'a', 'b'), 'k', 'a', 'b') == b'pw'; print('encryption: ok')"
           dpkg -s nishro-link | grep -E '^(Status|Version)'

@@ -5,7 +5,7 @@ description = "One mouse and keyboard across your computers - Windows and Linux 
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "nishro888" }]
-requires-python = ">=3.10"
+requires-python = ">=3.8"
 keywords = ["kvm", "software-kvm", "mouse-sharing", "keyboard-sharing", "wayland",
             "synergy", "input-leap", "barrier", "multi-computer"]
 classifiers = [
@@ -19,12 +19,19 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Desktop Environment",
     "Topic :: Utilities",
 ]
 dependencies = [
-    "cryptography>=3.4",                 # the link's encryption (link/secure.py)
-    "evdev>=1.6; sys_platform == 'linux'",
+    "cryptography>=2.5",                 # the link's encryption (link/secure.py)
+    "evdev>=1.3; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]
@@ -59,7 +66,7 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py38"
 extend-exclude = ["link/words.py", "link/icon.py", "link/theme"]
 
 [tool.ruff.lint]
