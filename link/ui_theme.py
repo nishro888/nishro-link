@@ -196,11 +196,15 @@ def save_pref(mode: str) -> None:
         pass                  # a preference that cannot be kept is no failure
 
 
+problem = None      # why the controls' theme could not be loaded, if it could not
+
+
 def apply(root, mode: str) -> str:
     """Put `mode` in force on this Tk: the controls' theme, the palette, the
     fonts. Returns what it resolved to. Call before building widgets."""
-    global _current
+    global _current, problem
     _current = resolve(mode)
+    problem = None
     from tkinter import ttk
     try:
         style = ttk.Style(root)
@@ -209,8 +213,9 @@ def apply(root, mode: str) -> str:
         style.theme_use(f"sun-valley-{_current}")
         root.tk.call("configure_colors")      # now, not when the event lands
         _styles(root, style)
-    except Exception:
-        pass                  # without the theme: plain ttk, still usable
+    except Exception as e:
+        # Without the theme: plain ttk, still usable - but say why.
+        problem = f"{type(e).__name__}: {e}"
     _made.clear()
     return _current
 

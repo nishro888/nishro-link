@@ -33,7 +33,7 @@ def saved():
 def test_it_starts_in_the_mode_chosen_last(app):
     assert app.theme_pref == "dark" and ui_theme.current() == "dark"
     assert app.root.cget("bg") == ui_theme.DARK["bg"]
-    assert ttk.Style(app.root).theme_use() == "sun-valley-dark"
+    assert ttk.Style(app.root).theme_use() == "sun-valley-dark", ui_theme.problem
 
 
 def test_switching_redraws_everything_in_the_other_theme(app):
@@ -42,7 +42,7 @@ def test_switching_redraws_everything_in_the_other_theme(app):
     app.root.update()
     try:
         assert ui_theme.current() == "light" and saved() == "light"
-        assert ttk.Style(app.root).theme_use() == "sun-valley-light"
+        assert ttk.Style(app.root).theme_use() == "sun-valley-light", ui_theme.problem
         assert app.C["bg"] == ui_theme.LIGHT["bg"]
         assert app.root.cget("bg") == ui_theme.LIGHT["bg"]
         assert app.sidebar.cget("bg") == ui_theme.LIGHT["sidebar"]
