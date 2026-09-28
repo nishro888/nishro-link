@@ -124,7 +124,14 @@ class Tap:
                 c, _ = self.srv.accept()
             except OSError:
                 return
-            u = socket.create_connection(("127.0.0.1", self.target))
+            try:
+                u = socket.create_connection(("127.0.0.1", self.target))
+            except OSError:
+                # Not listening yet. Hang up on the caller, as a refusal would
+                # look to it - left open and silent, it waited out its whole
+                # handshake timeout before trying again.
+                c.close()
+                continue
             for a, b in ((c, u), (u, c)):
                 threading.Thread(target=self._pipe, args=(a, b), daemon=True).start()
 
