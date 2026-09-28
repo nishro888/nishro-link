@@ -13,6 +13,10 @@ a group must run the same version** (a different one is refused, with a message)
   **Debian 11**. CI runs the whole test suite on both, with their own Python
   and libraries, and on Python 3.8 on Windows.
 
+### Fixed
+- On Python 3.8, a device renamed while it was switched off could never
+  connect again: the hub's reply used a Python 3.9 feature and failed.
+
 ## [0.15.0] - 2026-09-28
 
 The first public release.

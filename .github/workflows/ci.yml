@@ -71,6 +71,10 @@ jobs:
     container: ${{ matrix.image }}
     steps:
       - uses: actions/checkout@v4
+      # Debian 11 is past the end of its long-term support: its security
+      # archive is leaving the mirrors (404s), while its release packages -
+      # the versions that matter here - are still served. Use those alone.
+      - run: grep -rl bullseye-security /etc/apt/ 2>/dev/null | xargs -r sed -i '/bullseye-security/d'
       - run: apt-get update
       - run: >
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
@@ -110,6 +114,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: deb
+      # Debian 11 is past the end of its long-term support: its security
+      # archive is leaving the mirrors (404s), while its release packages -
+      # the versions that matter here - are still served. Use those alone.
+      - run: grep -rl bullseye-security /etc/apt/ 2>/dev/null | xargs -r sed -i '/bullseye-security/d'
       - run: apt-get update
       - run: DEBIAN_FRONTEND=noninteractive apt-get install -y ./nishro-link_*.deb
       - run: |

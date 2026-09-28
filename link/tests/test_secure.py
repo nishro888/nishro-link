@@ -240,7 +240,9 @@ def test_cryptography_before_3_1_which_insists_on_a_backend(monkeypatch):
         if backend is None:
             raise TypeError("__init__() missing 1 required positional argument: "
                             "'backend'")
-        return real(algorithm=algorithm, length=length, salt=salt, info=info)
+        # Every version since 2.x takes a backend; newer ones ignore it.
+        return real(algorithm=algorithm, length=length, salt=salt, info=info,
+                    backend=backend)
     monkeypatch.setattr(secure, "HKDF", old_hkdf)
     a, pa = secure.keypair()
     b, pb = secure.keypair()

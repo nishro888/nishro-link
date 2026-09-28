@@ -25,7 +25,7 @@ title bar is simply light.
 | **Package** | `.deb` for Ubuntu, Debian and derivatives (Linux Mint, Pop!_OS, Zorin, ...) |
 | **Tested on hardware** | Ubuntu 26.04, GNOME on Wayland |
 | **Tested in CI** | the full test suite on Ubuntu 20.04 and Debian 11, with their own Python and libraries; the package installs cleanly on Ubuntu 20.04, 22.04, 24.04 and Debian 11, 12 |
-| **Oldest supported** | Ubuntu 20.04 and Debian 11 - anything with Python 3.8 |
+| **Oldest supported** | Ubuntu 20.04 and Debian 11 - anything with Python 3.8. Both are past the end of their standard support and no longer get regular security updates, so a newer release is the better choice where there is one. |
 | **Sessions** | Wayland and X11 |
 | **Desktops** | GNOME tested; KDE Plasma and others expected to work, untested |
 | **Other distributions** | Fedora, Arch, openSUSE...: run from source, see [install-linux.md](install-linux.md#other-distributions) |

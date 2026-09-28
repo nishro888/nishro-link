@@ -1838,7 +1838,9 @@ class Node:
         want = self.pending_names.get(their_id) if their_id else None
         if want and want != who:
             # Renamed from here while it was off: it takes the name first.
-            ch.send(protocol.err(f"renamed to {want}", code="rename") | {"name": want})
+            # {**a, **b}, not a | b: dict union is Python 3.9, and on 3.8 this
+            # killed the handshake of every device renamed while it was off.
+            ch.send({**protocol.err(f"renamed to {want}", code="rename"), "name": want})
             return None
         if their_id and their_id in self.removed_ids:
             if not hello.get("join"):

@@ -276,6 +276,10 @@ def test_writing_does_not_wait_for_the_tool_that_stays_behind(monkeypatch):
     monkeypatch.setattr(clip.sys, "platform", "linux")
     monkeypatch.setattr(clip, "_tools", lambda: ("xclip",))
     monkeypatch.setattr(clip.subprocess, "run", run)
+    # As a user. As root - the service, or a CI container - the write goes
+    # through the logged-in session instead, and a container has none.
+    from link import session
+    monkeypatch.setattr(session, "running_as_root", lambda: False)
     assert clip.set("hello") is True
     cmd, kw = calls[0]
     assert cmd == clip.WRITE["xclip"]
