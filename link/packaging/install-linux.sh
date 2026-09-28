@@ -22,9 +22,9 @@ say "Nishro Link - installing for ${USER}"
 
 # ---------------------------------------------------------------- python
 command -v python3 >/dev/null || die "python3 is not installed"
-python3 - <<'EOF' || die "Python 3.8 or newer is required"
+python3 - <<'EOF' || die "Python 3.10 or newer is required"
 import sys
-raise SystemExit(0 if sys.version_info >= (3, 8) else 1)
+raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
 EOF
 ok "python3 $(python3 -c 'import sys; print("%d.%d"%sys.version_info[:2])')"
 

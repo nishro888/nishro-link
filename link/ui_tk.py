@@ -841,8 +841,7 @@ class App:
                  fg=C["ink"]).pack(anchor="w")
         self.claim = tk.StringVar(value="motion")
         Segmented(ctl.body, kit, (("motion", "Moving the mouse"),
-                                  ("click", "A click"),
-                                  ("hotkey", "A hotkey")),
+                                  ("click", "A click")),
                   self.claim, command=lambda: self.touched.add("claim")
                   ).pack(anchor="w", pady=(6, 12))
         self.may_drive = tk.BooleanVar(value=True)
@@ -998,7 +997,6 @@ class App:
             self.fw_box.pack_forget()
 
         # ---- overview
-        holder = "this device" if s["holds"] else (s["holder"] or "nobody")
         self.hero_name.configure(text=s["node"] if s["holds"] else
                                  (s["holder"] or "nobody"),
                                  fg=C["accent"] if s["holder"] else C["faint"])
@@ -1091,7 +1089,7 @@ class App:
             self.log.configure(state="disabled")
             if at_end:
                 self.log.see("end")
-        self.logpath.configure(text=f"Also written to {_log_path()}")
+        self.logpath.configure(text=f"Also written to {_log_path(self._service)}")
 
     @staticmethod
     def _replace(entry, value):
@@ -1212,7 +1210,7 @@ class App:
 
     def _rename_me(self) -> None:
         """This device's name, edited where it is shown."""
-        C, kit = self.C, self.kit
+        kit = self.kit
         if self._renaming:
             return
         self._renaming = True
@@ -1651,7 +1649,7 @@ class App:
         self._poll_now()
 
     def _open_log(self) -> None:
-        folder = os.path.dirname(_log_path())
+        folder = os.path.dirname(_log_path(self._service))
         try:
             if sys.platform == "win32":
                 os.startfile(folder)               # noqa: S606 - a folder we own
@@ -1782,7 +1780,15 @@ class App:
 
 
 # ------------------------------------------------------------------ helpers
-def _log_path() -> str:
+def _log_path(service: bool = False) -> str:
+    """Where the log is - the service's own when this window is one onto the
+    service: it runs as SYSTEM or root and writes there, not in this person's
+    folder, which showed an old log from before it was installed."""
+    if service:
+        from . import service as _service
+        if sys.platform == "win32":
+            return str(_service.STATE / "link.log")
+        return str(_service.STATE / "nishro-link" / "link.log")
     from .runtime import log_path
     return str(log_path())
 

@@ -332,7 +332,6 @@ def paint(win) -> None:
     window's twice-a-second status refresh among it - and a menu took 80 ms
     to open. Only window events (map, expose) and then the redraws they ask
     for: a menu in a few milliseconds."""
-    import tkinter as tk
     import _tkinter
     flags = _tkinter.WINDOW_EVENTS | _tkinter.DONT_WAIT
     for _ in range(200):                    # a fence: there are only a few

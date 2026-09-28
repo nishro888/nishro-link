@@ -465,7 +465,6 @@ class AddDevice:
         self._poll_id = self.top.after(POLL_MS, self._follow)
 
     def _failed(self, a) -> None:
-        C = self.C
         reason = a.get("reason") or "error"
         self.outcome = reason
         at = max(0, min(3, STEP_OF.get(self._last_phase(reason), 0)))

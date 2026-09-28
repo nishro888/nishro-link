@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from link import protocol, secure
+from link import pairing, protocol, secure
 
 from test_node_live import Pair
 
@@ -79,7 +79,8 @@ def test_a_changed_frame_is_refused():
 
 def test_a_replayed_or_reordered_frame_is_refused():
     (hs, _ho), (_ds, do) = _pair_of_ends()
-    first, second = hs.seal(b"one"), hs.seal(b"two")
+    hs.seal(b"one")                       # the first frame, never delivered
+    second = hs.seal(b"two")
     with pytest.raises(secure.SecureError):
         do.open(second)                       # out of order
     (hs, _ho), (_ds, do) = _pair_of_ends()
@@ -163,3 +164,67 @@ def test_nothing_after_the_handshake_is_readable_on_the_wire():
         assert b"tiger" not in wire and b"lemon" not in wire, "never the password"
     finally:
         p.stop()
+
+
+# ------------------------------------------------------------- one secret
+def test_a_wrapped_secret_opens_only_with_the_same_password_and_nonces():
+    """A group's password, handed to a new device or to members on a password
+    change, is sealed with ChaCha20-Poly1305 under a key from HKDF."""
+    box = secure.wrap(b"tiger-lemon-coral-radio", "key", "a1", "b1")
+    assert secure.unwrap(box, "key", "a1", "b1") == b"tiger-lemon-coral-radio"
+    for psk, a, b in (("other", "a1", "b1"), ("key", "a2", "b1"),
+                      ("key", "a1", "b2"), ("key", "b1", "a1")):
+        with pytest.raises(secure.SecureError):
+            secure.unwrap(box, psk, a, b)
+    assert b"tiger" not in bytes.fromhex(box)
+
+
+@pytest.mark.parametrize("junk", ["", "zz", "00" * 15, None, 5, [], "00" * 40])
+def test_a_wrapped_secret_that_is_not_one_is_refused(junk):
+    with pytest.raises(secure.SecureError):
+        secure.unwrap(junk, "key", "a", "b")
+
+
+def test_a_wrapped_secret_altered_by_one_bit_is_refused():
+    box = bytearray.fromhex(secure.wrap(b"secret", "key", "a", "b"))
+    for i in range(len(box)):
+        bad = bytearray(box)
+        bad[i] ^= 1
+        with pytest.raises(secure.SecureError):
+            secure.unwrap(bad.hex(), "key", "a", "b")
+
+
+@pytest.mark.parametrize("box", [None, {}, {"ct": 5}, {"ct": "zz"}, "text",
+                                 {"ct": secure.wrap(b"\xff\xfe", "k", "a", "b")}])
+def test_the_protocol_refuses_a_wrapped_secret_it_cannot_read(box):
+    with pytest.raises(ValueError):
+        protocol.unwrap(box, "k", "a", "b")
+
+
+def test_an_invitation_crosses_the_wire_encrypted():
+    """Adding a device hands it the group's hub, address and password. That
+    runs over the same exchange as every link: after the proofs, nothing of
+    the invitation is readable - and the proofs are bound to both key-exchange
+    values, so a machine in the middle cannot take it over."""
+    from test_groups_live import accept_invites, device, wait
+    laptop = device("laptop", "tiger-lemon-coral-radio")
+    aio = device("aio", "bench-grape-molar-stump")
+    accept_invites(aio)
+    tap = Tap(aio.port)
+    for n in (laptop, aio):
+        threading.Thread(target=n.run, daemon=True).start()
+    try:
+        r = laptop.invite("aio", "bench-grape-molar-stump", addr="127.0.0.1",
+                          port=tap.port)
+        assert r["ok"], laptop.adding
+        wait(lambda: aio.pin == pairing.normalise("tiger-lemon-coral-radio"),
+             "the group's password",
+             (laptop, aio))
+        wire = bytes(tap.seen)
+        assert b'"t":"invite_ok"' in wire, "the proofs themselves are plain"
+        for plain in (b'"t":"invite"', b'"t":"invite_done"', b'"hub"',
+                      b"tiger", b"bench", b'"hub_id"'):
+            assert plain not in wire, plain
+    finally:
+        for n in (laptop, aio):
+            n.stop()

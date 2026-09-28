@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/nishro888/nishro-link/discussions
+    about: Ask how to do something, share a setup, discuss an idea.
+  - name: Report a security problem
+    url: https://github.com/nishro888/nishro-link/security/advisories/new
+    about: Privately, please - not as a public issue.

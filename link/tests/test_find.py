@@ -9,7 +9,6 @@ a thousand mouse reports a second were written to the network one by one
 """
 import socket
 import sys
-import threading
 import time
 import os
 
@@ -17,7 +16,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from link import protocol, shake as S                    # noqa: E402
+from link import protocol                    # noqa: E402
 from link.desk import simple                            # noqa: E402
 from link.inject import locate_gnome                    # noqa: E402
 from link.node import NodeCore                          # noqa: E402

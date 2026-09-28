@@ -1809,7 +1809,7 @@ class Node:
         protocol.check_version(hello)
         who = hello.get("node", str(addr))
         if hello.get("invite"):
-            return self._invited(ch, addr, chal, hello)
+            return self._invited(ch, addr, chal, hello, dh_priv, dh_pub)
         their_dh = hello.get("dh")
         if not their_dh:
             ch.send(protocol.err("no key exchange - update Nishro Link", code="auth"))
@@ -1955,15 +1955,22 @@ class Node:
                       "that speaks the protocol can connect and type here")
         return who
 
-    def _invited(self, ch, addr, chal, hello):
+    def _invited(self, ch, addr, chal, hello, dh_priv, dh_pub):
         """Another device typed OUR password and asks us to join ITS group.
 
         Only a device on its own accepts: one with devices of its own would
-        strand them. Both sides prove the password before anything changes, and
-        the group's password arrives sealed under ours (protocol.wrap)."""
+        strand them. Both sides prove the password - bound to both sides'
+        key-exchange values, as on any link - before anything changes; the
+        invitation is then sent encrypted, and the group's password inside it
+        is sealed under ours as well (protocol.wrap)."""
         who = hello.get("node", "?")
+        their_dh = hello.get("dh")
+        if not their_dh:
+            ch.send(protocol.err("no key exchange - update Nishro Link", code="auth"))
+            return None
+        bind = f"{dh_pub}|{their_dh}"
         if not protocol.verify(self._own_key(), chal, who, self.core.node,
-                               hello.get("proof", "")):
+                               hello.get("proof", ""), bind):
             ch.send(protocol.err("wrong password", code="auth"))
             self._log(f"{who} tried to add this device with the wrong password")
             self._event("rejected", name=who, reason="wrong_password")
@@ -1981,9 +1988,18 @@ class Node:
             ch.send(protocol.err("this device cannot be added from elsewhere",
                                  code="busy"))
             return None
+        try:
+            keys = secure.session(secure.shared(dh_priv, their_dh),
+                                  self._own_key(), chal, their_chal, "hub")
+        except secure.SecureError as e:
+            ch.send(protocol.err(str(e), code="auth"))
+            self._log(f"{who} tried to add this device: {e}")
+            return None
         ch.send(protocol.invite_ok(
             self.core.node, protocol.proof(self._own_key(), their_chal,
-                                           self.core.node, who)))
+                                           self.core.node, who, bind)))
+        # Everything after this is encrypted, both ways.
+        ch.seal(*keys)
         msg = ch.recv()
         if not msg or msg.get("t") != "invite":
             return None
@@ -2065,10 +2081,12 @@ class Node:
             state("verifying", detail=them)
             mine = protocol.nonce()
             theirs = pairing.key(pin, greet.get("id"))     # ITS password, ITS salt
+            dh_priv, dh_pub = secure.keypair()
+            bind = f"{greet.get('dh')}|{dh_pub}"
             ch.send(protocol.hello(
                 self.core.node, [], proof=protocol.proof(theirs, greet["nonce"],
-                                                         self.core.node, them),
-                chal=mine, dev_id=self.device_id, invite=True))
+                                                         self.core.node, them, bind),
+                chal=mine, dev_id=self.device_id, invite=True, dh=dh_pub))
             reply = ch.recv()
             if not reply:
                 return state("failed", "refused", "it hung up")
@@ -2078,8 +2096,14 @@ class Node:
                                         "busy": "busy"}.get(code, "refused"),
                              reply.get("msg"))
             if reply.get("t") != "invite_ok" or not protocol.verify(
-                    theirs, mine, them, self.core.node, reply.get("proof", "")):
+                    theirs, mine, them, self.core.node, reply.get("proof", ""),
+                    bind):
                 return state("failed", "impostor", them)
+            try:
+                ch.seal(*secure.session(secure.shared(dh_priv, greet.get("dh")),
+                                        theirs, greet["nonce"], mine, "dialer"))
+            except secure.SecureError as e:
+                return state("failed", "impostor", f"{them}: {e}")
             ch.send(protocol.invite(hub, hub_id, hub_addr, hub_port,
                                     protocol.wrap(self.pin, theirs, greet["nonce"],
                                                   mine)))

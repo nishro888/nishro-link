@@ -743,3 +743,15 @@ def test_shake_to_find_is_a_switch_that_applies_at_once(app):
     app.find_shake.set(True)
     app._set_find_shake()
     assert app.api.node.core.find_on_shake is True
+
+
+def test_a_window_onto_the_service_points_at_the_services_log():
+    """Help > Open log folder, and the Activity page, name the file the
+    service writes - not this person's folder, where an old log may be."""
+    here = ui_tk._log_path(False)
+    there = ui_tk._log_path(True)
+    assert here != there
+    if sys.platform == "win32":
+        assert there.lower().endswith(r"programdata\nishrolink\link.log")
+    else:
+        assert there == "/var/log/nishro-link/link.log"

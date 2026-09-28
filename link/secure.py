@@ -93,6 +93,31 @@ def session(secret: bytes, psk: str, hub_nonce: str, dialer_nonce: str,
     return Sealer(send), Opener(recv)
 
 
+# ------------------------------------------------------------- one secret
+def _wrap_aead(psk: str, a: str, b: str) -> ChaCha20Poly1305:
+    key = HKDF(algorithm=hashes.SHA256(), length=32, salt=f"{a}|{b}".encode(),
+               info=b"nishro-link v8 wrap").derive((psk or "").encode())
+    return ChaCha20Poly1305(key)
+
+
+def wrap(secret: bytes, psk: str, a: str, b: str) -> str:
+    """`secret` sealed for whoever knows `psk`, as hex. The key comes from the
+    password key and two fresh nonces, so it seals this one secret only - which
+    is what makes the fixed nonce safe."""
+    return _wrap_aead(psk, a, b).encrypt(bytes(12), bytes(secret), None).hex()
+
+
+def unwrap(box: str, psk: str, a: str, b: str) -> bytes:
+    try:
+        raw = bytes.fromhex(str(box))
+    except (TypeError, ValueError):
+        raise SecureError("not a sealed secret") from None
+    try:
+        return _wrap_aead(psk, a, b).decrypt(bytes(12), raw, None)
+    except InvalidTag:
+        raise SecureError("not sealed with this password") from None
+
+
 # ------------------------------------------------------------------ frames
 def _nonce(seq: int) -> bytes:
     """96 bits: four zero bytes and the frame's number. Unique for the life

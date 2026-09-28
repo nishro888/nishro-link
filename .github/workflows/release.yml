@@ -1,0 +1,76 @@
+name: Release
+
+# Push a tag like v0.15.0-beta. Everything published is built here, from
+# that tag - not on anyone's computer - and listed in SHA256SUMS. The source
+# comes as GitHub's own "Source code" archives of the tag. Run by hand, it only
+# builds (the files are kept as the run's artifacts) and publishes nothing.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "pyinstaller>=6" "cryptography>=3.4"
+      - run: choco install innosetup --no-progress -y
+      - run: powershell -ExecutionPolicy Bypass -File link/packaging/build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/NishroLink-Setup-*.exe
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python link/packaging/build-deb.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.deb
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Checksums
+        run: cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Release notes from CHANGELOG.md
+        run: |
+          ver=$(python3 -c "import link; print(link.__version__)")
+          awk -v v="$ver" '
+            $0 ~ "^## \\[" v "\\]" {on=1; next}
+            on && /^## \[/ {exit}
+            on {print}
+          ' CHANGELOG.md > notes.md
+          printf '\n---\nVerify a download: `sha256sum -c SHA256SUMS --ignore-missing`\n' >> notes.md
+          cat notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          ver=$(python3 -c "import link; print(link.__version__, link.__stage__)")
+          pre=""
+          case "$tag" in *-*) pre="--prerelease" ;; esac
+          gh release create "$tag" out/* --title "Nishro Link ${ver}" \
+            --notes-file notes.md $pre

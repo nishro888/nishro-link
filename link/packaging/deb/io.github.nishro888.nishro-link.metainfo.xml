@@ -19,14 +19,31 @@
     <ul>
       <li>Add a computer by its name and a four-word password - no addresses</li>
       <li>Arrange the screens to match your desk, with every monitor drawn</li>
+      <li>Wrap-around, and shake the mouse to find the pointer</li>
       <li>A shared clipboard for text</li>
-      <li>Encrypted, with a fresh key every connection</li>
+      <li>Encrypted with X25519 and ChaCha20-Poly1305, a fresh key every connection</li>
       <li>Runs from boot, so it also works on the login and lock screens</li>
     </ul>
   </description>
   <launchable type="desktop-id">nishro-link.desktop</launchable>
   <url type="homepage">https://github.com/nishro888/nishro-link</url>
   <url type="bugtracker">https://github.com/nishro888/nishro-link/issues</url>
+  <url type="help">https://github.com/nishro888/nishro-link/blob/main/docs/user-guide.md</url>
+  <url type="vcs-browser">https://github.com/nishro888/nishro-link</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The Home page: who has control, and the arrangement</caption>
+      <image>https://raw.githubusercontent.com/nishro888/nishro-link/main/docs/screenshots/overview.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Arranging the screens, with a copy of a machine for wrap-around</caption>
+      <image>https://raw.githubusercontent.com/nishro888/nishro-link/main/docs/screenshots/arrange.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Devices: this device's password, the group, and devices nearby</caption>
+      <image>https://raw.githubusercontent.com/nishro888/nishro-link/main/docs/screenshots/devices.png</image>
+    </screenshot>
+  </screenshots>
   <categories>
     <category>Utility</category>
   </categories>
@@ -41,6 +58,13 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.15.0" date="2026-09-28">
+      <description>
+        <p>The first public release. The link's encryption is now built on
+        standard primitives - X25519, HKDF-SHA256 and ChaCha20-Poly1305 - and
+        the documentation covers installing, using and securing it.</p>
+      </description>
+    </release>
     <release version="0.14.0" date="2026-09-28">
       <description>
         <p>A cleaner window: one navigation pane with Settings and Help at its

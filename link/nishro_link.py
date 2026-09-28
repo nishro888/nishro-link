@@ -155,7 +155,7 @@ def build_parser():
     ap.add_argument("--peer-screen", help="the other machine's size, e.g. 1920x1080")
     ap.add_argument("--port", type=int)
     ap.add_argument("--pin")
-    ap.add_argument("--claim", choices=["motion", "click", "hotkey"],
+    ap.add_argument("--claim", choices=["motion", "click"],
                     help="what hands control to this machine (default: motion)")
     ap.add_argument("--no-drive", dest="may_drive", action="store_false", default=None,
                     help="may be controlled, but never takes control")

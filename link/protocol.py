@@ -277,40 +277,27 @@ def err(msg: str, code: str = None) -> dict:
 # exposure every handshake has, and the reason passwords are generated (59
 # bits). HMAC-SHA256 as a keystream and as a MAC: the standard library only.
 
-def _wrap_key(pin: str, chal_a: str, chal_b: str) -> bytes:
-    msg = f"nishro-link wrap|{chal_a}|{chal_b}".encode()
-    return hmac.new((pin or "").encode(), msg, hashlib.sha256).digest()
-
-
-def _stream(key: bytes, n: int) -> bytes:
-    out, i = b"", 0
-    while len(out) < n:
-        out += hmac.new(key, b"ks" + i.to_bytes(4, "big"), hashlib.sha256).digest()
-        i += 1
-    return out[:n]
-
-
 def wrap(secret: str, pin: str, chal_a: str, chal_b: str) -> dict:
-    """`secret` sealed under `pin` and this handshake's two challenges."""
-    key = _wrap_key(pin, chal_a, chal_b)
-    data = (secret or "").encode("utf-8")
-    ct = bytes(x ^ y for x, y in zip(data, _stream(key, len(data))))
-    tag = hmac.new(key, b"tag" + ct, hashlib.sha256).hexdigest()
-    return {"ct": ct.hex(), "tag": tag}
+    """`secret` sealed under `pin` and two fresh challenges (secure.wrap:
+    HKDF-SHA256 and ChaCha20-Poly1305)."""
+    from . import secure
+    return {"ct": secure.wrap((secret or "").encode("utf-8"), pin, chal_a, chal_b)}
 
 
 def unwrap(box: dict, pin: str, chal_a: str, chal_b: str) -> str:
     """The secret, or ValueError if it was not sealed with this pin."""
+    from . import secure
     try:
-        ct = bytes.fromhex(str(box["ct"]))
-        tag = str(box["tag"])
-    except (KeyError, TypeError, ValueError) as e:
-        raise ValueError(f"not a wrapped secret: {e}") from None
-    key = _wrap_key(pin, chal_a, chal_b)
-    want = hmac.new(key, b"tag" + ct, hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(want, tag):
-        raise ValueError("the secret was not sealed with this password")
-    return bytes(x ^ y for x, y in zip(ct, _stream(key, len(ct)))).decode("utf-8")
+        ct = box["ct"]
+    except (KeyError, TypeError) as e:
+        raise ValueError(f"not a wrapped secret: {e!r}") from None
+    try:
+        return secure.unwrap(ct, pin, chal_a, chal_b).decode("utf-8")
+    except secure.SecureError as e:
+        raise ValueError(f"the secret was not sealed with this password ({e})") \
+            from None
+    except UnicodeDecodeError:
+        raise ValueError("the secret is not text") from None
 
 
 def invite_ok(node: str, proof: str) -> dict:

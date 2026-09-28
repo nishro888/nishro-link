@@ -73,7 +73,20 @@ def load(p: Path = None) -> dict:
         return cfg
     if not isinstance(stored, dict):
         return cfg
-    return merge(cfg, stored)
+    return _settled(merge(cfg, stored))
+
+
+# What can hand control to this machine. "hotkey" was offered once, but no
+# hotkey was ever bound to it: a machine set to it could never take control
+# back with its own mouse. It reads as "click", the nearest thing that works.
+CLAIMS = ("motion", "click")
+
+
+def _settled(cfg: dict) -> dict:
+    policy = cfg.get("policy")
+    if isinstance(policy, dict) and policy.get("claim") not in CLAIMS:
+        policy["claim"] = "click" if policy.get("claim") == "hotkey" else "motion"
+    return cfg
 
 
 _SAVE = threading.Lock()

@@ -1,211 +1,201 @@
-# Nishro Link
+<p align="center">
+  <img src="link/packaging/assets/nishro-link-128.png" width="96" height="96" alt="">
+</p>
 
-**One mouse and keyboard across several computers, on Windows and Linux.**
-Push the pointer off the edge of one screen and it carries on onto the next
-computer's. Type, and it goes to whichever screen the pointer is on. Copy on one
-machine, paste on another. Any machine's own mouse can take over at any time -
-there is no fixed "server with the keyboard".
+<h1 align="center">Nishro Link</h1>
 
-| Light | Dark |
-|---|---|
-| ![The Home page, light](docs/screenshots/overview.png) | ![The Home page, dark](docs/screenshots/overview-dark.png) |
+<p align="center">
+  <b>One mouse and keyboard across your Windows and Linux computers.</b><br>
+  Push the pointer off one screen and it carries on onto the next computer.
+</p>
 
-> **Status: beta (v0.14).** Developed and tested on a Windows 10 laptop and an
-> Ubuntu (Wayland) desktop, with an automated test suite - read
-> [Limitations](#limitations) first.
+<p align="center">
+  <a href="https://github.com/nishro888/nishro-link/actions/workflows/ci.yml"><img src="https://github.com/nishro888/nishro-link/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/nishro888/nishro-link/releases"><img src="https://img.shields.io/github/v/release/nishro888/nishro-link?include_prereleases&label=release" alt="Release"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2B%20%7C%20Linux-informational" alt="Windows 10+ and Linux">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/nishro888/nishro-link" alt="MIT License"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/nishro888/nishro-link/releases/latest"><b>Download</b></a> ·
+  <a href="docs/user-guide.md">User guide</a> ·
+  <a href="docs/requirements.md">Requirements</a> ·
+  <a href="docs/faq.md">FAQ</a> ·
+  <a href="docs/security.md">Security</a>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/overview.png" width="820" alt="Nishro Link's Home page, in the dark theme">
+</p>
+
+A software KVM: type and point on several computers with one set of hands.
+The keyboard follows the pointer, text copied on one computer pastes on
+another, and **whichever mouse you touch takes control** - there is no fixed
+"server" with the keyboard.
+
+> **Beta.** Nishro Link is young. It is developed and used on a Windows laptop
+> and an Ubuntu desktop, with an automated suite of over 1,200 tests, but it
+> has not been widely deployed or independently audited. Read the
+> [limitations](#limitations).
+
+## Why Nishro Link
+
+- **Any machine drives.** Move any computer's mouse and it takes over; the
+  others follow. No server and client roles to choose.
+- **Pair by name and a password.** Each device shows four plain words
+  (`tiger-lemon-coral-radio`). Pick the device, type its words, done. No IP
+  addresses - if the router moves a device, it is found again by name.
+- **Wayland without prompts.** On Linux it works at the kernel's input layer,
+  so it behaves the same on Wayland and X11 - and at the **login and lock
+  screens**, on Windows too.
+- **An arrangement editor that means it.** Every monitor drawn as it is,
+  placed freely. Resize a box to put a border exactly where you want it -
+  without ever changing the pointer's speed. Add a **copy** of a machine for
+  wrap-around.
+- **Encrypted with standard cryptography.** X25519, HKDF-SHA256 and
+  ChaCha20-Poly1305 - the primitives WireGuard uses - with the password never
+  sent. No cloud, no account, no telemetry.
+- **It gives your machine back.** If a link drops or anything is in doubt,
+  input returns to each computer at once. **Both Ctrl keys** always free the
+  machine you are at.
 
 ## Features
 
-- **Any machine drives.** Whichever mouse you touch takes control. The others
-  follow. Keyboards follow the pointer.
-- **Several devices in one group.** Any number can join, and the hub relays
-  between them - so one desktop's mouse can drive another desktop's screen
-  through it.
-- **Add a device by name and one password - from either side.** Every device
-  shows its name and a generated password of four plain words
-  (`tiger-lemon-coral-radio`). Devices nearby are listed on the Devices page;
-  pick one, type the password it shows, and watch each step until it says
-  connected - or says why not, and what to do. No IP addresses: if DHCP moves
-  a device, it is found again automatically.
-- **Manage any device from any device.** Click a device for its details -
-  displays, address, version, when it joined - or right-click it. Rename it
-  (live, no restart), remove it, and set what it may do: take control of the
-  others, be controlled by them. One that may not be controlled is a wall the
-  pointer stops at.
-- **A real arrangement editor.** Every machine is drawn as its actual monitors.
-  Drag them to match your desk - beside, above, below, against a particular
-  monitor - and bright lines show exactly where the pointer will cross. A
-  change reaches every device the moment you drop it; Ctrl+Z undoes.
-- **Borders exactly where you want them.** Resize any box by its handles, free
-  of its aspect ratio, so a small laptop screen can meet a big monitor along
-  its whole edge. Only where the borders meet changes - never the pointer's
-  speed. *Aspect ratio* and *Actual size* put it back.
-- **Wrap-around.** Place a copy of a machine anywhere, and pushing into the
-  copy lands you on the machine itself: put a copy of the laptop to the right
-  of the AIO, and right from the AIO comes back round to the laptop.
-- **Find the pointer.** Lost it among the screens? Shake the mouse: every screen
-  but a circle round the pointer darkens - on whichever computer it is (on
-  Ubuntu, GNOME's own ripple). Also a button in the window; can be turned off.
-- **Quick on Wi-Fi.** A machine being controlled keeps its Wi-Fi radio awake,
-  so the pointer does not stall after a pause, and bursts of mouse reports go
-  out together.
-- **Monitors plugged in or out** are noticed within seconds and the arrangement
-  updates everywhere.
-- **Shared clipboard** (text).
-- **Encrypted.** Every link is encrypted with a fresh key each time it
-  connects, and devices prove the password to each other without ever sending
-  it.
-- **It gives your machine back.** If a link dies, a device leaves, or anything is
-  in doubt, local input is restored at once. Pressing **both Ctrl keys**
-  together, or *Release input* in the window, always frees the machine you are
-  at.
-- **A proper program.** Laid out like Windows' own Settings: one navigation
-  pane with Windows' own icons, Settings and Help at its foot. Windows 11-style
-  buttons, switches and text boxes, in a light and a dark theme that follow the
-  computer's setting (or pick one). A setup wizard, a Start Menu entry, an
-  uninstaller, keyboard shortcuts, and a Help page with About - the version,
-  and any device running a different one.
-
-| Devices | Arrangement |
+| | |
 |---|---|
-| ![Devices](docs/screenshots/devices.png) | ![Arrangement](docs/screenshots/arrange.png) |
+| **Groups of devices** | as many as you have, managed from any of them: rename, remove, set who may control whom |
+| **Arrangement** | drag, snap, resize; bright lines show where the pointer crosses; changes apply everywhere at once, Ctrl+Z undoes |
+| **Wrap-around** | place a copy of a machine: right off the last screen comes back in on the first |
+| **Find the pointer** | shake the mouse: every screen darkens but a circle round the pointer, on whichever computer it is |
+| **Monitors** | several per computer; plugged in or out, noticed within seconds |
+| **Clipboard** | text, shared |
+| **Quick on Wi-Fi** | a controlled computer keeps its radio awake; bursts of movement are sent together |
+| **From boot** | runs as a system service on both systems, so it works before anyone signs in |
+| **A proper program** | light and dark themes, Windows 11-style controls, keyboard shortcuts, a setup wizard and a Debian package with an App Center page |
 
-| Adding a device | Help |
-|---|---|
-| ![Add a device](docs/screenshots/add.png) | ![Help and About](docs/screenshots/help.png) |
+<table>
+  <tr>
+    <td><img src="docs/screenshots/arrange.png" alt="The arrangement editor, with a wrap-around copy"></td>
+    <td><img src="docs/screenshots/devices.png" alt="The Devices page"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Arrangement: a laptop with two monitors, two desktops, and a copy of the laptop for wrap-around</sub></td>
+    <td align="center"><sub>Devices: this device's password, the group, and devices nearby</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/add.png" alt="Adding a device"></td>
+    <td><img src="docs/screenshots/settings.png" alt="Settings"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Adding a device</sub></td>
+    <td align="center"><sub>Settings</sub></td>
+  </tr>
+</table>
 
 ## Install
 
-### Windows 10 / 11
+Every computer needs Nishro Link, **the same version**, on the **same local
+network**. Downloads are on the [releases page](https://github.com/nishro888/nishro-link/releases/latest).
 
-Download **`NishroLink-Setup-0.14.0.exe`** from the [Releases](../../releases)
-page and run it. Click through the wizard and approve the one permission
-prompt. Nishro Link then:
+| | Download | Needs |
+|---|---|---|
+| **Windows** | `NishroLink-Setup-0.15.0.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
+| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_0.15.0-beta_all.deb` | Ubuntu 22.04+ or Debian 12+ (or derivatives); Wayland or X11 |
+| **Other Linux** | Source code | Python 3.10+, Tk, evdev, cryptography - [instructions](docs/install-linux.md#other-distributions) |
 
-- runs in the background from the moment Windows starts - so another computer's
-  mouse and keyboard also work on the lock and sign-in screens;
-- is allowed through the firewall on private networks;
-- appears in the Start Menu, and in **Settings → Apps** for uninstalling.
+**Windows:** run the setup and approve the one permission prompt. The
+installer is not code-signed yet: if SmartScreen warns, choose **More info →
+Run anyway**. [Details](docs/install-windows.md).
 
-The installer is not code-signed yet, so Windows SmartScreen may warn the first
-time: choose **More info → Run anyway**.
-
-### Ubuntu, Debian and derivatives (Wayland and X11)
-
-Download **`nishro-link_0.14.0-beta_all.deb`** from the
-[Releases](../../releases) page and open it - the App Center installs it - or:
+**Ubuntu and Debian:** open the `.deb` (the App Center installs it), or
 
 ```bash
-sudo apt install ./nishro-link_0.14.0-beta_all.deb
+sudo apt install ./nishro-link_0.15.0-beta_all.deb
 ```
 
-It installs everything it needs and runs Nishro Link in the background from
-boot, so it also works on the login and lock screens. **Nishro Link** appears
-in the app menu. Log out and back in once afterwards (the window says so if it
-is needed).
+then log out and back in once. [Details](docs/install-linux.md).
 
-If a firewall (ufw) is running: `sudo ufw allow 8770`. To remove it:
-`sudo apt remove nishro-link`.
+Full [requirements](docs/requirements.md): what is tested, what is supported,
+and what each library is for. Every release file is built by GitHub Actions
+from the tagged source and listed in `SHA256SUMS`.
 
-### Building it, or installing without an installer
+## Quick start
 
-```powershell
-powershell -ExecutionPolicy Bypass -File link\packaging\build-windows.ps1   # exe + setup wizard
-```
-```bash
-python link/packaging/build-deb.py                                           # the .deb
-./link/packaging/install-linux.sh                                            # any Linux, your user only
-```
+1. Open Nishro Link on both computers. Each shows its **name** and
+   **password** on the **Devices** page.
+2. On either one: **Add a device**, pick the other, and type the password it
+   shows. The dialog follows each step until it says **connected**, or says
+   why not.
+3. Open **Arrangement** and drag the screens to match your desk.
 
-## Getting started
-
-1. Open Nishro Link on both computers. Each one shows its name and password on
-   the **Devices** page.
-2. On either one: **Add a device**, pick the other from the list, and type the
-   password it shows. Capitals and dashes don't matter. The dialog follows it
-   step by step until it says **connected**, or says why not.
-3. Open **Arrangement** and drag the machines to match your desk. Changes apply
-   straight away, on every device (Ctrl+Z undoes).
-
-Push the pointer across a bright line to cross. Move any machine's own mouse to
-take control from there. To add a third device, do the same from any device
-already in the group.
-
-To change a device, click it on the **Devices** page (or right-click it):
-**Details**, **Rename**, **Control rights**, **Remove from the group**. This
-works from any device in the group. A device can also **Leave this group**
-from its own screen.
-
-**Sharing** in the top right pauses everything, without losing the group.
+Push the pointer across a bright line to cross. Move any computer's mouse to
+take control from there. The [user guide](docs/user-guide.md) covers the rest.
 
 ## Limitations
 
-- **Three-device groups** are tested with live nodes on one machine, not yet on
-  three physical machines.
-- **Linux:** after a monitor change, restart Nishro Link on that machine for the
-  pointer to use the new size (the arrangement updates straight away).
-  Multi-monitor Linux is read through `xrandr`.
-- **macOS** is not supported.
-- Clipboard is text only. File transfer is not implemented.
+- **Windows and Linux only.** No macOS.
+- **Local network only** - not across the internet.
+- **Clipboard is text only**; no file transfer yet.
+- **Linux:** after a monitor is plugged in or out, restart Nishro Link on that
+  computer for the pointer to use the new size (the arrangement updates on its
+  own). *Find the pointer* works on GNOME only, for now.
+- **Tested** on Windows 10 22H2 and Ubuntu 26.04 (GNOME, Wayland) as physical
+  machines; groups of three in automated tests only. The `.deb` is test-installed
+  on Ubuntu 22.04, 24.04 and Debian 12 in CI.
+- **Windows:** any account signed in to the computer can use Nishro Link's
+  controls on it ([security](docs/security.md#who-is-trusted)).
+- The Windows installer is **not code-signed** yet, and the code has **not been
+  independently audited**.
+
+## Roadmap
+
+Ideas, in no fixed order - not promises:
+
+- images and files over the clipboard
+- monitor changes on Linux picked up without a restart
+- *Find the pointer* on KDE Plasma and other desktops
+- a code-signed Windows installer, and winget
+- an RPM package for Fedora
+
+Suggestions and votes are welcome in
+[Discussions](https://github.com/nishro888/nishro-link/discussions).
 
 ## How it works
 
 One device in a group is the **hub**: the others connect to it, and it decides
-who holds control (the *baton*) so two machines can never both think they are
-driving. That is an administrative role only - any machine's mouse can drive.
+who holds control, so two computers can never both think they are driving.
+That is an administrative role only - any computer's mouse can drive.
 
-The arrangement is a plane of rectangles: each machine is a rigid group of its
-displays, drawn at any size, and the pointer crosses wherever boxes share an
-edge - the way an operating system treats its own monitors. The arrangement is
-compiled into doorways, and the pointer moves in each machine's own pixels,
-crossing only through them. `link/desk.py` knows where everything is; `link/motion.py` moves
-the pointer across it; the arrangement screen draws `desk.py`, so what it shows
-is what the pointer does.
+The arrangement is a plane of rectangles, compiled into doorways; the pointer
+moves in each computer's own pixels and crosses only through them, so the size
+a box is drawn at never changes its speed. Input is captured with low-level
+hooks on Windows and evdev on Linux, and played back with `SendInput` and
+uinput.
 
-[`link/DESIGN.md`](link/DESIGN.md) is the full design: the safety properties
-(the mouse never freezes, you always get your machine back, no key stays
-down), the wire protocol, reconnection, discovery and security.
+[DESIGN.md](link/DESIGN.md) is the full design: the safety properties (the
+mouse never freezes, you always get your machine back, no key stays down), the
+wire protocol, reconnection, discovery and security.
 
-## Development
+## Contributing
 
-Python 3.10+. No dependencies on Windows beyond the standard library; `evdev`
-on Linux (`pip install -r link/requirements-linux.txt`, or `python3-evdev`).
+Bug reports, ideas and pull requests are welcome - see
+[CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues privately:
+[SECURITY.md](SECURITY.md).
 
 ```bash
-python -m pytest link/tests          # 777 tests, about two and a half minutes
-python -m link.nishro_link           # run from source
-python link/packaging/build-deb.py   # the .deb, into dist/ (pure Python; builds on Windows too)
+git clone https://github.com/nishro888/nishro-link && cd nishro-link
+pip install -e ".[dev]"            # cryptography, pytest, ruff (and evdev on Linux)
+python -m link.nishro_link         # run from source
+python -m pytest                   # the tests - no network, no real input
 ```
 
-The test suite never touches the real network: discovery is confined to
-loopback, and the two- and three-machine tests run real nodes over local
-sockets with the mouse, keyboard and screen faked out.
-
-```
-link/
-  node.py            one machine: the core (pure) and the shell (sockets, threads)
-  desk.py            the arrangement: machines, displays, what touches what
-  motion.py          the pointer moving across the arrangement
-  baton.py           who holds control; the safety watchdog
-  protocol.py        the wire format
-  discovery.py       finding a device by name on the network
-  pairing.py         generated word passwords, and the slow key they prove
-  secure.py          encryption: the key exchange and sealed frames
-  words.py           the word list (EFF short list 1)
-  capture_*.py       reading the local mouse and keyboard (Windows hooks / evdev)
-  inject.py          moving the pointer and typing (SendInput / uinput)
-  control_api.py     the local control API the window and web page use
-  ui_*.py            the window
-  theme/             the controls' look: the Sun Valley ttk theme
-  access.py          Linux keyboard and mouse permissions: checked, and fixed
-  autostart.py       starting at login
-  packaging/         the Windows exe, the .deb, and the install scripts
-```
+The tests never touch the real network or input: discovery is confined to
+loopback, and multi-machine tests run real nodes over local sockets with the
+mouse, keyboard and screen faked.
 
 ## License
 
 [MIT](LICENSE). Generated passwords use the EFF's
-[short word list 1](https://www.eff.org/dice) (CC BY 3.0 US), with a few words
-left out. The controls are drawn by rdbende's
-[Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) (MIT,
-[its licence](link/theme/LICENSE)).
+[short word list 1](https://www.eff.org/dice) (CC BY 3.0 US). The controls are
+drawn with rdbende's [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme)
+(MIT). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+
+  test-windows:
+    name: test (Windows, Python ${{ matrix.python }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # As a contributor would: the package and its dev extras.
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest
+
+  test-linux:
+    name: test (Linux, Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: sudo apt-get update && sudo apt-get install -y xvfb
+      - run: pip install -e ".[dev]"
+      # The window's tests need a display: a virtual one.
+      - run: xvfb-run -a python -m pytest
+
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python link/packaging/build-deb.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/*.deb
+
+  # The package installs, with its dependencies resolved by apt, on the
+  # oldest and newest systems it claims - and the program imports there.
+  deb-install:
+    name: install .deb (${{ matrix.image }})
+    needs: deb
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04", "debian:12"]
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+      - run: apt-get update
+      - run: DEBIAN_FRONTEND=noninteractive apt-get install -y ./nishro-link_*.deb
+      - run: |
+          cd /usr/lib/nishro-link
+          python3 -c "import link.secure, link.node, link.desk, link.nishro_link; print('imports: ok')"
+          python3 -m link.nishro_link --help > /dev/null && echo "command line: ok"
+          test -x /usr/bin/nishro-link && echo "launcher: ok"
+          dpkg -s nishro-link | grep -E '^(Status|Version)'

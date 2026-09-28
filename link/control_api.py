@@ -404,7 +404,7 @@ class ControlAPI:
             with self.node._lock:
                 self.node.core.alone()     # the new group's desk arrives with it
         self.node.set_enabled(True)
-        self.log(f"paired: this device will "
+        self.log("paired: this device will "
                  + ("wait for a connection" if hub
                     else f"connect to {name or addr}") + f" on port {port}")
         out = {"ok": True, "saved_to": str(where), "mode": mode,
@@ -982,8 +982,8 @@ class ControlAPI:
             live["find_on_shake"] = on
         if "claim" in body:
             claim = str(body["claim"])
-            if claim not in ("motion", "click", "hotkey"):
-                return {"error": f"claim must be motion/click/hotkey, not {claim!r}"}
+            if claim not in config.CLAIMS:
+                return {"error": f"claim must be motion or click, not {claim!r}"}
             self.cfg["policy"]["claim"] = claim
             self.node.core.policy["claim"] = claim
             self.node.core.claims.policy = claim
@@ -1117,8 +1117,7 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:
       <option value="top">top</option><option value="bottom">bottom</option></select></div>
     <div><label>What takes control</label><select id="claim">
       <option value="motion">deliberate movement</option>
-      <option value="click">a click only</option>
-      <option value="hotkey">hotkey only</option></select></div>
+      <option value="click">a click only</option></select></div>
     <div><label>Listening machine's IP</label><input id="peer_addr" placeholder="192.168.1.10"></div>
     <div><label>Shared PIN</label><input id="pin" placeholder="unchanged" autocomplete="off"></div>
   </div>

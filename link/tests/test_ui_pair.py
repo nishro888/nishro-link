@@ -22,7 +22,7 @@ import tkinter as tk                                       # noqa: E402
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from link import config, control_api, pairing, ui_pair, ui_theme  # noqa: E402
+from link import config, control_api, ui_pair, ui_theme  # noqa: E402
 from link.desk import Desk                                  # noqa: E402
 from link.node import Node, NodeCore                        # noqa: E402
 from link.runtime import RunLog                             # noqa: E402

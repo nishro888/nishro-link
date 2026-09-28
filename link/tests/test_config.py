@@ -149,3 +149,14 @@ def test_false_is_a_real_value_not_an_absent_one():
     stored = config.merge(config.DEFAULTS, {"hub": True})
     assert config.merge(stored, {"hub": False})["hub"] is False
     assert config.merge(config.DEFAULTS, {"port": 0})["port"] == 0
+
+
+@pytest.mark.parametrize("stored, want", [("hotkey", "click"), ("click", "click"),
+                                          ("motion", "motion"), ("junk", "motion"),
+                                          (None, "motion"), (5, "motion")])
+def test_what_takes_control_is_always_something_that_can(tmp_path, stored, want):
+    """'A hotkey' was offered, but no hotkey was ever bound: a machine set to it
+    could not take control back with its own mouse. Saved, it reads as a click."""
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({"policy": {"claim": stored}}), encoding="utf-8")
+    assert config.load(p)["policy"]["claim"] == want

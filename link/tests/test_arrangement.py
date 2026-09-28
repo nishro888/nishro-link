@@ -10,7 +10,6 @@ edges on the laptop's panel, so with the AIO on the left every move onto the
 external display would have jumped to the AIO instead.
 """
 import sys
-import threading
 import time
 import types
 

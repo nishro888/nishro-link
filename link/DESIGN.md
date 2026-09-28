@@ -409,7 +409,7 @@ Version 7 does the same for boxes with sizes and copies.
 
 ---
 
-## 6. Wire protocol v2
+## 6. Wire protocol
 
 Newline-delimited JSON over TCP. Chosen deliberately: input volume is tiny
 (~1 KB/s while moving), and reading the wire with `nc` during a 2 a.m. debugging
@@ -585,12 +585,13 @@ Adding a device is typing **the password shown on the device you picked**, and
 what happens depends on what it is (`here` says: `group` = its hub's name,
 `alone` = a group of one):
 
-- **on its own** → *invite*: this device proves the new one's password, then
-  hands it the group's hub and the group's password - **sealed under the new
-  device's own password** (`protocol.wrap`: HMAC-SHA256 keystream and MAC, keyed
-  by that password and both handshake challenges), so it never crosses the
-  network in the clear. The new device then dials the hub like any member. Any
-  member can invite, not only the hub.
+- **on its own** → *invite*: both sides prove the new device's password, bound
+  to both sides' X25519 values as on any link, and the connection is encrypted
+  from there on. Only then does this device hand over the group's hub and the
+  group's password - which is **also sealed under the new device's own
+  password** (`protocol.wrap`: ChaCha20-Poly1305 under a key from HKDF-SHA256
+  over that password's key and both handshake challenges). The new device then
+  dials the hub like any member. Any member can invite, not only the hub.
 - **in another group** → *join*: this device checks the password with that
   group's hub first (`probe`: both sides prove it, nothing is registered), and
   only then switches over. A wrong password changes nothing on either side.
@@ -607,7 +608,7 @@ retry cannot fix - a wrong password, removed, a name already taken - and says
 so, instead of retrying forever while the window said "looking for it".
 
 A new password on the hub goes to every member connected at that moment,
-sealed under the old one (`rekey`). One that was switched off is refused on
+over the encrypted link and sealed under the old one as well (`rekey`). One that was switched off is refused on
 return and asks for the new one.
 
 ### From boot: running as a service
@@ -690,35 +691,46 @@ Degrading to "just a normal PC" is always the correct failure.
 
 ## 8. Security
 
-Now: mutual HMAC-SHA256 challenge-response — the password never crosses the
-wire, each side proves it to the other, both names are in the signed
-transcript, and nothing is injected before the peer has proved itself. The
-waiting side generates the password (see *Finding the peer by name*).
+**Authentication.** Mutual challenge-response with HMAC-SHA256 over a slow key
+made from the password (PBKDF2-SHA256, 2^19 iterations, salted with the hub's
+device ID): the password never crosses the wire, each side proves it to the
+other, both names and both key-exchange values are in the signed transcript,
+and nothing is injected before the peer has proved itself. Each device
+generates its own password (see *Finding the peer by name*).
 
-**Encryption** (protocol v6, `secure.py`). Every connection runs an ephemeral
-Diffie-Hellman exchange (RFC 3526 group 14, 2048 bits, 256-bit exponents) inside
-the password handshake: `auth` and `hello` carry each side's public value, and
-both are bound into the password proofs, so a machine in the middle cannot
-swap its own in without remaking a proof it cannot make. Session keys come from
-HKDF-SHA256 over the DH secret *and* the password key, salted with both
-challenges; four of them - encrypt and authenticate, each direction.
+**Encryption** (protocol v8, `secure.py`, the `cryptography` library). Every
+connection - a member dialling its hub, a device being added, a password
+check before joining - runs an ephemeral **X25519** exchange inside the
+password handshake: `auth` and `hello` carry each side's public key, and both
+are bound into the password proofs, so a machine in the middle cannot swap its
+own in without remaking a proof it cannot make. A key that is not 32 bytes, or
+that makes an all-zero secret, is refused. Session keys come from
+**HKDF-SHA256** over the X25519 secret *and* the password key, salted with both
+challenges: one key per direction.
 
-Every frame after `welcome` is sealed: a keyed BLAKE2b keystream in counter
-mode, then a 16-byte keyed BLAKE2b tag over the frame number and ciphertext
-(encrypt-then-MAC), sent as one base64 line. Frame numbers are never sent: a
-dropped, replayed, reordered or altered frame fails its tag and ends the link.
+Every frame after the handshake is sealed with **ChaCha20-Poly1305** (RFC 8439)
+and sent as one base64 line. The nonce is the frame's number in that direction
+and is never sent: a dropped, replayed, reordered or altered frame fails
+authentication and ends the link.
+
+A group's password, when it is handed over (adding a device, `invite`) or
+changed (`rekey`), travels inside that encrypted link **and** is sealed again
+under the receiver's password key (`protocol.wrap`: ChaCha20-Poly1305 under a
+key from HKDF-SHA256 over the password key and two fresh challenges).
 
 Why not TLS: Python's TLS cannot key a connection from a shared password
-before 3.13 (the Windows build is 3.11), and certificates would need a library
-this program does not otherwise carry. The pieces are standard; only their
-assembly is ours, and `test_secure` checks it - including a tap on the wire
-that sees no key press, baton or layout in the clear.
+before 3.13 (the Windows build is 3.11), and certificates would mean a
+certificate authority or trust-on-first-use prompts. The primitives are the
+ones WireGuard and TLS 1.3 use, from a vetted library; only their assembly is
+ours, and `test_secure` checks it - the RFC 7748 test vector, degenerate keys,
+tampered frames, and a tap on the wire that sees no key press, baton, layout
+or invitation in the clear.
 
-What it costs: about 40 ms per connection (the exchange), and about 14 µs per
-frame - 1.4% of one core at a thousand pointer moves a second.
+Forward secrecy: the X25519 keys are thrown away with the connection, so
+traffic recorded today stays unreadable even if the password is learned later.
 
-Forward secrecy: the DH values are thrown away with the connection, so traffic
-recorded today stays unreadable even if the password is learned later.
+What is **not** protected, and other limits, are in
+[docs/security.md](../docs/security.md).
 
 ---
 
@@ -772,50 +784,50 @@ an *additional* backend, never the only one.
 
 ## 10. Known platform limits
 
-- **Windows secure desktop.** A thread cannot switch desks while it holds hooks.
-  The UAC prompt, the lock screen and the screensaver are separate desks, so
-  capture stops there and that node drops out of the baton. Input Leap solves
-  this with a Windows service plus a watchdog that reinstalls hooks into the
-  active session (`MSWindowsDesks`, `MSWindowsWatchdog`). We document the limit
-  rather than ship a service; revisit if it proves annoying in practice.
+- **Windows secure desktops.** A thread cannot switch desktops while it holds
+  hooks, and the lock screen, the sign-in screen and UAC prompts are on the
+  Winlogon desktop, which ordinary programs cannot touch. The service therefore
+  runs as SYSTEM and starts a small desk agent on whichever desktop is showing
+  (`agent.py`, `winsvc.py`); when that changes, the agent exits and a new one
+  starts there. The link itself never drops.
 - **`GetSystemMetrics(0/1)` is the primary monitor**, not the virtual desktop.
   The layout model makes this explicit instead of assuming one screen per node.
-- **evdev grab needs permission.** Capturing on Linux means read access to
-  `/dev/input/*` (the `input` group). Unlike injection, there is no portal-free
-  alternative.
+- **evdev needs permission.** Capturing on Linux means read access to
+  `/dev/input/*` (the `input` group), and injecting means write access to
+  `/dev/uinput`. That is the price of working the same on Wayland, X11 and the
+  login screen, without a desktop portal - and why there is no Flatpak or Snap.
+- **Linux monitor changes** reach the arrangement at once, but the injector
+  keeps the screen size it started with until the program restarts.
 
 ---
 
-## 11. Order of work
+## 11. Where it stands
 
-Done, and verified on real hardware (Windows 10 laptop + Ubuntu/Wayland desktop):
+Done, and verified on real hardware (a Windows 10 laptop and an Ubuntu
+desktop on Wayland):
 
-1. `desk.py` + `motion.py` — the arrangement and the pointer moving across it
-   (these replaced `layout.py` + `cursor.py`).
-2. `baton.py` — claims, epochs, arbitration, the P2 watchdog.
-3. `reconnect.py` — backoff, jitter, flap guard, session resume.
-4. `protocol.py` v2 — versioning, frame cap, epoch tags.
-5. **P6**, then `node.py` — both machines capture and inject. `server.py`,
-   `client.py` and `edges.py` are gone.
-6. `clip.py` — lazy chunked clipboard, working under Wayland.
-7. `config.py` + `--setup` — one command for daily use.
-8. Installers for both platforms, and a test harness for the Linux one.
+- the arrangement, the pointer moving across it, resizable boxes and copies
+  for wrap-around (`desk.py`, `motion.py`);
+- the baton, its watchdog and the safety properties (`baton.py`);
+- reconnection and session resume (`reconnect.py`);
+- both machines capturing and injecting (`node.py`), groups of any size with a
+  hub, managed from any device;
+- pairing by name and a generated word password; encryption on X25519,
+  HKDF-SHA256 and ChaCha20-Poly1305 (section 8);
+- the lazy, chunked clipboard, working under Wayland (`clip.py`);
+- system services on both, working at the login and lock screens;
+- the window, a Windows installer and a Debian package.
 
-Live-run bugs, all of one shape — *state that is correct on the machine that
-changed it and never reaches the other one*:
+Live-run bugs have mostly been of one shape - *state that is correct on the
+machine that changed it and never reaches the other one*:
 
 - an idle holder looked like a dead link (watchdog fed only by input, and the
   keep-alive ran slower than the TTL it was meant to feed)
 - nobody told a machine the cursor had left it, so it kept typing locally
 - a stale anchor made both machines claim the baton off each other forever
+- a stale claim, granted just after a handover, took control back to a machine
+  nobody had touched
 
-Still to do, in order:
-
-9. **TLS + fingerprint pinning; retire the plaintext PIN.** The largest
-   remaining gap between this and something that belongs outside a trusted LAN.
-10. Tray + settings UI over the layout and policy model.
-11. Files channel, resumable by transfer id and offset.
-12. More than two machines, and more than one screen per machine. The layout
-    model already handles both; the capture side is what assumes one screen.
-13. `geom` is defined in the protocol but not implemented — a resolution change
-    mid-session is not yet picked up.
+Next, roughly in order: images and files over the clipboard (the file channel,
+resumable by transfer id and offset); monitor changes on Linux without a
+restart; *Find the pointer* beyond GNOME.

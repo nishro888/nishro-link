@@ -1,0 +1,73 @@
+[project]
+name = "nishro-link"
+dynamic = ["version"]
+description = "One mouse and keyboard across your computers - Windows and Linux (Wayland and X11), encrypted, pair by name."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "nishro888" }]
+requires-python = ">=3.10"
+keywords = ["kvm", "software-kvm", "mouse-sharing", "keyboard-sharing", "wayland",
+            "synergy", "input-leap", "barrier", "multi-computer"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: X11 Applications",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Desktop Environment",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "cryptography>=3.4",                 # the link's encryption (link/secure.py)
+    "evdev>=1.6; sys_platform == 'linux'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.4", "pillow>=9"]
+build = ["pyinstaller>=6", "pillow>=9"]
+
+[project.urls]
+Homepage = "https://github.com/nishro888/nishro-link"
+Documentation = "https://github.com/nishro888/nishro-link/tree/main/docs"
+Issues = "https://github.com/nishro888/nishro-link/issues"
+Changelog = "https://github.com/nishro888/nishro-link/blob/main/CHANGELOG.md"
+
+[project.gui-scripts]
+nishro-link = "link.nishro_link:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["link"]
+
+[tool.setuptools.dynamic]
+version = { attr = "link.__version__" }
+
+[tool.setuptools.package-data]
+link = ["theme/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["link/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["link/words.py", "link/icon.py", "link/theme"]
+
+[tool.ruff.lint]
+# The correctness checks: undefined names, unused imports and variables,
+# syntax. Style is the code's own, and not enforced by a linter.
+select = ["F", "E9"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import pytest fixtures from other test modules and take them as
+# arguments of the same name: F811 by the letter, the way pytest works.
+"link/tests/*" = ["F811"]

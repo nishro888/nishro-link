@@ -352,7 +352,6 @@ def test_polling_does_not_pile_up_threads(api):
     """The UI polls about once a second, for as long as the program runs. With
     HTTP/1.1 keep-alive and no handler timeout, every one of those parked a
     thread in readline() waiting for a request that never came."""
-    import threading
     base = threading.active_count()
     for _ in range(60):
         get(api, "/api/status")

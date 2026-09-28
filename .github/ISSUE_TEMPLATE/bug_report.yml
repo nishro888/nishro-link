@@ -1,0 +1,54 @@
+name: Bug report
+description: Something does not work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems: please use
+        [private reporting](https://github.com/nishro888/nishro-link/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Copy details, from each computer
+      description: >
+        In Nishro Link: Help → About → Copy details, on every computer involved,
+        pasted here. It holds versions and systems - no addresses or passwords.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (the part around the problem)
+      description: >
+        Help → Open log folder → link.log. Windows service:
+        %ProgramData%\NishroLink\link.log; Linux service:
+        /var/log/nishro-link/link.log. It shows device names and local
+        network addresses - edit them out if you prefer.
+      render: text
+  - type: dropdown
+    id: desktop
+    attributes:
+      label: Linux desktop, if any
+      options:
+        - "Not involved"
+        - GNOME on Wayland
+        - GNOME on X11
+        - KDE Plasma on Wayland
+        - KDE Plasma on X11
+        - Other (say which above)
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Checked
+      options:
+        - label: I am on the latest release.
+          required: true
