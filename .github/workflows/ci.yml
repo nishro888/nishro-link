@@ -65,7 +65,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python link/packaging/build-deb.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deb
           path: dist/*.deb
