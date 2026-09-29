@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://github.com/nishro888/nishro-link/releases/latest"><b>Download</b></a> ·
-  <a href="docs/user-guide.md">User guide</a> ·
+  <a href="docs/manual.md">Manual</a> ·
   <a href="docs/requirements.md">Requirements</a> ·
   <a href="docs/faq.md">FAQ</a> ·
   <a href="docs/security.md">Security</a>
@@ -33,10 +33,10 @@ The keyboard follows the pointer, text copied on one computer pastes on
 another, and **whichever mouse you touch takes control** - there is no fixed
 "server" with the keyboard.
 
-> **Beta.** Nishro Link is young. It is developed and used on a Windows laptop
-> and an Ubuntu desktop, with an automated suite of over 1,200 tests, but it
-> has not been widely deployed or independently audited. Read the
-> [limitations](#limitations).
+> **1.0.** Every 1.x works with every other 1.x. Nishro Link is developed and
+> used daily on a Windows laptop and an Ubuntu desktop, with an automated suite
+> of about 1,260 tests on Windows and Linux; it has not been independently
+> audited. Read the [limitations](#limitations).
 
 ## Why Nishro Link
 
@@ -94,13 +94,13 @@ another, and **whichever mouse you touch takes control** - there is no fixed
 
 ## Install
 
-Every computer needs Nishro Link, **the same minor version** (0.15.x), on the
+Every computer needs Nishro Link **1.x** (any 1.x works with any other), on the
 **same local network**. Downloads are on the [releases page](https://github.com/nishro888/nishro-link/releases/latest).
 
 | | Download | Needs |
 |---|---|---|
-| **Windows** | `NishroLink-Setup-0.15.2.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
-| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_0.15.2-beta_all.deb` | Ubuntu 20.04+ or Debian 11+ (or derivatives); Wayland or X11 |
+| **Windows** | `NishroLink-Setup-1.0.0.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
+| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_1.0.0_all.deb` | Ubuntu 20.04+ or Debian 11+ (or derivatives); Wayland or X11 |
 | **Other Linux** | Source code | Python 3.8+, Tk, evdev, cryptography 2.5+ - [instructions](docs/install-linux.md#other-distributions) |
 
 **Windows:** run the setup and approve the one permission prompt. The
@@ -110,7 +110,7 @@ Run anyway**. [Details](docs/install-windows.md).
 **Ubuntu and Debian:** open the `.deb` (the App Center installs it), or
 
 ```bash
-sudo apt install ./nishro-link_0.15.2-beta_all.deb
+sudo apt install ./nishro-link_1.0.0_all.deb
 ```
 
 then log out and back in once. [Details](docs/install-linux.md).
@@ -129,7 +129,8 @@ from the tagged source and listed in `SHA256SUMS`.
 3. Open **Arrangement** and drag the screens to match your desk.
 
 Push the pointer across a bright line to cross. Move any computer's mouse to
-take control from there. The [user guide](docs/user-guide.md) covers the rest.
+take control from there. The [manual](docs/manual.md) covers everything, step
+by step with pictures.
 
 ## Limitations
 
@@ -176,6 +177,8 @@ uinput.
 [DESIGN.md](link/DESIGN.md) is the full design: the safety properties (the
 mouse never freezes, you always get your machine back, no key stays down), the
 wire protocol, reconnection, discovery and security.
+[Design decisions](docs/design-decisions.md) explains *why* each choice was
+made - the architecture, the encryption, the protocol - with diagrams.
 
 ## Contributing
 

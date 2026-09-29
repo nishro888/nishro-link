@@ -19,7 +19,7 @@ To check that the file is the one published, compare its SHA-256 hash with
 the release's `SHA256SUMS` file. In PowerShell:
 
 ```powershell
-Get-FileHash .\NishroLink-Setup-0.15.2.exe -Algorithm SHA256
+Get-FileHash .\NishroLink-Setup-1.0.0.exe -Algorithm SHA256
 ```
 
 ## What it changes
@@ -45,16 +45,16 @@ the background service each time it opens.
 Run the new version's setup. It stops the service, replaces the program and
 starts it again, keeping your devices and arrangement.
 
-**Every computer in a group must run the same minor version** - 0.15.0 and
-0.15.1 work together; 0.14 and 0.15 do not. A device on another is refused with
-a message saying so; update them all together.
+**Every 1.x version works with every other 1.x**, so the computers need not
+all be updated at the same moment. A version that cannot work with 1.x
+would be 2.0, and would say so.
 
 ## Silent install
 
 For deploying to several machines:
 
 ```powershell
-NishroLink-Setup-0.15.2.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+NishroLink-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
 It still needs administrator rights, so run it from an elevated prompt or a

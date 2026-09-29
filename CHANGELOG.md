@@ -1,12 +1,30 @@
 # Changelog
 
 All notable changes. The format follows [Keep a Changelog](https://keepachangelog.com/),
-and versions follow [Semantic Versioning](https://semver.org/). Nishro Link is in
-beta: until 1.0, a minor version may change the protocol, and **all computers in
-a group must run the same minor version** - 0.15.0 and 0.15.1 work together,
-0.14 and 0.15 do not (a different protocol is refused, with a message).
+and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+**Compatibility.** From 1.0, **every 1.x works with every other 1.x**: a 1.x
+release may add things, but never anything an older 1.x cannot speak. A change
+that breaks that would be 2.0. Before 1.0, in the betas, a minor version could
+change the protocol, and a group had to run the same minor version.
+
+## [1.0.0] - 2026-09-29
+
+The first stable release. It speaks the same protocol as 0.15.x, so it also
+works with those.
+
+### Changed
+- A simpler window: the navigation pane holds only the pages - Home, Devices,
+  Arrangement, Activity, and Settings and Help at its foot. The status line,
+  the version and the Hide and Quit buttons that were stacked under them said
+  again what the page already says, and looked like the pages. **Find the
+  pointer** and **Release input** are now on Home, in the Control card.
+
+### Added
+- A **user manual** with pictures of every screen and every step
+  ([docs/manual.md](docs/manual.md)).
+- **Design decisions**: why Nishro Link is built the way it is
+  ([docs/design-decisions.md](docs/design-decisions.md)).
 
 ### Fixed
 - A device's **Details** window flickered: it rebuilt itself about once a
@@ -135,6 +153,7 @@ The first public release.
 ## [0.9.1] and [0.9.0] - 2026-09-26
 Private betas.
 
+[1.0.0]: https://github.com/nishro888/nishro-link/releases/tag/v1.0.0
 [0.15.2]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.2-beta
 [0.15.1]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.1-beta
 [0.15.0]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.0-beta

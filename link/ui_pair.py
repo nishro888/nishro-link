@@ -53,7 +53,7 @@ def failure(mode: str, reason: str, target: str, detail=None, port=8770):
         "busy": (f"{t} has its own group", ""),
         "in_group": (f"{t} is in {detail}'s group", ""),
         "paused": (f"Sharing is off on {t}", "Turn it on there, then retry."),
-        "version": ("Version mismatch", "Install the same version on both."),
+        "version": ("Version mismatch", "Update both to the same major version."),
         "timeout": (f"{t} didn't connect", "Check that sharing is on there."),
         "name_taken": ("Name already in use", "Rename this device, then retry."),
         "impostor": (f"Couldn't verify {t}", "It didn't prove the password."),

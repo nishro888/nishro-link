@@ -34,7 +34,7 @@ the tests there - so no `match`, no `X | Y` outside annotations, and
 git clone https://github.com/nishro888/nishro-link.git
 cd nishro-link
 python -m pip install -e ".[dev]"          # cryptography, pytest, ruff (+ evdev on Linux)
-python -m pytest                           # about 1,200 tests, a few minutes
+python -m pytest                           # about 1,260 tests, a few minutes
 python -m ruff check .
 python -m link.nishro_link                 # run it from source
 ```

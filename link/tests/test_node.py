@@ -541,3 +541,20 @@ def test_losing_the_link_makes_the_peer_a_wall_again():
     c.baton.apply(c.arbiter.grant)                # holding control again
     c.local_pointer("laptop", 0, 384, -5, 0)
     assert c.cursor.screen == "laptop", "and cannot go back while it is gone"
+
+
+def test_a_message_from_a_newer_1x_is_ignored_not_an_error():
+    """The 1.x promise: a later 1.x may add message types and fields, and an
+    older one ignores what it does not know. If this ever raised or acted,
+    a 1.1 could not talk to a 1.0."""
+    from link.desk import simple
+    lay = simple("laptop", (1366, 768), "aio", (1920, 1080), "right")
+    for hub in (True, False):
+        c = NodeCore("laptop", lay, {}, is_hub=hub)
+        for msg in ({"t": "a_feature_from_the_future", "x": 1},
+                    {"t": "baton", "holder": "laptop", "epoch": 1,
+                     "screen": "laptop", "x": 1, "y": 1, "held": [],
+                     "a_new_optional_field": {"nested": True}}):
+            a = c.on_message(dict(msg))
+            if msg["t"] != "baton":
+                assert (a.send, a.inject) == ([], []), msg

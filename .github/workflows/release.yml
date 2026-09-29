@@ -1,7 +1,8 @@
 name: Release
 
-# Push a tag like v0.15.0-beta. Everything published is built here, from
-# that tag - not on anyone's computer - and listed in SHA256SUMS. The source
+# Push a tag like v1.2.0 (v1.3.0-rc1 publishes as a pre-release). Everything
+# published is built here, from that tag - not on anyone's computer - and
+# listed in SHA256SUMS. The source
 # comes as GitHub's own "Source code" archives of the tag. Run by hand, it only
 # builds (the files are kept as the run's artifacts) and publishes nothing.
 

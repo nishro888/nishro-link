@@ -47,9 +47,9 @@ Devices page.
 
 ## A different version
 
-Every device in a group must run the same minor version of Nishro Link -
-0.15.0 and 0.15.1 work together; 0.14 and 0.15 do not. A device on another is
-refused (*protocol version mismatch*), and **Help** shows which version each
+Every 1.x version works with every other 1.x. A device on a version that cannot
+- a 0.x beta, or a future 2.0 - is refused (*protocol version mismatch*), and
+**Help** shows which version each
 device has. Update all of them to the same release.
 
 ## Windows: "Windows protected your PC"

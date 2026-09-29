@@ -9,7 +9,7 @@ requires-python = ">=3.8"
 keywords = ["kvm", "software-kvm", "mouse-sharing", "keyboard-sharing", "wayland",
             "synergy", "input-leap", "barrier", "multi-computer"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Win32 (MS Windows)",
     "Environment :: X11 Applications",
     "Intended Audience :: End Users/Desktop",

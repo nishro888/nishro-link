@@ -415,7 +415,14 @@ Newline-delimited JSON over TCP. Chosen deliberately: input volume is tiny
 (~1 KB/s while moving), and reading the wire with `nc` during a 2 a.m. debugging
 session is worth more than the saved bytes.
 
-**Framing discipline.** Max line 64 KiB. A peer exceeding it is not slow, it is
+**Compatibility.** Protocol version 8 is the 1.x protocol, and within 1.x it only
+grows: a new message type or an optional field is fine - an older 1.x ignores
+what it does not know - but no existing message may change its meaning. A change
+that breaks that is 2.0. The version is checked on the first message of every
+connection, and a mismatch is refused with a message saying so.
+
+**Framing discipline.** Max line 128 KiB (an encrypted line is base64, a third
+longer than the JSON inside it). A peer exceeding it is not slow, it is
 broken or hostile — drop the connection. (Input Leap caps at 4 MiB and
 disconnects; the principle is theirs, the number is ours, because our messages
 are small and bulk data does not use this channel.)

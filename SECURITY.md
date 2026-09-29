@@ -15,8 +15,9 @@ want it.
 
 ## Supported versions
 
-Nishro Link is in beta. Security fixes go into the latest release only; please
-update before reporting.
+Security fixes go into the latest 1.x release. Every 1.x works with every other
+1.x, so updating is always possible without touching the rest of the group;
+please update before reporting.
 
 ## What protects the link
 
