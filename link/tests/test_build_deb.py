@@ -111,7 +111,10 @@ def test_the_launcher_is_recognised_as_this_copy_when_installed(deb):
     which it tells by the library folder named in it."""
     launcher = deb["data"]["./usr/bin/nishro-link"][1].decode()
     assert "/usr/lib/nishro-link" in launcher
-    assert "python3 -m link.nishro_link" in launcher
+    assert "python3 /usr/lib/nishro-link/launch.py" in launcher
+    assert " -m " not in launcher.split("exec", 1)[1], \
+        "never -m: it imports from the current directory first"
+    assert "./usr/lib/nishro-link/launch.py" in deb["data"]
     assert launcher.startswith("#!/bin/sh\n")
     assert "\r" not in launcher
 
@@ -201,3 +204,29 @@ def test_the_version_carries_the_stage_from_one_place():
 def test_the_description_says_the_link_is_encrypted():
     assert "not encrypted" not in bd.DESCRIPTION
     assert "encrypted" in bd.DESCRIPTION
+
+
+def test_a_link_folder_in_the_current_directory_cannot_take_over(tmp_path):
+    """Reported: the window did not open from the app menu. The menu starts
+    programs in the home folder, the launcher ran `python3 -m`, which imports
+    from the current directory first - and ~/link held version 0.9 from an
+    unpacked source tree, which ran instead of the installed program.
+    launch.py runs as a script: its own folder comes first."""
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+    src = Path(__file__).resolve().parent.parent
+    lib = tmp_path / "lib"
+    shutil.copytree(src, lib / "link", ignore=shutil.ignore_patterns(
+        "tests", "packaging", "__pycache__"))
+    shutil.copy(src / "packaging" / "launch.py", lib / "launch.py")
+    home = tmp_path / "home"
+    (home / "link").mkdir(parents=True)
+    (home / "link" / "__init__.py").write_text(
+        'raise SystemExit("imported the wrong link, from the current directory")')
+    env = {k: v for k, v in __import__("os").environ.items() if k != "PYTHONPATH"}
+    r = subprocess.run([sys.executable, str(lib / "launch.py"), "--help"],
+                       cwd=home, env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert "usage" in r.stdout.lower() and "wrong link" not in r.stderr

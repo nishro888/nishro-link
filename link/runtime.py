@@ -160,6 +160,13 @@ class SingleInstance:
         self._sock = s
         return True
 
+    def acquire_and_release(self) -> bool:
+        """Is the lock free right now? Taken for a moment, then let go."""
+        if not self.acquire():
+            return False
+        self.release()
+        return True
+
     def watch(self, on_signal) -> None:
         """Answer a second launch by calling `on_signal`.
 

@@ -56,24 +56,38 @@ def withdraw(path: Path = None) -> None:
         pass
 
 
+problem = None     # why the last find() found nothing, for the launcher to say
+
+
 def find(path: Path = None, timeout: float = 1.5):
     """The running service as (port, token), None if there is none, or
     PermissionError if there is one this account may not reach."""
+    global problem
+    problem = None
     path = Path(path or HANDLE)
     try:
         h = json.loads(path.read_text(encoding="utf-8"))
+        port, token = int(h["port"]), str(h["token"])
     except FileNotFoundError:
         return None
     except PermissionError:
         raise
-    except (OSError, ValueError):
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        problem = f"its handle {path} could not be read ({e})"
         return None
-    api = RemoteAPI(int(h["port"]), str(h["token"]), timeout=timeout)
     try:
-        api.status()
-    except (OSError, ValueError):
-        return None                       # a handle left behind by a crash
-    return int(h["port"]), str(h["token"])
+        RemoteAPI(port, token, timeout=timeout).status()
+    except (OSError, ValueError) as e:
+        # A handle left behind by a crash - or a service busy or restarting.
+        problem = f"it did not answer on port {port} ({e})"
+        return None
+    return port, token
+
+
+def published(path: Path = None) -> bool:
+    """Has a service published its handle here - is one installed and, on
+    Linux, running? (Its runtime directory goes when it stops.)"""
+    return Path(path or HANDLE).exists()
 
 
 class RemoteAPI:

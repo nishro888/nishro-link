@@ -125,6 +125,11 @@ jobs:
           python3 -c "import link.secure, link.node, link.desk, link.nishro_link; print('imports: ok')"
           python3 -m link.nishro_link --help > /dev/null && echo "command line: ok"
           test -x /usr/bin/nishro-link && echo "launcher: ok"
+          # The app menu starts programs in the home folder. A stale `link`
+          # there (an old unpacked source tree) must not run instead of this.
+          mkdir -p /tmp/home/link
+          echo 'raise SystemExit("imported ./link instead of the installed program")' > /tmp/home/link/__init__.py
+          (cd /tmp/home && /usr/bin/nishro-link --help > /dev/null) && echo "started from a folder holding ./link: ok"
           # The encryption, end to end, with this system's own cryptography.
           python3 -c "from link import secure as s; a, pa = s.keypair(); b, pb = s.keypair(); tx, _ = s.session(s.shared(a, pb), 'k', 'n1', 'n2', 'hub'); _, rx = s.session(s.shared(b, pa), 'k', 'n1', 'n2', 'dialer'); assert rx.open(tx.seal(b'hi')) == b'hi'; assert s.unwrap(s.wrap(b'pw', 'k', 'a', 'b'), 'k', 'a', 'b') == b'pw'; print('encryption: ok')"
           dpkg -s nishro-link | grep -E '^(Status|Version)'

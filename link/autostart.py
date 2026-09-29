@@ -59,8 +59,11 @@ def command(extra=()) -> list:
     for installed in (INSTALLED, shutil.which("nishro-link")):
         if installed and _is_ours(installed, root):
             return [installed, *extra]
-    return ["env", f"PYTHONPATH={root}", sys.executable, "-m", "link.nishro_link",
-            *extra]
+    # Not -m: that imports from the current directory first, and a login starts
+    # programs in the home folder, where an old unpacked ~/link would win.
+    code = (f"import sys; sys.path.insert(0, {root!r}); "
+            f"from link.nishro_link import main; sys.exit(main())")
+    return [sys.executable, "-c", code, *extra]
 
 
 def _is_ours(launcher: str, root: str) -> bool:

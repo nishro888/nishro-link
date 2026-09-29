@@ -281,15 +281,25 @@ def settings(argv=None):
     return args, config.merge(config.load(args.config), over)
 
 
-def attach(args) -> int:
+def attach(args, cfg) -> int:
     """A window for the service that is already running, or None if there is
     none. The engine is the service's; this process is only the window."""
     from . import service
     try:
         found = service.find()
+        # A handle but no answer: the service is busy or restarting. Wait a
+        # little rather than conclude there is none - the engine this process
+        # would otherwise start could only collide with it.
+        end = time.monotonic() + 6.0
+        while found is None and service.published() and time.monotonic() < end:
+            time.sleep(0.5)
+            found = service.find(timeout=3.0)
     except PermissionError:
         return _no_access()
     if found is None:
+        if service.published() and not SingleInstance(
+                int(cfg.get("port") or 8770) - 1).acquire_and_release():
+            return _not_answering(service.problem)
         return None
     if args.background:
         return 0                      # the service is already running: nothing to do
@@ -306,6 +316,29 @@ def attach(args) -> int:
     only.watch(window.show)
     window.run()
     return 0
+
+
+def _not_answering(problem) -> int:
+    """The service is running - it holds the engine's lock - and did not
+    answer. Say so, instead of starting a second engine beside it: that one
+    could only find the lock taken, and exit with nothing on screen. Reported
+    as "the window does not open"."""
+    fix = ("sudo systemctl restart nishro-link" if sys.platform != "win32" else
+           "restart the Nishro Link service, or restart the computer")
+    msg = ("Nishro Link is running in the background, but did not answer "
+           f"this window: {problem or 'no reason given'}.\n\n"
+           f"Try again in a moment. If it keeps happening: {fix}.")
+    print(msg, file=sys.stderr)
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Nishro Link", msg)
+        root.destroy()
+    except Exception:
+        pass
+    return 4
 
 
 def _no_access() -> int:
@@ -357,7 +390,7 @@ def main() -> int:
 
     if not args.service and not args.no_window and not args.show and \
             not args.setup and not args.save:
-        attached = attach(args)
+        attached = attach(args, cfg)
         if attached is not None:
             return attached
 

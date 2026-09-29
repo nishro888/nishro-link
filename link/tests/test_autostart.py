@@ -86,11 +86,12 @@ def test_the_installed_launcher_is_used_when_it_is_this_copy(linux, monkeypatch,
     monkeypatch.setattr(autostart, "INSTALLED", str(tmp_path / "not-there"))
     assert autostart.command() == [str(launcher), "--background"]
 
-    launcher.write_text('#!/bin/sh\nPYTHONPATH="/usr/lib/nishro-link"\n')
+    launcher.write_text('#!/bin/sh\nexec python3 /usr/lib/nishro-link/launch.py\n')
     cmd = autostart.command()
-    assert cmd[:2] == ["env", f"PYTHONPATH={root}"], \
+    assert cmd[1] == "-c" and repr(root) in cmd[2], \
         "a copy run from elsewhere must not start the installed one at login"
-    assert cmd[-3:] == ["-m", "link.nishro_link", "--background"]
+    assert "-m" not in cmd, "never -m: it imports from the current directory"
+    assert cmd[-1] == "--background"
 
 
 def test_extra_arguments_are_kept():

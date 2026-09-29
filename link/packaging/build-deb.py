@@ -112,6 +112,10 @@ def payload(ver: str) -> dict:
             (assets / f"nishro-link-{n}.png").read_bytes(), 0o644)
     for p in sorted(LINK.glob("*.py")):          # top level only: no tests
         files[f"{LIB}/link/{p.name}"] = (lf(p.read_bytes()), 0o644)
+    # What the launcher runs: a script beside the package, so the package is
+    # imported from here and never from whatever directory it was started in.
+    files[f"{LIB}/launch.py"] = (lf((LINK / "packaging" / "launch.py").read_bytes()),
+                                 0o644)
     for p in sorted((LINK / "theme").iterdir()):  # the controls' look
         data = p.read_bytes()
         files[f"{LIB}/link/theme/{p.name}"] = (

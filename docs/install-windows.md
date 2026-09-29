@@ -19,7 +19,7 @@ To check that the file is the one published, compare its SHA-256 hash with
 the release's `SHA256SUMS` file. In PowerShell:
 
 ```powershell
-Get-FileHash .\NishroLink-Setup-1.0.0.exe -Algorithm SHA256
+Get-FileHash .\NishroLink-Setup-1.0.1.exe -Algorithm SHA256
 ```
 
 ## What it changes
@@ -54,7 +54,7 @@ would be 2.0, and would say so.
 For deploying to several machines:
 
 ```powershell
-NishroLink-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+NishroLink-Setup-1.0.1.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
 It still needs administrator rights, so run it from an elevated prompt or a

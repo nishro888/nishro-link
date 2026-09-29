@@ -123,16 +123,17 @@ mkdir -p "$PREFIX" "$BIN" "$UNIT"
 rm -rf "${PREFIX}/link"
 cp -r "$SRC" "${PREFIX}/link"
 rm -rf "${PREFIX}/link/tests" "${PREFIX}/link/__pycache__" "${PREFIX}/link/packaging"
+# Started as a script beside the package, never with `python3 -m` - that
+# imports from the current directory first, and the app menu starts programs
+# in the home folder, where an old unpacked ~/link would win.
+cp "${SRC}/packaging/launch.py" "${PREFIX}/launch.py"
 ok "code -> ${PREFIX}/link"
 
 cat > "${BIN}/nishro-link" <<EOF
 #!/usr/bin/env bash
-exec python3 -m link.nishro_link "\$@"
+exec python3 "${PREFIX}/launch.py" "\$@"
 EOF
 chmod +x "${BIN}/nishro-link"
-# PYTHONPATH rather than a package install: no venv to go stale, nothing to
-# uninstall but a directory, and the launcher keeps working after an upgrade.
-sed -i "2i export PYTHONPATH=\"${PREFIX}:\${PYTHONPATH:-}\"" "${BIN}/nishro-link"
 ok "launcher -> ${BIN}/nishro-link"
 
 cat > "${UNIT}/nishro-link.service" <<EOF
@@ -142,8 +143,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-Environment=PYTHONPATH=${PREFIX}
-ExecStart=/usr/bin/env python3 -m link.nishro_link
+ExecStart=/usr/bin/env python3 ${PREFIX}/launch.py
 Restart=on-failure
 RestartSec=5
 
@@ -161,7 +161,7 @@ esac
 # ------------------------------------------------------------------ setup
 if [ "${1:-}" != "--no-setup" ]; then
   say "Setup"
-  PYTHONPATH="$PREFIX" python3 -m link.nishro_link --setup || true
+  python3 "${PREFIX}/launch.py" --setup || true
 fi
 
 say "Done"

@@ -85,7 +85,7 @@ The full list, with what has been tested, is in [requirements](requirements.md).
 
 ## 3. Installing on Windows
 
-1. Download **`NishroLink-Setup-1.0.0.exe`** from the
+1. Download **`NishroLink-Setup-1.0.1.exe`** from the
    [releases page](https://github.com/nishro888/nishro-link/releases/latest).
 2. Run it. Windows asks once for permission to make changes; choose **Yes**.
 
@@ -132,13 +132,13 @@ More detail: [install-windows.md](install-windows.md).
 
 ### Ubuntu, Debian, Linux Mint, Pop!_OS and others
 
-1. Download **`nishro-link_1.0.0_all.deb`** from the
+1. Download **`nishro-link_1.0.1_all.deb`** from the
    [releases page](https://github.com/nishro888/nishro-link/releases/latest).
 2. Install it. Either double-click it (Ubuntu's App Center opens and installs
    it), or in a terminal:
 
    ```bash
-   sudo apt install ./nishro-link_1.0.0_all.deb
+   sudo apt install ./nishro-link_1.0.1_all.deb
    ```
 
 3. **Log out and back in once.** Nishro Link reads the keyboard and mouse

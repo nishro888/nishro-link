@@ -8,6 +8,22 @@ release may add things, but never anything an older 1.x cannot speak. A change
 that breaks that would be 2.0. Before 1.0, in the betas, a minor version could
 change the protocol, and a group had to run the same minor version.
 
+## [1.0.1] - 2026-09-29
+
+### Fixed
+- **Linux: the window did not open from the app menu** on a computer that
+  had an old unpacked copy of the source in the home folder (`~/link`). The
+  launcher ran `python3 -m`, which imports from the current directory first -
+  and the app menu starts programs in the home folder - so the old copy ran
+  instead, found the background service's lock taken, and exited with nothing
+  on screen. It also explains a missing dock icon: that old copy did not name
+  its window for the dock. The launcher now runs a script that sits beside the
+  installed program, so only the installed program can run. CI checks it on
+  every system, from a folder holding a stale `link`.
+- The launcher never starts a second engine beside a running background
+  service any more: if the service does not answer, it waits a few seconds,
+  then says so, with what to do - instead of exiting silently.
+
 ## [1.0.0] - 2026-09-29
 
 The first stable release. It speaks the same protocol as 0.15.x, so it also
@@ -153,6 +169,7 @@ The first public release.
 ## [0.9.1] and [0.9.0] - 2026-09-26
 Private betas.
 
+[1.0.1]: https://github.com/nishro888/nishro-link/releases/tag/v1.0.1
 [1.0.0]: https://github.com/nishro888/nishro-link/releases/tag/v1.0.0
 [0.15.2]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.2-beta
 [0.15.1]: https://github.com/nishro888/nishro-link/releases/tag/v0.15.1-beta

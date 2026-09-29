@@ -128,3 +128,76 @@ def test_a_bad_token_gets_nothing(running_api):
     remote = service.RemoteAPI(running_api.port, "wrong")
     with pytest.raises(urllib.error.HTTPError):
         remote.status()
+
+
+# --------------------- the launcher, with a service it cannot reach
+class FakeClock:
+    def __init__(self):
+        self.t = 0.0
+
+    def monotonic(self):
+        self.t += 0.5
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+
+def test_a_service_that_does_not_answer_is_said_not_joined(monkeypatch):
+    """Reported: the window did not open. The launcher found no answer from
+    the service, started an engine of its own, found the lock taken by the
+    service, and exited with nothing on screen. Now it waits a little, then
+    says so - and never starts a second engine beside a running service."""
+    from link import nishro_link, runtime
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1] + 1                   # the engine lock is port - 1
+    s.close()
+    held = runtime.SingleInstance(port - 1)
+    assert held.acquire(), "the service's engine lock"
+    calls = []
+    try:
+        monkeypatch.setattr(nishro_link.time, "monotonic", FakeClock().monotonic)
+        monkeypatch.setattr(nishro_link.time, "sleep", lambda s: None)
+        monkeypatch.setattr(service, "find", lambda *a, **k: calls.append(1))
+        monkeypatch.setattr(service, "published", lambda *a: True)
+        monkeypatch.setattr(service, "problem", "it did not answer on port 8771")
+        said = []
+        monkeypatch.setattr(nishro_link, "_not_answering",
+                            lambda problem: said.append(problem) or 4)
+        args = nishro_link.build_parser().parse_args([])
+        assert nishro_link.attach(args, {"port": port}) == 4
+        assert said == ["it did not answer on port 8771"]
+        assert len(calls) > 1, "it tried again before saying so"
+    finally:
+        held.release()
+
+
+def test_a_handle_left_by_a_stopped_service_is_not_an_error(monkeypatch):
+    """No service holds the engine lock: the handle is stale (a crash on
+    Windows leaves it). Then this copy may run the link itself, as before."""
+    from link import nishro_link
+    monkeypatch.setattr(nishro_link.time, "sleep", lambda s: None)
+    monkeypatch.setattr(nishro_link.time, "monotonic", FakeClock().monotonic)
+    monkeypatch.setattr(service, "find", lambda *a, **k: None)
+    monkeypatch.setattr(service, "published", lambda *a: True)
+    monkeypatch.setattr(nishro_link, "_not_answering",
+                        lambda problem: (_ for _ in ()).throw(AssertionError(problem)))
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1] + 1
+    s.close()
+    args = nishro_link.build_parser().parse_args([])
+    assert nishro_link.attach(args, {"port": port}) is None
+
+
+def test_find_says_why_it_found_nothing(tmp_path):
+    handle = tmp_path / "api.json"
+    assert service.find(handle) is None and service.problem is None, "no service"
+    handle.write_text("{not json")
+    assert service.find(handle) is None and "could not be read" in service.problem
+    handle.write_text('{"port": 1, "token": "x"}')
+    assert service.find(handle, timeout=0.5) is None
+    assert "did not answer on port 1" in service.problem

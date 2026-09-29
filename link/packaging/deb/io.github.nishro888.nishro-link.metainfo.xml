@@ -58,6 +58,13 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.1" date="2026-09-29">
+      <description>
+        <p>The window opens from the app menu again on computers that had an
+        old copy of the source in the home folder, and shows its icon in the
+        dock.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-09-29">
       <description>
         <p>The first stable release. Every 1.x works with every other 1.x.

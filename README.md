@@ -99,8 +99,8 @@ Every computer needs Nishro Link **1.x** (any 1.x works with any other), on the
 
 | | Download | Needs |
 |---|---|---|
-| **Windows** | `NishroLink-Setup-1.0.0.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
-| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_1.0.0_all.deb` | Ubuntu 20.04+ or Debian 11+ (or derivatives); Wayland or X11 |
+| **Windows** | `NishroLink-Setup-1.0.1.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
+| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_1.0.1_all.deb` | Ubuntu 20.04+ or Debian 11+ (or derivatives); Wayland or X11 |
 | **Other Linux** | Source code | Python 3.8+, Tk, evdev, cryptography 2.5+ - [instructions](docs/install-linux.md#other-distributions) |
 
 **Windows:** run the setup and approve the one permission prompt. The
@@ -110,7 +110,7 @@ Run anyway**. [Details](docs/install-windows.md).
 **Ubuntu and Debian:** open the `.deb` (the App Center installs it), or
 
 ```bash
-sudo apt install ./nishro-link_1.0.0_all.deb
+sudo apt install ./nishro-link_1.0.1_all.deb
 ```
 
 then log out and back in once. [Details](docs/install-linux.md).

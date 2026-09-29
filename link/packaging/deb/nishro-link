@@ -1,6 +1,9 @@
 #!/bin/sh
 # Nishro Link, as installed by the .deb. The program itself is in
-# /usr/lib/nishro-link; this only points Python at it.
-PYTHONPATH="/usr/lib/nishro-link${PYTHONPATH:+:$PYTHONPATH}"
-export PYTHONPATH
-exec python3 -m link.nishro_link "$@"
+# /usr/lib/nishro-link; launch.py there starts it.
+#
+# Not `python3 -m link.nishro_link`: -m imports from the CURRENT directory
+# first, and the app menu starts programs in the home folder - where an old
+# unpacked ~/link was imported instead of this program, and the window never
+# opened. A script's own folder comes first, and launch.py is in ours.
+exec python3 /usr/lib/nishro-link/launch.py "$@"
