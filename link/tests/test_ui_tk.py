@@ -755,3 +755,30 @@ def test_a_window_onto_the_service_points_at_the_services_log():
         assert there.lower().endswith(r"programdata\nishrolink\link.log")
     else:
         assert there == "/var/log/nishro-link/link.log"
+
+
+def test_the_navigation_pane_holds_only_navigation(app):
+    """Reported: Settings and Help looked no different from the status line
+    and the two buttons under them. The pane is pages only now; the actions
+    are on Home, next to who has control."""
+    def texts(w, out):
+        try:
+            t = w.cget("text")
+            if t:
+                out.append(str(t))
+        except tk.TclError:
+            pass
+        for c in w.winfo_children():
+            texts(c, out)
+        return out
+    side = texts(app.sidebar, [])
+    for gone in ("Release input", "Find the pointer", "Hide", "Quit", "online"):
+        assert not any(gone in t for t in side), gone
+    for page in ("Home", "Devices", "Arrangement", "Activity", "Settings", "Help"):
+        assert page in side
+    home = app.pages["overview"]
+    for btn in (app.btn_find, app.btn_release):
+        w = btn
+        while w is not None and w is not home:
+            w = w.master
+        assert w is home, "on the Home page"

@@ -57,10 +57,11 @@ def test_help_is_a_page_with_about_and_the_version(app):
         assert card in text
 
 
-def test_f1_and_the_version_open_help(app):
+def test_f1_opens_help(app):
     assert app.root.bind("<F1>")
     app.show_page("overview")
-    app.side_version.event_generate("<Button-1>")
+    app.root.focus_force()
+    app.root.event_generate("<F1>", when="tail")
     app.root.update()
     assert app.page == "help"
 

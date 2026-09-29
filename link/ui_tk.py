@@ -31,8 +31,8 @@ import time
 import tkinter as tk
 from tkinter import messagebox
 
-from . import (__version__, autostart, ui_arrange, ui_device, ui_help,
-               ui_menu, ui_pair, ui_theme)
+from . import (autostart, ui_arrange, ui_device, ui_help, ui_menu, ui_pair,
+               ui_theme)
 from .ui_kit import (Button, Card, Dot, Kit, Metric, Monitors, Pill, Scroll,
                      Segmented, Toggle, Tooltip, ago, field, info, keys, label)
 
@@ -171,41 +171,13 @@ class App:
             if name not in FOOT_PAGES:
                 self.nav[name] = self._nav_item(name, text, glyph)
 
-        foot = tk.Frame(self.sidebar, bg=C["sidebar"])
-        foot.pack(side="bottom", fill="x", padx=12, pady=(8, 14))
-        st = tk.Frame(foot, bg=C["sidebar"])
-        st.pack(fill="x", pady=(0, 10))
-        self.dot = Dot(st, kit, size=10)
-        self.dot.pack(side="left", padx=(4, 8))
-        self.side_status = tk.Label(st, text="starting…", font=F["small"],
-                                    bg=C["sidebar"], fg=C["dim"], anchor="w")
-        self.side_status.pack(side="left", fill="x", expand=True)
-        self.btn_release = Button(foot, kit, "Release input", self._release,
-                                  kind="secondary", small=True)
-        self.btn_release.pack(fill="x")
-        Tooltip(self.btn_release, kit, "Give this computer back its own mouse "
-                                       "and keyboard - or press both Ctrl keys")
-        self.btn_find = Button(foot, kit, "Find the pointer", self._find_pointer,
-                               kind="ghost", small=True)
-        self.btn_find.pack(fill="x", pady=(4, 0))
-        Tooltip(self.btn_find, kit, "Show where the pointer is - or shake the mouse")
-        if not self.remote:
-            # This window runs the link itself: hiding keeps it running, and
-            # quitting stops it. A window onto the service has only its X.
-            row = tk.Frame(foot, bg=C["sidebar"])
-            row.pack(fill="x", pady=(6, 0))
-            Button(row, kit, "Hide", self.hide, kind="ghost", small=True
-                   ).pack(side="left")
-            Button(row, kit, "Quit", self._quit, kind="ghost", small=True
-                   ).pack(side="right")
-        self.side_version = tk.Label(foot, text=f"Version {ui_help.version()}",
-                                     font=F["tiny"], bg=C["sidebar"],
-                                     fg=C["faint"], cursor="hand2")
-        self.side_version.pack(anchor="w", pady=(10, 0))
-        self.side_version.bind("<Button-1>", lambda _e: self.show_page("help"))
-        Tooltip(self.side_version, kit, "About Nishro Link")
-        # Settings and Help at the foot of the pane, above what is always in
-        # reach - as in Windows' own Settings.
+        # Navigation only, as in Windows' own Settings: Settings and Help at
+        # the foot, nothing under them. Reported: a status line, two action
+        # buttons, Hide, Quit and the version stacked there all looked alike,
+        # and said again what the page already says - the subtitle and the
+        # badge give the status, Help the version, the X quits. Find the pointer
+        # and Release input are on Home, with what they act on.
+        tk.Frame(self.sidebar, bg=C["sidebar"], height=10).pack(side="bottom")
         for name, text, glyph in reversed([p for p in PAGES if p[0] in FOOT_PAGES]):
             self.nav[name] = self._nav_item(name, text, glyph, side="bottom")
         tk.Frame(self.sidebar, bg=C["line"], height=1).pack(
@@ -344,16 +316,10 @@ class App:
                 item["text"].pack_forget()
             elif not item["text"].winfo_manager():
                 item["text"].pack(side="left", fill="x", expand=True)
-        self.side_version.configure(
-            text=__version__ if narrow else f"Version {ui_help.version()}")
         if narrow:
             self.brand_text.pack_forget()
-            self.side_status.pack_forget()
-        else:
-            if not self.brand_text.winfo_manager():
-                self.brand_text.pack(side="left")
-            if not self.side_status.winfo_manager():
-                self.side_status.pack(side="left", fill="x", expand=True)
+        elif not self.brand_text.winfo_manager():
+            self.brand_text.pack(side="left")
         width = max(200, self.main.winfo_width() - 90)
         for lb in self._wrapped:
             try:
@@ -424,6 +390,17 @@ class App:
         self.hero_sub = self._wrap(label(hero.body, kit, "", "body", "dim"))
         self.hero_sub.configure(bg=C["card"])
         self.hero_sub.pack(anchor="w", pady=(4, 0))
+        acts = tk.Frame(hero.body, bg=C["card"])
+        acts.pack(anchor="w", pady=(14, 0))
+        self.btn_find = Button(acts, kit, "Find the pointer", self._find_pointer,
+                               kind="secondary", small=True)
+        self.btn_find.pack(side="left")
+        Tooltip(self.btn_find, kit, "Show where the pointer is - or shake the mouse")
+        self.btn_release = Button(acts, kit, "Release input", self._release,
+                                  kind="secondary", small=True)
+        self.btn_release.pack(side="left", padx=(8, 0))
+        Tooltip(self.btn_release, kit, "Give this computer back its own mouse "
+                                       "and keyboard - or press both Ctrl keys")
 
         grid = tk.Frame(box, bg=C["panel"])
         self._metrics = grid
@@ -960,10 +937,6 @@ class App:
                                      f"{online} of {len(devs)} online")
         text, tone = _chip(s)
         self.chip.set(text, tone)
-        self.dot.set(C[tone] if tone in ("ok", "warn", "bad") else C["dim"])
-        self.side_status.configure(
-            text=("sharing off" if not s["enabled"] else
-                  f"{online} of {len(devs)} online"))
         on = bool(s["enabled"])
         if self.sharing.get() != on:
             self.sharing.set(on)
