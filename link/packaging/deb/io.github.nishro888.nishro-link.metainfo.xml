@@ -58,6 +58,14 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.1.0" date="2026-09-30">
+      <description>
+        <p>A tray icon in the top bar with the everyday controls - sharing on
+        and off, find the pointer, release input, the devices - and
+        notifications when a device connects or drops out. The dock's
+        right-click menu offers the same. A new logo.</p>
+      </description>
+    </release>
     <release version="1.0.1" date="2026-09-29">
       <description>
         <p>The window opens from the app menu again on computers that had an

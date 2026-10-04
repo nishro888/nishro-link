@@ -27,6 +27,16 @@ from .inject import VIRTUAL_DEVICE_NAME
 
 KEY_LEFTCTRL, KEY_RIGHTCTRL = 29, 97
 KEY_A, BTN_LEFT, REL_X = 30, 272, 0   # for should_capture, which takes no evdev
+# A keyboard's media keys - mute, volume, play, next, previous, stop, and
+# brightness with them - usually come on a device of their own ("... Consumer
+# Control"), with no letter keys. Not read, they always acted on THIS
+# computer, wherever the pointer was. Reported on the AIO. Such a device is
+# known by its sound and playback keys: brightness alone is the display's own
+# device ("Video Bus"), which is not a keyboard and is left alone.
+MEDIA_KEYS = frozenset({113, 114, 115, 163, 164, 165, 166})
+# ...but never a device that also carries power, sleep or wake: grabbed while
+# the pointer is elsewhere, this computer's power button would go with it.
+SYSTEM_KEYS = frozenset({116, 142, 143})      # KEY_POWER, KEY_SLEEP, KEY_WAKEUP
 RESCAN_S = 2.0      # how often to look for a keyboard or mouse that has just appeared
 
 
@@ -46,7 +56,10 @@ def should_capture(name: str, key_codes, rel_codes) -> bool:
     """
     if is_own_virtual_device(name):
         return False
-    return KEY_A in key_codes or REL_X in rel_codes or BTN_LEFT in key_codes
+    if KEY_A in key_codes or REL_X in rel_codes or BTN_LEFT in key_codes:
+        return True
+    keys = set(key_codes)
+    return bool(keys & MEDIA_KEYS) and not keys & SYSTEM_KEYS
 
 
 class LinuxCapture:

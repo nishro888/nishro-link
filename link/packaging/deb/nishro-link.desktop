@@ -10,3 +10,21 @@ Categories=Utility;
 Keywords=keyboard;mouse;kvm;share;screens;synergy;barrier;
 StartupNotify=true
 StartupWMClass=Nishro-link
+# The dock's right-click menu: the everyday controls, without the window.
+Actions=find;release;pause;resume;
+
+[Desktop Action find]
+Name=Find the pointer
+Exec=/usr/bin/nishro-link --find-pointer
+
+[Desktop Action release]
+Name=Release input
+Exec=/usr/bin/nishro-link --release-input
+
+[Desktop Action pause]
+Name=Pause sharing
+Exec=/usr/bin/nishro-link --sharing off
+
+[Desktop Action resume]
+Name=Resume sharing
+Exec=/usr/bin/nishro-link --sharing on

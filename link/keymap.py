@@ -4,8 +4,10 @@ The wire protocol speaks evdev codes (see protocol.py). Windows capture turns
 its VK codes into evdev codes before sending; Windows injection turns received
 evdev codes back into VKs. The Linux side already speaks evdev.
 
-Covers the standard PC keyboard. Unmapped keys are dropped (logged) rather than
-mis-fired; extend the table as needed.
+Covers the standard PC keyboard, and the media keys: volume, mute, play and
+pause, next, previous, stop. Unmapped keys are dropped rather than mis-fired;
+extend the table as needed. Brightness has an evdev code but no Windows key:
+WindowsInjector sets the screen's brightness itself (inject.py).
 """
 from __future__ import annotations
 
@@ -26,6 +28,11 @@ E = {
     "UP": 103, "PAGEUP": 104, "LEFT": 105, "RIGHT": 106, "END": 107,
     "DOWN": 108, "PAGEDOWN": 109, "INSERT": 110, "DELETE": 111,
     "LEFTMETA": 125, "RIGHTMETA": 126,
+    # media keys - on most keyboards a device of their own on Linux
+    # ("... Consumer Control"); see capture_linux.MEDIA_KEYS
+    "MUTE": 113, "VOLUMEDOWN": 114, "VOLUMEUP": 115, "NEXTSONG": 163,
+    "PLAYPAUSE": 164, "PREVIOUSSONG": 165, "STOPCD": 166,
+    "BRIGHTNESSDOWN": 224, "BRIGHTNESSUP": 225,
 }
 
 # --- Windows virtual-key -> evdev name ---
@@ -45,7 +52,14 @@ _VK_NAME = {
     0xBD: "MINUS", 0xBB: "EQUAL", 0xDB: "LEFTBRACE", 0xDD: "RIGHTBRACE",
     0xBA: "SEMICOLON", 0xDE: "APOSTROPHE", 0xC0: "GRAVE", 0xDC: "BACKSLASH",
     0xBC: "COMMA", 0xBE: "DOT", 0xBF: "SLASH",
+    # media keys
+    0xAD: "MUTE", 0xAE: "VOLUMEDOWN", 0xAF: "VOLUMEUP", 0xB0: "NEXTSONG",
+    0xB1: "PREVIOUSSONG", 0xB2: "STOPCD", 0xB3: "PLAYPAUSE",
 }
+# Media keys are "extended" keys: injected without the flag, some programs
+# take them for something else.
+MEDIA_VKS = frozenset({0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3})
+BRIGHTNESS = {E["BRIGHTNESSDOWN"]: -10, E["BRIGHTNESSUP"]: +10}   # percent a press
 # letters A-Z  (VK 0x41-0x5A) and digits 0-9 (VK 0x30-0x39)
 for _c in range(0x41, 0x5B):
     _VK_NAME[_c] = chr(_c)

@@ -1,8 +1,9 @@
-# Build NishroLink.exe - one file, no Python needed on the target machine.
+# Build Nishro Link for Windows - no Python needed on the target machine.
 #
 #   powershell -ExecutionPolicy Bypass -File link\packaging\build-windows.ps1
 #
-# Run from the repository root. Produces dist\NishroLink.exe.
+# Run from the repository root. Produces dist\NishroLink\ (NishroLink.exe and
+# the files it runs from) and, with Inno Setup, dist\NishroLink-Setup-<v>.exe.
 $ErrorActionPreference = "Stop"
 
 $root = (Resolve-Path "$PSScriptRoot\..\..").Path
@@ -27,7 +28,11 @@ if ($LASTEXITCODE -ne 0) {
 # unfinished, and the log is visible IN the window as well as on disk. Startup
 # failures are caught in entry.py and shown in a dialog, because a windowed app
 # that dies silently tells the user nothing at all.
-# --onefile so there is a single artifact to copy to the other machine.
+# A folder (--onedir), not one exe that unpacks itself into a temporary folder
+# at every start: Windows Defender's machine-learning check took setups built
+# that way for a trojan ("Bearfoos.A!ml") - an installer carrying a program
+# that drops a thousand files in %TEMP% looks like a dropper. A folder also
+# starts faster, and no copy of the program shares another's unpacked files.
 # Name, version and publisher in the exe's Properties, as any program has -
 # and the same version the installer and the .deb carry.
 $ver = (python -c "import sys; sys.path.insert(0, r'$root'); import link; print(link.__version__)").Trim()
@@ -53,7 +58,7 @@ VSVersionInfo(
 "@ | Set-Content -Encoding UTF8 "$root\build\version.txt"
 
 $pyi = @(
-    "--onefile", "--windowed",
+    "--onedir", "--windowed", "--noconfirm",
     "--name", "NishroLink",
     "--icon", "$root\link\packaging\assets\nishro-link.ico",
     "--version-file", "$root\build\version.txt",
@@ -73,9 +78,10 @@ $pyi = @(
 python -m PyInstaller @pyi
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
-$exe = "$root\dist\NishroLink.exe"
+$exe = "$root\dist\NishroLink\NishroLink.exe"
 if (-not (Test-Path $exe)) { throw "expected $exe, which is not there" }
-$mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+$mb = [math]::Round((Get-ChildItem "$root\dist\NishroLink" -Recurse -File |
+                     Measure-Object Length -Sum).Sum / 1MB, 1)
 
 Write-Host ""
 Write-Host "Built $exe  ($mb MB)" -ForegroundColor Green

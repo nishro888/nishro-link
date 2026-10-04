@@ -190,7 +190,48 @@ def build_parser():
     ap.add_argument("--background", action="store_true",
                     help="start with the window hidden (how it starts at login); "
                          "launching it again shows the window")
+    # Everyday controls without the window: the tray icon, and one-shot
+    # commands (the Linux dock's right-click menu runs these).
+    ap.add_argument("--tray", action="store_true",
+                    help="show the tray icon (started at login)")
+    ap.add_argument("--sharing", choices=["on", "off", "toggle"],
+                    help="turn sharing on or off, then exit")
+    ap.add_argument("--find-pointer", action="store_true",
+                    help="show where the pointer is, then exit")
+    ap.add_argument("--release-input", action="store_true",
+                    help="give every computer back its own mouse and keyboard, "
+                         "then exit")
+    ap.add_argument("--add", action="store_true",
+                    help="open the window at 'Add a device'")
     return ap
+
+
+def one_shot(args) -> int:
+    """--sharing, --find-pointer, --release-input: ask the service, and exit."""
+    from . import service
+    try:
+        found = service.find()
+    except PermissionError:
+        print("this account can't reach Nishro Link's background service yet",
+              file=sys.stderr)
+        return 3
+    if found is None:
+        print(f"Nishro Link is not running in the background"
+              f"{': ' + service.problem if service.problem else ''}", file=sys.stderr)
+        return 1
+    api = service.RemoteAPI(*found)
+    if args.sharing:
+        on = {"on": True, "off": False}.get(args.sharing)
+        if on is None:
+            on = not api.status().get("enabled")
+        api.command("/api/enable" if on else "/api/disable", {})
+        print("sharing on" if on else "sharing off")
+    if args.find_pointer:
+        api.command("/api/find", {})
+    if args.release_input:
+        api.command("/api/release", {})
+        print("released")
+    return 0
 
 
 def setup(cfg: dict, path_hint) -> dict:
@@ -285,6 +326,19 @@ def attach(args, cfg) -> int:
     """A window for the service that is already running, or None if there is
     none. The engine is the service's; this process is only the window."""
     from . import service
+    if not args.background and not service.published() and service.installed():
+        # Installed, and stopped - by Quit, most likely. Opening it starts it
+        # again, instead of running a second engine here, with this person's
+        # old settings from before it was installed. (Started at login it is
+        # left alone: a Quit holds until it is opened, or the computer restarts.)
+        r = service.control("start")
+        if not r.get("ok"):
+            return _not_started(r.get("error"))
+        end = time.monotonic() + 20.0
+        while not service.published() and time.monotonic() < end:
+            time.sleep(0.3)
+        if not service.published():
+            return _not_started("it started, but was not ready in time")
     try:
         found = service.find()
         # A handle but no answer: the service is busy or restarting. Wait a
@@ -314,6 +368,12 @@ def attach(args, cfg) -> int:
         return 0
     window = ui_tk.App(service.RemoteAPI(*found), remote=True)
     only.watch(window.show)
+    if getattr(args, "add", False):
+        window.root.after(400, window._add_device)
+    # This person's tray icon: back if it was hidden, there at once after an
+    # install. A second one finds the first and leaves.
+    from . import autostart, tray
+    tray.start_in_background(autostart.launcher())
     window.run()
     return 0
 
@@ -339,6 +399,23 @@ def _not_answering(problem) -> int:
     except Exception:
         pass
     return 4
+
+
+def _not_started(error) -> int:
+    """The service is installed and stopped, and could not be started."""
+    msg = ("Nishro Link could not start its background service: "
+           f"{error or 'no reason given'}.\n\nTry again, or restart the computer.")
+    print(msg, file=sys.stderr)
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Nishro Link", msg)
+        root.destroy()
+    except Exception:
+        pass
+    return 5
 
 
 def _no_access() -> int:
@@ -380,6 +457,12 @@ def main() -> int:
         if args.install_service:
             return wininstall.install(sys.executable, args.from_config)
         return wininstall.uninstall(purge=args.purge)
+
+    if args.tray:
+        from . import tray
+        return tray.run(lambda m: print(m, file=sys.stderr))
+    if args.sharing or args.find_pointer or args.release_input:
+        return one_shot(args)
 
     if args.agent:
         # The Windows service's hands on the desktop that is showing (agent.py).
@@ -565,6 +648,7 @@ def _engine(args, cfg, stop=None) -> int:
         n.detect_desktop = hub.desktop
         n.clip = ClipboardSync(cfg["node"], read=hub.clip_read,
                                write=hub.clip_write, seq_fn=hub.clip_seq)
+        n.clip.log = log
 
     if cfg["hub"]:
         where = f"waiting for a device, on the {cfg['side']}"
@@ -610,6 +694,7 @@ def _engine(args, cfg, stop=None) -> int:
                 log(f"running as the system service - windows attach through {where}")
         if sys.platform == "win32":
             threading.Thread(target=ui.check_firewall, daemon=True).start()
+            threading.Thread(target=ui.watch_network, daemon=True).start()
 
     # Input is captured on a thread where Windows blocks EVERY mouse on the
     # machine until the callback returns, so a garbage collection pause landing

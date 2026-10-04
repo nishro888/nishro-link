@@ -2,7 +2,7 @@
 
 Served by the link process itself, on 127.0.0.1 only. Chosen over a native tray
 because it is the same code on Windows and on Wayland, needs no GUI toolkit and
-no extra dependency, and survives being packed into a one-file exe.
+no extra dependency, and survives being packed by PyInstaller.
 
 WHY IT IS TOKEN-PROTECTED. This API can change the shared PIN, turn input
 capture on, and hand this machine's keyboard to another computer. Binding to
@@ -70,6 +70,10 @@ class ControlAPI:
         # Set by check_firewall(): [] clear, a list of rules if blocked, None if
         # it could not be checked (never shown as a problem).
         self.firewall_blocked = None
+        # Set by check_network(): the networks Windows calls Public, where its
+        # firewall keeps other devices out. None: not checked, or cannot be.
+        self.network_public = None
+        self._halt = threading.Event()
         # Linux device access, from access.check(); None or ok means nothing
         # to do. Set by the program at startup.
         self.setup = None
@@ -194,6 +198,7 @@ class ControlAPI:
         return True
 
     def stop(self) -> None:
+        self._halt.set()
         if not self._srv:
             return
         try:
@@ -250,7 +255,9 @@ class ControlAPI:
             "trusted_peer": n.trusted_peer,
             "encrypted": True,       # every link: secure.py
             "find_on_shake": bool(self.node.core.find_on_shake),
+            "notify": bool(self.cfg.get("notify", True)),
             "firewall_blocked": self.firewall_blocked or [],
+            "network_public": self.network_public or [],
             "setup": self.setup if self.setup and not self.setup.get("ok") else None,
             "autostart": self._autostart_state(),
             "service": bool(self.service),
@@ -283,9 +290,11 @@ class ControlAPI:
     def command(self, path: str, body: dict):
         if path == "/api/enable":
             self.node.set_enabled(True)
+            self.log("sharing turned on")
             return {"ok": True, "enabled": True}
         if path == "/api/disable":
             self.node.set_enabled(False)
+            self.log("sharing turned off - local input only, the group is kept")
             return {"ok": True, "enabled": False}
         if path == "/api/release":
             # The failsafe, as a button. Someone whose mouse has just stopped
@@ -316,6 +325,9 @@ class ControlAPI:
             return self._autostart(bool(body.get("on")))
         if path == "/api/firewall":
             return self._firewall()
+        if path == "/api/network":
+            self.check_network()                 # the window changed it: look again
+            return {"network_public": self.network_public or []}
         if path == "/api/discover":
             return self._discover()
         if path == "/api/password":
@@ -904,6 +916,35 @@ class ControlAPI:
                        "Windows Security prompt was dismissed. Press 'Allow "
                        "through the firewall' in the window to undo it.")
 
+    def check_network(self) -> None:
+        """Is this computer on a network Windows calls Public? Said in the log
+        when that changes; the window and the tray show it from status()."""
+        found = runtime.public_networks()
+        if found is None:
+            return
+        was, self.network_public = self.network_public, found
+        if found and found != was:
+            self.log(f"this computer is on a network Windows calls Public "
+                     f"({', '.join(found)}): Windows Firewall keeps other devices "
+                     f"from connecting to it. If it is your own network, make it "
+                     f"private - the window has a button for it.")
+        elif was and not found:
+            self.log("no public network any more - other devices can connect again")
+
+    def watch_network(self, every: float = 60.0) -> None:
+        """Look again every minute while a device is missing: a laptop can move
+        to another network at any time - its Wi-Fi from one band to the other,
+        for one. Nothing is spent on it while everyone is connected."""
+        while not self._halt.is_set():
+            try:
+                devs = self.status().get("devices") or []
+                if self.network_public or len(devs) < 2 or \
+                        not all(d.get("online") for d in devs):
+                    self.check_network()
+            except Exception:
+                pass
+            self._halt.wait(every)
+
     def _firewall(self) -> dict:
         """Undo a block, through Windows' own elevation prompt."""
         ok = runtime.allow_through_firewall()
@@ -975,6 +1016,9 @@ class ControlAPI:
                                  self.cfg["policy"].get("may_drive", True),
                                  self.cfg["policy"].get("may_be_driven", True))
         live.update(rights)
+        if "notify" in body:
+            self.cfg["notify"] = bool(body["notify"])
+            live["notify"] = self.cfg["notify"]
         if "find_on_shake" in body:
             on = bool(body["find_on_shake"])
             self.cfg["find_on_shake"] = on

@@ -9,6 +9,8 @@ remove|deconfigure)
         systemctl stop nishro-link.service 2>/dev/null || true
         systemctl disable nishro-link.service 2>/dev/null || true
     fi
+    # Open windows and tray icons too: their program is about to go.
+    pkill -f "link[.]nishro_link|nishro-link/launch[.]py" 2>/dev/null || true
     rm -rf /usr/lib/nishro-link/link/__pycache__
     ;;
 upgrade)

@@ -8,7 +8,9 @@ and the user in the `input` group (or run with sudo once to test).
 """
 from __future__ import annotations
 
+import subprocess
 import sys
+import threading
 
 from . import keymap
 
@@ -53,13 +55,15 @@ class WindowsInjector(Injector):
     RDOWN, RUP = 0x0008, 0x0010
     MDOWN, MUP = 0x0020, 0x0040
     WHEEL, HWHEEL = 0x0800, 0x1000
-    KEYUP = 0x0002
+    KEYUP, EXTENDED = 0x0002, 0x0001
 
     def __init__(self, origin=(0, 0)):
         import ctypes
         import ctypes.wintypes
         self.c = ctypes
         self.u = ctypes.windll.user32
+        self._b_lock = threading.Lock()
+        self._b_pending, self._b_busy = 0, False
         # Link positions count from the desktop's corner; SetCursorPos counts
         # from the primary monitor's. See desktop.py.
         self.ox, self.oy = int(origin[0]), int(origin[1])
@@ -96,12 +100,48 @@ class WindowsInjector(Injector):
             self.u.mouse_event(self.HWHEEL, 0, 0, int(dx) * 120, 0)
 
     def key(self, evdev_code, down):
+        step = keymap.BRIGHTNESS.get(evdev_code)
+        if step is not None:
+            if down:                      # a press, or a repeat of one held
+                self._brightness(step)
+            return
         vk = keymap.evdev_to_vk(evdev_code)
         if vk is None:
             return
         # Windows does not auto-repeat injected keys itself, so a repeat (2) has
         # to become another keydown - which is what any truthy value does here.
-        self.u.keybd_event(vk, 0, 0 if down else self.KEYUP, 0)
+        flags = 0 if down else self.KEYUP
+        if vk in keymap.MEDIA_VKS:
+            flags |= self.EXTENDED
+        self.u.keybd_event(vk, 0, flags, 0)
+
+    def _brightness(self, step):
+        """Windows has no brightness key a program can send: a laptop's are
+        read by its firmware. So set the built-in screen's brightness directly,
+        through WMI - on a worker, as PowerShell takes a moment, with presses
+        that arrive meanwhile added together. (External monitors don't take
+        it; Windows shows no slider for it either.)"""
+        with self._b_lock:
+            self._b_pending += step
+            if self._b_busy:
+                return
+            self._b_busy = True
+        threading.Thread(target=self._brightness_worker, daemon=True).start()
+
+    def _brightness_worker(self):
+        while True:
+            with self._b_lock:
+                step, self._b_pending = self._b_pending, 0
+                if not step:
+                    self._b_busy = False
+                    return
+            try:
+                subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
+                                "-Command", brightness_script(step)],
+                               capture_output=True, timeout=20,
+                               creationflags=0x08000000)       # no window
+            except Exception:
+                pass
 
     def spotlight(self, x, y):
         """Darken every screen but a circle round the pointer (spotlight_win)
@@ -111,6 +151,18 @@ class WindowsInjector(Injector):
 
     def close(self):
         pass
+
+
+def brightness_script(step: int) -> str:
+    """PowerShell that moves the built-in screen's brightness by `step` percent,
+    kept within 0-100."""
+    step = int(step)
+    return ("$m = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness "
+            "| Select-Object -First 1; "
+            f"$n = [Math]::Max(0, [Math]::Min(100, [int]$m.CurrentBrightness + ({step}))); "
+            "Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods "
+            "| Select-Object -First 1 | Invoke-CimMethod -MethodName WmiSetBrightness "
+            "-Arguments @{Timeout = [uint32]0; Brightness = [byte]$n} | Out-Null")
 
 
 # --------------------------------------------------------------------- Linux

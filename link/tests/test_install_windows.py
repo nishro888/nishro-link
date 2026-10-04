@@ -49,10 +49,11 @@ def test_no_line_of_the_setup_script_starts_with_a_hash():
 
 
 def test_stopping_the_others_spares_this_process_and_its_launcher(monkeypatch):
-    """The exe is one file: a launcher, and the program it unpacks, both named
-    NishroLink.exe. The setup wizard waits on the launcher. Killing it made
-    the wizard report "the background service did not start" every time,
-    while the program went on and started it."""
+    """When the exe was one file, it ran as a launcher and the program it
+    unpacked, both named NishroLink.exe. The setup wizard waits on the
+    launcher. Killing it made the wizard report "the background service did
+    not start" every time, while the program went on and started it. (The
+    build is a folder now; whatever started this process is still spared.)"""
     import os
     from link import wininstall
     ran = []

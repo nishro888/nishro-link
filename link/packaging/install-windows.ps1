@@ -38,10 +38,13 @@ if ($Uninstall) {
 # --------------------------------------------------------------- install
 Say "Nishro Link - installing for $env:USERNAME"
 
-$src = Join-Path $PSScriptRoot "NishroLink.exe"
-if (-not (Test-Path $src)) { $src = Join-Path $PSScriptRoot "..\..\dist\NishroLink.exe" }
-if (-not (Test-Path $src)) {
-    throw "NishroLink.exe not found. Build it first: link\packaging\build-windows.ps1"
+# The program is a folder: NishroLink.exe and the files it runs from.
+$src = Join-Path $PSScriptRoot "NishroLink"
+if (-not (Test-Path (Join-Path $src "NishroLink.exe"))) {
+    $src = Join-Path $PSScriptRoot "..\..\dist\NishroLink"
+}
+if (-not (Test-Path (Join-Path $src "NishroLink.exe"))) {
+    throw "NishroLink not found. Build it first: link\packaging\build-windows.ps1"
 }
 
 # Replacing a running exe fails with a file lock rather than anything helpful,
@@ -49,8 +52,9 @@ if (-not (Test-Path $src)) {
 $running = Get-Process NishroLink -ErrorAction SilentlyContinue
 if ($running) { $running | Stop-Process -Force; Start-Sleep -Milliseconds 400; Ok "stopped the running copy" }
 
+if (Test-Path "$dest\_internal") { Remove-Item -Recurse -Force "$dest\_internal" }
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-Copy-Item (Resolve-Path $src) $exe -Force
+Copy-Item -Path (Join-Path (Resolve-Path $src) "*") -Destination $dest -Recurse -Force
 Ok "installed to $dest"
 
 $sh = New-Object -ComObject WScript.Shell

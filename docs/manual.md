@@ -1,6 +1,6 @@
 # Nishro Link user manual
 
-**Version 1.0** · for Windows 10/11 and Linux (Ubuntu, Debian and others)
+**Version 1.1** · for Windows 10/11 and Linux (Ubuntu, Debian and others)
 
 Nishro Link lets one mouse and keyboard work several computers. Push the pointer
 off the edge of one screen and it appears on the next computer's; type, and the
@@ -24,16 +24,17 @@ in the pictures match the numbered notes under them.
 7. [Arranging your screens](#7-arranging-your-screens)
 8. [Wrap-around: copies of a computer](#8-wrap-around-copies-of-a-computer)
 9. [Everyday use](#9-everyday-use)
-10. [Finding the pointer](#10-finding-the-pointer)
-11. [Getting your computer back](#11-getting-your-computer-back)
-12. [Managing devices](#12-managing-devices)
-13. [Settings](#13-settings)
-14. [Activity and logs](#14-activity-and-logs)
-15. [Help and About](#15-help-and-about)
-16. [Keyboard shortcuts](#16-keyboard-shortcuts)
-17. [Updating and uninstalling](#17-updating-and-uninstalling)
-18. [When something is wrong](#18-when-something-is-wrong)
-19. [Glossary](#19-glossary)
+10. [The tray icon and the dock](#10-the-tray-icon-and-the-dock)
+11. [Finding the pointer](#11-finding-the-pointer)
+12. [Getting your computer back](#12-getting-your-computer-back)
+13. [Managing devices](#13-managing-devices)
+14. [Settings](#14-settings)
+15. [Activity and logs](#15-activity-and-logs)
+16. [Help and About](#16-help-and-about)
+17. [Keyboard shortcuts](#17-keyboard-shortcuts)
+18. [Updating and uninstalling](#18-updating-and-uninstalling)
+19. [When something is wrong](#19-when-something-is-wrong)
+20. [Glossary](#20-glossary)
 
 ---
 
@@ -85,7 +86,7 @@ The full list, with what has been tested, is in [requirements](requirements.md).
 
 ## 3. Installing on Windows
 
-1. Download **`NishroLink-Setup-1.0.1.exe`** from the
+1. Download **`NishroLink-Setup-1.1.0.exe`** from the
    [releases page](https://github.com/nishro888/nishro-link/releases/latest).
 2. Run it. Windows asks once for permission to make changes; choose **Yes**.
 
@@ -118,6 +119,8 @@ The full list, with what has been tested, is in [requirements](requirements.md).
 - set up a **background service** that starts with Windows. This is what lets
   another computer's mouse and keyboard work at the lock and sign-in screens;
 - allowed Nishro Link through **Windows Firewall** on private and domain networks;
+- added the **tray icon** by the clock, which starts whenever anyone signs in
+  ([§10](#10-the-tray-icon-and-the-dock));
 - added Nishro Link to the Start Menu, and to **Settings → Apps** for
   uninstalling.
 
@@ -132,19 +135,20 @@ More detail: [install-windows.md](install-windows.md).
 
 ### Ubuntu, Debian, Linux Mint, Pop!_OS and others
 
-1. Download **`nishro-link_1.0.1_all.deb`** from the
+1. Download **`nishro-link_1.1.0_all.deb`** from the
    [releases page](https://github.com/nishro888/nishro-link/releases/latest).
 2. Install it. Either double-click it (Ubuntu's App Center opens and installs
    it), or in a terminal:
 
    ```bash
-   sudo apt install ./nishro-link_1.0.1_all.deb
+   sudo apt install ./nishro-link_1.1.0_all.deb
    ```
 
 3. **Log out and back in once.** Nishro Link reads the keyboard and mouse
    directly, so your account has just been added to the `input` group, and that
    takes effect at your next login.
-4. Open **Nishro Link** from the app menu.
+4. Open **Nishro Link** from the app menu. Its icon also appears in the top
+   bar ([§10](#10-the-tray-icon-and-the-dock)).
 
 **If you installed from the App Center**, the package cannot tell who you are,
 so the window asks instead:
@@ -178,7 +182,8 @@ Fedora, Arch and others install from source, for your own user. See
 ![The Home page](manual/home.png)
 
 1. **Navigation.** The pages: **Home**, **Devices**, **Arrangement** and
-   **Activity** at the top; **Settings** and **Help** at the foot.
+   **Activity** at the top; **Settings** and **Help** at the foot, and under
+   them **Quit** ([below](#quitting)).
 2. **Where you are.** The page's name, and a line saying which computer this
    is, its role in the group, and how many devices are online.
 3. **The status badge.** One word for the state of things:
@@ -197,8 +202,8 @@ Fedora, Arch and others install from source, for your own user. See
    the group ([§9](#9-everyday-use)).
 5. **Control.** Which computer is in control right now: *You* when it is this
    one, and which screen the pointer is on.
-6. **Find the pointer** and **Release input** ([§10](#10-finding-the-pointer),
-   [§11](#11-getting-your-computer-back)).
+6. **Find the pointer** and **Release input** ([§11](#11-finding-the-pointer),
+   [§12](#12-getting-your-computer-back)).
 7. **Status.** Sharing, connection, encryption and control, each with a
    coloured dot. Hover over **ⓘ** for more.
 8. **At a glance:** devices online; the **round trip** (how long a message takes
@@ -215,6 +220,21 @@ reachable:
 **Closing the window** (✕) never stops sharing when Nishro Link runs as a
 service, which is how the installers set it up. When it runs without the service
 (from source), closing asks whether to stop sharing and quit.
+
+With the window closed, the **tray icon** keeps the everyday controls to hand
+([§10](#10-the-tray-icon-and-the-dock)).
+
+### Quitting
+
+**Quit**, at the foot of the navigation or in the tray icon's menu, stops
+Nishro Link completely: sharing stops on this computer, also at the sign-in
+screen, and the tray icon and the window close. Open Nishro Link to start it
+all again; restarting the computer does too. (To stop sharing for a while
+without quitting, turn **Sharing** off instead: [§9](#9-everyday-use).)
+
+On Windows no permission is asked. On Linux, recent systems (Ubuntu 24.04,
+Debian 12 and later) don't ask either; older ones ask for your password to stop
+and to start it.
 
 ---
 
@@ -293,7 +313,7 @@ The window says what went wrong and what to do. For example:
 | ***name* has its own group** | It is the hub of other devices. Add this computer to *its* group instead: the window offers **Join its group**. |
 | **Sharing is off on *name*** | Turn sharing on there, then **Try again**. |
 | **Version mismatch** | Install the same major version on both. |
-| **Name already in use** | Rename one of the two computers ([§12](#12-managing-devices)). |
+| **Name already in use** | Rename one of the two computers ([§13](#13-managing-devices)). |
 
 ### Joining a group instead
 
@@ -402,26 +422,91 @@ line, and it appears on the next computer.
 
 **Taking control.** Just move the other computer's mouse. With **Settings →
 What takes control → A click** it takes a click instead; useful if a mouse gets
-bumped ([§13](#13-settings)).
+bumped ([§14](#14-settings)).
 
 **Typing.** Keys go to the computer whose screen the pointer is on. Letters
 follow that computer's keyboard layout, as if the keyboard were plugged into it.
+So do the volume, mute and media keys, and brightness: they act on the computer
+the pointer is on. (On Windows, brightness changes the built-in screen only; a
+laptop's own Fn brightness keys are handled by its hardware and always act on
+the laptop.)
 
-**Copy and paste.** Copy text on one computer, move to another, paste. Text
-only.
+**Copy and paste.** Copy text or an image (a screenshot, a photo, an image
+from a web page) on one computer, move to another, paste. Images up to 16 MB.
+Files don't cross yet.
 
 **At the lock and sign-in screens.** Because Nishro Link runs as a service from
 boot, you can use another computer's mouse and keyboard to sign in.
 
-**Pausing.** Turn the **Sharing** switch off, top right. Everything stops on
-this computer, and the others treat it as away. Turn it back on to carry on;
-the group is kept.
+**Pausing.** Turn the **Sharing** switch off, top right, or untick **Sharing**
+in the tray icon's menu. Everything stops on this computer, and the others
+treat it as away. Turn it back on to carry on; the group is kept.
 
 ![Sharing is off](manual/sharing-off.png)
 
 ---
 
-## 10. Finding the pointer
+## 10. The tray icon and the dock
+
+The everyday controls, without opening the window. Nishro Link keeps an icon in
+the **notification area** on Windows (by the clock, or under its **^** arrow)
+and in the **top bar** on Ubuntu. It starts whenever you sign in. (It comes
+with the Windows setup and the `.deb`. Run from source, the window has the same
+controls.)
+
+![The tray menu](manual/tray-menu.png)
+
+1. **The state**, in words: connected and how many devices are online, sharing
+   off, waiting for the other devices, or setup needed.
+2. **Sharing.** Untick to pause sharing, tick to carry on: the same as the
+   switch on Home ([§9](#9-everyday-use)).
+3. **Find the pointer** and **Release input**
+   ([§11](#11-finding-the-pointer), [§12](#12-getting-your-computer-back)).
+4. **Devices:** every device in the group, and whether it is online
+   (● online, ○ offline). **Add a device…** opens the window at adding one
+   ([§6](#6-connecting-your-computers)).
+5. **Open Nishro Link** opens the window.
+6. **Hide this icon** removes the icon until you next sign in or open the
+   window. Sharing carries on.
+7. **Quit Nishro Link** stops it completely ([§5](#quitting)).
+
+**The icon shows the state** at a glance:
+
+![The icon's three states](manual/tray-states.png)
+
+- **Blue:** connected, or ready for a device to be added.
+- **Grey:** sharing is off on this computer.
+- **An amber dot:** something needs you: not connected to the others, setup
+  needed (Linux), or the background service is not running. Hover over the
+  icon, or open its menu, to see which.
+
+**Notifications.** When a device connects or drops out, a notification says
+so. Turn them off with **Settings → Notify when a device connects or drops**
+([§14](#14-settings)).
+
+**On Windows**, click the icon to open the window, and right-click it for the
+menu. To keep it in view, drag it from under the **^** arrow on to the taskbar.
+
+**On Linux**, click the icon for the menu. Ubuntu and KDE Plasma show tray
+icons as they come, as do most other desktops. Plain GNOME (Debian, Fedora)
+needs the **AppIndicator and KStatusNotifierItem Support** extension, from the
+`gnome-shell-extension-appindicator` package.
+
+### The dock's right-click menu (Linux)
+
+Right-click **Nishro Link** in the dock or the app grid:
+
+| Choice | Does |
+|---|---|
+| **Find the pointer** | Shows where the pointer is, on whichever computer it is. |
+| **Release input** | Gives every computer back its own mouse and keyboard. |
+| **Pause sharing** / **Resume sharing** | Turns sharing off or on. |
+
+These work with or without a tray icon.
+
+---
+
+## 11. Finding the pointer
 
 Lost the pointer among several screens?
 
@@ -430,25 +515,25 @@ except a circle round the pointer, **on whichever computer it is**:
 
 ![Find the pointer](manual/spotlight.png)
 
-- The **Find the pointer** button on Home does the same.
+- **Find the pointer**, on Home or in the tray icon's menu, does the same.
 - **On Ubuntu and other GNOME desktops**, GNOME's own ripple round the pointer
   is shown instead of the circle. Other Linux desktops don't show anything yet.
 - Don't want it? Turn off **Settings → Shake the mouse to find the pointer**.
 
 ---
 
-## 11. Getting your computer back
+## 12. Getting your computer back
 
 Nishro Link gives every computer back its own mouse and keyboard whenever
 anything is in doubt: when a connection drops, a device leaves, or the program
 stops. You can also do it yourself at any time:
 
 - press **both Ctrl keys** together, on any computer; or
-- choose **Release input** on Home.
+- choose **Release input**, on Home or in the tray icon's menu.
 
 ---
 
-## 12. Managing devices
+## 13. Managing devices
 
 Everything about the group is on **Devices**:
 
@@ -514,7 +599,7 @@ it and type the group's new password.
 
 ---
 
-## 13. Settings
+## 14. Settings
 
 ![Settings, top](manual/settings-top.png)
 
@@ -526,8 +611,10 @@ it and type the group's new password.
    - **What takes control:** **Moving the mouse** (a small deliberate movement)
      or **A click**.
    - **Can control other devices** / **Can be controlled:** this computer's
-     rights ([§12](#details)).
-   - **Shake the mouse to find the pointer** ([§10](#10-finding-the-pointer)).
+     rights ([§13](#details)).
+   - **Shake the mouse to find the pointer** ([§11](#11-finding-the-pointer)).
+   - **Notify when a device connects or drops:** the tray icon's
+     notifications ([§10](#10-the-tray-icon-and-the-dock)).
 
 ![Settings, bottom](manual/settings-bottom.png)
 
@@ -539,11 +626,11 @@ it and type the group's new password.
 3. **Security:** the **group password**, on the hub. Leave it empty to keep the
    current one. On other devices this is set by the hub.
 4. **Save** applies the name, port, password and control choices. The theme,
-   startup and shake switch apply as soon as you change them.
+   startup, shake and notify switches apply as soon as you change them.
 
 ---
 
-## 14. Activity and logs
+## 15. Activity and logs
 
 ![The Activity page](manual/activity.png)
 
@@ -563,7 +650,7 @@ or what you type.
 
 ---
 
-## 15. Help and About
+## 16. Help and About
 
 ![Help](manual/help.png)
 
@@ -577,13 +664,13 @@ or what you type.
 
 - **Get started:** the four steps, and a reminder that both Ctrl keys give you
   your mouse back.
-- **Keyboard shortcuts** ([§16](#16-keyboard-shortcuts)).
+- **Keyboard shortcuts** ([§17](#17-keyboard-shortcuts)).
 - **Support:** the documentation, reporting a problem, downloads, and the log
   folder.
 
 ---
 
-## 16. Keyboard shortcuts
+## 17. Keyboard shortcuts
 
 | Keys | Does |
 |---|---|
@@ -597,9 +684,21 @@ or what you type.
 | **F1** | Help |
 | **Ctrl+Q** | Close the window |
 
+**From a command line, or a shortcut of your own**, the everyday controls:
+
+| Command | Does |
+|---|---|
+| `nishro-link --sharing off` | Pauses sharing (`on` carries on; `toggle` switches) |
+| `nishro-link --find-pointer` | Find the pointer |
+| `nishro-link --release-input` | Release input |
+
+On Windows the program is `C:\Program Files\Nishro Link\NishroLink.exe`. To
+put one on a key, add it as a custom shortcut in your desktop's keyboard
+settings.
+
 ---
 
-## 17. Updating and uninstalling
+## 18. Updating and uninstalling
 
 **Updating.** Install the new version the same way as the first time: run the new
 setup on Windows, install the new `.deb` on Linux. Your devices and arrangement
@@ -619,7 +718,7 @@ sudo apt purge nishro-link      # removes the settings and the log too
 
 ---
 
-## 18. When something is wrong
+## 19. When something is wrong
 
 **The window shows a red banner: "Windows Firewall is blocking Nishro Link".**
 Windows added a rule blocking it, usually after its own "allow access" question
@@ -629,21 +728,41 @@ was dismissed.
 
 1. Choose **Allow**, then **Yes** in Windows' permission prompt.
 
+**The window shows a red banner: "… is a public network".** Windows calls
+the network this computer is on Public, and its firewall then keeps every
+other device out. Nishro Link is allowed on private networks only: a café's
+Wi-Fi is exactly where a computer should not answer strangers. It happens
+when a laptop joins a network it has never seen before - even the same
+router's other band (2.4 GHz rather than 5 GHz).
+
+![The public network banner](manual/network-banner.png)
+
+1. If it is your own home or work network, choose **Make it private**, then
+   **Yes** in Windows' permission prompt. If it isn't, use a network that is.
+
 **Devices do not find each other.** Check, in order:
 
 1. Both are on the same network.
 2. Sharing is on on both.
-3. Windows: the network is set to **Private** (Settings → Network & Internet →
-   your connection → Properties).
+3. Windows: the network is set to **Private**: the window says so if it
+   isn't (above).
 4. Linux with a firewall: `sudo ufw allow 8770`.
 5. The network lets devices see each other. Guest Wi-Fi, "client isolation" and
    some VPNs don't.
 
-**The pointer lags.** Almost always Wi-Fi power saving on the computer being
-controlled. Use 5 GHz Wi-Fi or a cable if you can, or turn off power saving for
-its Wi-Fi.
+**The pointer lags.** Almost always Wi-Fi: its power saving, or a weak signal.
+Nishro Link keeps both computers' radios awake while the pointer is across, but
+it cannot do everything. Use 5 GHz Wi-Fi or a cable if you can; on a computer
+that is always plugged in, turn its Wi-Fi power saving off. The round trip on
+Home shows how quick the link is: a few milliseconds is good.
 
 **A key seems stuck.** Press both Ctrl keys.
+
+**There is no tray icon.** On Windows, look under the **^** arrow by the
+clock; if it isn't there, open Nishro Link once and the icon comes back. On
+plain GNOME, add the AppIndicator extension
+([§10](#10-the-tray-icon-and-the-dock)); meanwhile the dock's right-click menu
+has the same controls.
 
 **A keyboard or mouse plugged in later doesn't work across (Linux).** It is
 picked up within two seconds. If not, restart Nishro Link on that computer.
@@ -654,7 +773,7 @@ with **Help → Copy details** from each computer.
 
 ---
 
-## 19. Glossary
+## 20. Glossary
 
 | Word | Meaning |
 |---|---|
@@ -668,6 +787,7 @@ with **Help → Copy details** from each computer.
 | **Copy** | A second box for a computer, so the pointer can wrap around to it. |
 | **Round trip** | How long a message takes to reach another computer and come back. |
 | **Sharing** | Whether this computer takes part right now. Off pauses it without leaving the group. |
+| **Tray icon** | Nishro Link's icon by the clock (Windows) or in the top bar (Linux), with the everyday controls in its menu. |
 | **Service** | The part of Nishro Link that runs in the background from boot. The window only shows it and changes its settings. |
 
 ---

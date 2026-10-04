@@ -220,3 +220,19 @@ def test_the_reading_loop_itself_looks_again(cap, monkeypatch):
     finally:
         cap.stop()
         t.join(1)
+
+
+# ---- media keys follow the pointer ----
+def test_a_keyboards_media_keys_are_read_too():
+    """Reported: with the AIO's keyboard, volume up and down acted on the AIO
+    even with the pointer on the laptop. Those keys come on a device of their
+    own, with no letter keys, which was never read."""
+    consumer = [113, 114, 115, 163, 164, 165, 224, 225]
+    assert should_capture("SINO WEALTH Gaming KB Consumer Control", consumer, []) is True
+
+
+def test_never_a_device_that_carries_the_power_button():
+    """Grabbed while the pointer is elsewhere, this computer's power and sleep
+    keys would go with it."""
+    assert should_capture("Gaming KB System Control", [116, 142, 143], []) is False
+    assert should_capture("Intel HID events", [113, 114, 115, 116], []) is False

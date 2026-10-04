@@ -41,7 +41,13 @@ def available() -> bool:
 
 def command(extra=()) -> list:
     """The command line that starts this copy of the program, in the background."""
-    extra = [BACKGROUND, *extra]
+    return launcher([BACKGROUND, *extra])
+
+
+def launcher(extra=()) -> list:
+    """The command line that starts this copy of the program - the tray's way
+    to open the window, and the base of the login entry."""
+    extra = list(extra)
     if getattr(sys, "frozen", False):                 # the PyInstaller exe
         return [sys.executable, *extra]
     root = str(pathlib.Path(__file__).resolve().parent.parent)

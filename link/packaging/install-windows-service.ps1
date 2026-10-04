@@ -68,9 +68,14 @@ try {
 
     # ------------------------------------------------------------ install
     Say "Nishro Link - installing the service"
-    $src = Join-Path $PSScriptRoot "NishroLink.exe"
-    if (-not (Test-Path $src)) { $src = Join-Path $PSScriptRoot "..\..\dist\NishroLink.exe" }
-    if (-not (Test-Path $src)) { throw "NishroLink.exe not found. Build it first: link\packaging\build-windows.ps1" }
+    # The program is a folder: NishroLink.exe and the files it runs from.
+    $src = Join-Path $PSScriptRoot "NishroLink"
+    if (-not (Test-Path (Join-Path $src "NishroLink.exe"))) {
+        $src = Join-Path $PSScriptRoot "..\..\dist\NishroLink"
+    }
+    if (-not (Test-Path (Join-Path $src "NishroLink.exe"))) {
+        throw "NishroLink not found. Build it first: link\packaging\build-windows.ps1"
+    }
 
     if (Get-Service $name -ErrorAction SilentlyContinue) {
         & sc.exe stop $name | Out-Null
@@ -86,8 +91,9 @@ try {
         Ok "stopped the running copy"
     }
 
+    if (Test-Path (Join-Path $dir "_internal")) { Remove-Item -Recurse -Force (Join-Path $dir "_internal") }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    Copy-Item (Resolve-Path $src) $exe -Force
+    Copy-Item -Path (Join-Path (Resolve-Path $src) "*") -Destination $dir -Recurse -Force
     Ok "installed to $dir"
 
     # Settings: SYSTEM and Administrators only - they hold the group's password.

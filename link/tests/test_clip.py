@@ -1,4 +1,6 @@
 """Clipboard sharing: lazy, chunked, loop-free. See DESIGN.md section 6."""
+import sys
+
 import pytest
 
 from link import clip, protocol
@@ -323,3 +325,201 @@ def test_without_a_counter_it_looks_only_when_the_pointer_leaves():
     where["remote"] = True
     n._clip_look()
     assert reads == [1, 1], "left again: one more"
+
+
+# ------------------------------------------------------------------ images
+PNG = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 40          # 10 KB, any bytes
+
+
+def _pair(a_value, b_value=""):
+    from link.clip import ClipboardSync
+    boards = {"a": {"v": a_value, "n": 1}, "b": {"v": b_value, "n": 1}}
+    made = {}
+    for name in ("a", "b"):
+        bd = boards[name]
+        made[name] = ClipboardSync(
+            name, read=lambda bd=bd: bd["v"],
+            write=lambda v, bd=bd: bd.update(v=v, n=bd["n"] + 1) or True,
+            seq_fn=lambda bd=bd: bd["n"])
+    return made["a"], made["b"], boards
+
+
+def _deliver(src, dst, msgs):
+    """Play messages to the other side until nothing more comes back."""
+    while msgs:
+        nxt = []
+        for m in msgs:
+            nxt += dst.on_message(m)
+        msgs, src, dst = nxt, dst, src
+
+
+def test_an_image_copied_on_one_machine_pastes_on_the_other():
+    """Asked for: photos, not only text."""
+    a, b, boards = _pair(("image/png", PNG))
+    meta = a.poll()
+    assert meta[0]["formats"] == ["image/png"] and meta[0]["bytes"] == len(PNG)
+    _deliver(a, b, meta)
+    assert boards["b"]["v"] == ("image/png", PNG)
+
+
+def test_a_received_image_is_not_announced_back():
+    a, b, boards = _pair(("image/png", PNG))
+    _deliver(a, b, a.poll())
+    assert b.poll() == [], "it came from a: no echo"
+
+
+def test_text_wins_when_both_are_offered():
+    from link.clip import ClipboardSync
+    b = ClipboardSync("b", read=lambda: "", write=lambda v: True)
+    got = b.on_message({"t": "clipmeta", "origin": "a", "seq": 3,
+                        "formats": ["text", "image/png"], "bytes": 10})
+    assert got[0]["format"] == "text"
+
+
+def test_an_older_machine_asking_for_text_gets_no_image():
+    """1.0 asks for text whatever is offered: it must not be sent base64 PNG."""
+    a, _b, _ = _pair(("image/png", PNG))
+    seq = a.poll()[0]["seq"]
+    assert a.on_message({"t": "clipget", "seq": seq, "format": "text"}) == []
+    assert a.on_message({"t": "clipget", "seq": seq}) == []
+
+
+def test_an_image_too_big_is_not_offered():
+    from link.clip import ClipboardSync
+    a = ClipboardSync("a", read=lambda: ("image/png", PNG), write=lambda v: True,
+                      seq_fn=lambda: 1, max_image_bytes=1000)
+    assert a.poll() == []
+
+
+def test_every_image_chunk_fits_a_frame():
+    from link import protocol
+    a, _b, _ = _pair(("image/png", PNG * 20))
+    seq = a.poll()[0]["seq"]
+    for m in a.on_message({"t": "clipget", "seq": seq, "format": "image/png"}):
+        assert len(m["v"]) <= protocol.CLIP_CHUNK
+
+
+def test_a_clipboard_held_by_another_program_is_looked_at_again():
+    from link.clip import ClipboardSync
+    reads = [None, "hello"]
+    a = ClipboardSync("a", read=lambda: reads.pop(0), write=lambda v: True,
+                      seq_fn=lambda: 7)
+    assert a.poll() == []                 # busy: nothing read, but not forgotten
+    assert a.poll()[0]["t"] == "clipmeta", "the same change, read the next time"
+
+
+def test_images_cross_between_the_service_and_its_agent_as_a_file(tmp_path):
+    from link import clip
+    spool = tmp_path / "clip-out.png"
+    wire = clip.to_wire(("image/png", PNG), lambda: spool)
+    assert wire == {"fmt": "image/png", "file": str(spool)}
+    assert clip.from_wire(wire) == ("image/png", PNG)
+    assert not spool.exists(), "not left on disk once read"
+    assert clip.to_wire("text", lambda: 1 / 0) == "text", "no file for text"
+    assert clip.from_wire("text") == "text"
+
+
+def test_linux_reads_an_image_when_no_text_is_offered(monkeypatch):
+    import subprocess
+    from link import clip
+    monkeypatch.setattr(clip.sys, "platform", "linux")
+    monkeypatch.setattr(clip, "_tools", lambda: ("xclip",))
+    offered = {"targets": "TARGETS\nimage/png\n"}
+
+    def run(cmd, **kw):
+        if "TARGETS" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout=offered["targets"])
+        if "image/png" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, stdout=PNG)
+        return subprocess.CompletedProcess(cmd, 0, stdout="some text")
+    monkeypatch.setattr(clip, "_run", run)
+    assert clip.get() == ("image/png", PNG)
+    offered["targets"] = "TARGETS\nUTF8_STRING\nimage/png\n"
+    assert clip.get() == "some text", "text wins"
+
+
+def test_linux_writes_an_image_as_png(monkeypatch):
+    import subprocess
+    from link import clip
+    monkeypatch.setattr(clip.sys, "platform", "linux")
+    monkeypatch.setattr(clip, "_tools", lambda: ("xclip",))
+    seen = []
+    monkeypatch.setattr(clip, "_run", lambda cmd, **kw: seen.append((cmd, kw.get("input")))
+                        or subprocess.CompletedProcess(cmd, 0))
+    assert clip.set(("image/png", PNG)) is True
+    assert seen == [(clip.WRITE_IMAGE["xclip"], PNG)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the Windows clipboard")
+def test_the_windows_clipboard_is_used_by_one_thread_at_a_time():
+    """Several threads reading and writing at once crashed the process (heap
+    corruption): opening the clipboard keeps other programs out, not other
+    threads. Every operation takes one lock."""
+    import threading
+    import time
+    from link import clip_win
+    inside, worst = [0], [0]
+    real = clip_win._open
+
+    def counting(*a, **kw):
+        inside[0] += 1
+        worst[0] = max(worst[0], inside[0])
+        time.sleep(0.005)
+        inside[0] -= 1
+        return False                      # never really open it: just count
+    clip_win._open = counting
+    try:
+        ts = [threading.Thread(target=f) for f in
+              [clip_win.get_text, clip_win.get_image] * 8]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+    finally:
+        clip_win._open = real
+    assert worst[0] == 1
+
+
+def test_a_stuck_change_counter_does_not_keep_a_copy_back():
+    """A change counter that does not move must not keep a copy back:
+    leaving the computer - when a copy can next be pasted elsewhere - forces
+    a real look."""
+    value = {"v": "first"}
+    a = ClipboardSync("a", read=lambda: value["v"], write=lambda v: True,
+                      seq_fn=lambda: 0)
+    assert a.poll()[0]["t"] == "clipmeta"          # at start
+    value["v"] = "copied later"
+    assert a.poll() == [], "the counter says nothing changed"
+    out = a.poll(force=True)                       # the pointer just left
+    assert out and out[0]["t"] == "clipmeta"
+    assert a.poll(force=True) == [], "nothing new: nothing offered twice"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the Windows clipboard")
+def test_an_image_survives_the_trip_through_a_dib():
+    """Images are read as CF_DIB - plain memory - not a bitmap handle, which
+    could not be converted when another program made it (every screenshot),
+    nor read as "PNG" by the service's desk agent. The conversions both ways
+    keep every pixel."""
+    import io
+    import struct
+    from PIL import Image
+    from link import clip_win
+    im = Image.new("RGB", (64, 40))
+    px = im.load()
+    for x in range(64):
+        for y in range(40):
+            px[x, y] = (x * 4, y * 6, 150)
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    dib = clip_win._png_to_dib(b.getvalue())
+    assert struct.unpack_from("<IiiHH", dib) == (40, 64, 40, 1, 32)
+    back = Image.open(io.BytesIO(clip_win._dib_to_png(dib))).convert("RGB")
+    assert back.tobytes() == im.tobytes()
+    # The same pixels described with colour masks (BI_BITFIELDS), as a
+    # screenshot often is: 12 more bytes before the pixels.
+    head = bytearray(dib[:40])
+    struct.pack_into("<I", head, 16, 3)
+    masks = struct.pack("<III", 0x00FF0000, 0x0000FF00, 0x000000FF)
+    back = Image.open(io.BytesIO(clip_win._dib_to_png(bytes(head) + masks + dib[40:])))
+    assert back.convert("RGB").tobytes() == im.tobytes()

@@ -54,7 +54,8 @@ FOOT_PAGES = ("settings", "help")      # at the foot of the pane
 
 # Windows' own icons (Segoe MDL2 Assets / Fluent Icons), where the font is.
 ICONS = {"overview": "\uE80F", "devices": "\uE772", "arrange": "\uE7F4",
-         "activity": "\uE81C", "settings": "\uE713", "help": "\uE897"}
+         "activity": "\uE81C", "settings": "\uE713", "help": "\uE897",
+         "quit": "\uE7E8"}
 
 
 class App:
@@ -63,6 +64,7 @@ class App:
         self.on_quit = on_quit
         # A window onto the system service: closing it stops nothing.
         self.remote = remote
+        self._born = time.time()             # a Quit after this closes this window
         try:
             self._service = bool(api.status().get("service"))
         except Exception:
@@ -166,7 +168,8 @@ class App:
                                    bg=C["sidebar"], fg=C["ink"])
         self.brand_text.pack(side="left", padx=(8, 0))
 
-        self.nav = {}
+        self.nav = {}                        # the pages; self.actions: the rest
+        self.actions = {}
         for name, text, glyph in PAGES:
             if name not in FOOT_PAGES:
                 self.nav[name] = self._nav_item(name, text, glyph)
@@ -178,6 +181,10 @@ class App:
         # badge give the status, Help the version, the X quits. Find the pointer
         # and Release input are on Home, with what they act on.
         tk.Frame(self.sidebar, bg=C["sidebar"], height=10).pack(side="bottom")
+        # ...and under them Quit: an action, not a page. Asked for after
+        # processes had to be closed by hand in Task Manager.
+        self.actions = {"quit": self._nav_item("quit", "Quit", "\u2715",
+                                               side="bottom", command=self._quit_all)}
         for name, text, glyph in reversed([p for p in PAGES if p[0] in FOOT_PAGES]):
             self.nav[name] = self._nav_item(name, text, glyph, side="bottom")
         tk.Frame(self.sidebar, bg=C["line"], height=1).pack(
@@ -234,6 +241,19 @@ class App:
                              kind="danger", small=True)
         self.fw_btn.pack(side="right", padx=12)
 
+        # Windows: on a network it calls Public, its firewall keeps every
+        # other device out - seen when a laptop's Wi-Fi changed band.
+        self.net_box = tk.Frame(self.main, bg=C["bad_bg"], highlightthickness=1,
+                                highlightbackground=C["bad"])
+        self.net_text = tk.Label(self.net_box, bg=C["bad_bg"], fg=C["ink"],
+                                 font=F["h3"], anchor="w", text="")
+        self.net_text.pack(side="left", padx=(12, 6), pady=10)
+        self.net_info = info(self.net_box, kit, "")
+        self.net_info.pack(side="left")
+        self.net_btn = Button(self.net_box, kit, "Make it private", self._fix_network,
+                              kind="danger", small=True)
+        self.net_btn.pack(side="right", padx=12)
+
         # Linux, first run: the keyboard and mouse are not ours to use yet.
         self.setup_box = tk.Frame(self.main, bg=C["warn_bg"], highlightthickness=1,
                                   highlightbackground=C["warn"])
@@ -255,7 +275,7 @@ class App:
         # Notices float over the bottom right of every page.
         self.toasts = tk.Frame(self.main, bg=C["panel"])
 
-    def _nav_item(self, name, text, glyph, side="top"):
+    def _nav_item(self, name, text, glyph, side="top", command=None):
         """One page in the pane: its icon and its name. The page showing has a
         filled row and a short accent pill at its left edge - Windows 11's
         own mark for it."""
@@ -272,7 +292,8 @@ class App:
         t.pack(side="left", fill="x", expand=True)
         bar = tk.Frame(row, bg=C["accent"], width=3, height=16)
         for w in (row, g, t):
-            w.bind("<Button-1>", lambda _e, n=name: self.show_page(n))
+            w.bind("<Button-1>", (lambda _e: command()) if command else
+                   (lambda _e, n=name: self.show_page(n)))
             w.bind("<Enter>", lambda _e, n=name: self._nav_hover(n, True))
             w.bind("<Leave>", lambda _e, n=name: self._nav_hover(n, False))
         return {"row": row, "bar": bar, "glyph": g, "text": t}
@@ -281,8 +302,9 @@ class App:
         if name == self.page:
             return
         bg = self.C["card"] if on else self.C["sidebar"]
+        item = self.nav.get(name) or self.actions[name]
         for k in ("row", "glyph", "text"):
-            self.nav[name][k].configure(bg=bg)
+            item[k].configure(bg=bg)
 
     def show_page(self, name) -> None:
         if name == self.page:
@@ -843,6 +865,14 @@ class App:
                  bg=C["card"], fg=C["ink"]).pack(side="left", padx=10)
         info(row, kit, "A quick shake darkens every screen but a circle round "
                        "the pointer - on whichever computer it is.").pack(side="left")
+        self.notify = tk.BooleanVar(value=True)
+        row = tk.Frame(ctl.body, bg=C["card"])
+        row.pack(fill="x", pady=3)
+        Toggle(row, kit, self.notify, command=self._set_notify).pack(side="left")
+        tk.Label(row, text="Notify when a device connects or drops", font=F["body"],
+                 bg=C["card"], fg=C["ink"]).pack(side="left", padx=10)
+        info(row, kit, "The tray icon shows a notification when another device "
+                       "connects or drops out.").pack(side="left")
 
         # Applied as soon as it is flipped, not by Save: it changes nothing in
         # the running program, and a switch that waits for a button reads as
@@ -918,6 +948,11 @@ class App:
         # Tcl - noise that looks like a crash and is not one.
         if not self._alive:
             return
+        if self.remote:
+            from . import service
+            if service.quit_asked_since(self._born):     # Quit, from the tray
+                self.close()
+                return
         try:
             self._render(self.api.status())
         except Exception as e:
@@ -968,6 +1003,21 @@ class App:
             self.fw_box.pack(fill="x", padx=26, pady=(6, 0), before=self.stack)
         elif not blocked and shown:
             self.fw_box.pack_forget()
+        public = s.get("network_public") or []
+        shown = self.net_box.winfo_manager() == "pack"
+        if public:
+            names = ", ".join(public)
+            self.net_text.configure(text=f"{names} is a public network - Windows "
+                                         f"keeps other devices out")
+            self.net_info.tip.set(
+                f"Windows calls {names} a public network, and Nishro Link is "
+                f"allowed only on private ones, so other devices cannot connect "
+                f"to this one. If it is your own home or work network, make it "
+                f"private.")
+            if not shown:
+                self.net_box.pack(fill="x", padx=26, pady=(6, 0), before=self.stack)
+        elif shown:
+            self.net_box.pack_forget()
 
         # ---- overview
         self.hero_name.configure(text=s["node"] if s["holds"] else
@@ -1040,6 +1090,8 @@ class App:
             self.may_be_driven.set(s["policy"].get("may_be_driven", True))
         if "find_on_shake" in s and self.find_shake.get() != s["find_on_shake"]:
             self.find_shake.set(bool(s["find_on_shake"]))
+        if "notify" in s and self.notify.get() != s["notify"]:
+            self.notify.set(bool(s["notify"]))
         if self.autostart is not None:
             a = s.get("autostart") or {}
             if self.autostart.get() != bool(a.get("on")):
@@ -1380,6 +1432,46 @@ class App:
             self._poll_now()
         wait()
 
+    def _fix_network(self) -> None:
+        """Windows' own elevation prompt, run by this window - never by the
+        service, which could change the network without anyone being asked -
+        and off the Tk thread, which must not freeze while a person answers."""
+        from . import runtime
+        names = list((self._last or {}).get("network_public") or [])
+        if not names:
+            return
+        self.net_btn.set_enabled(False)
+        self._say(f"Windows will ask for permission - answer Yes to make "
+                  f"{', '.join(names)} a private network.", self.C["warn"])
+        done = []
+
+        def work():
+            ok = runtime.make_private(names)
+            done.append((ok, self.api.command("/api/network", {}) or {}))
+        threading.Thread(target=work, daemon=True).start()
+
+        def wait():
+            if not self._alive:
+                return
+            if not done:
+                self.root.after(200, wait)
+                return
+            ok, r = done[0]
+            try:
+                self.net_btn.set_enabled(True)
+            except tk.TclError:
+                return
+            if not r.get("network_public"):
+                self._say("Done. Other devices can connect to this one now.",
+                          self.C["ok"])
+            elif not ok:
+                self._say("Nothing was changed - the permission prompt was declined.",
+                          self.C["dim"])
+            else:
+                self._say("Windows still calls it a public network.", self.C["bad"])
+            self._poll_now()
+        wait()
+
     def _fix_setup(self) -> None:
         """The desktop's password prompt, off the Tk thread - it waits for a
         person, and the window must not freeze meanwhile."""
@@ -1418,6 +1510,12 @@ class App:
     def _set_find_shake(self) -> None:
         r = self.api.command("/api/config",
                              {"find_on_shake": bool(self.find_shake.get())}) or {}
+        if r.get("error"):
+            self._say(r["error"], self.C["bad"])
+        self._poll_now()
+
+    def _set_notify(self) -> None:
+        r = self.api.command("/api/config", {"notify": bool(self.notify.get())}) or {}
         if r.get("error"):
             self._say(r["error"], self.C["bad"])
         self._poll_now()
@@ -1663,6 +1761,37 @@ class App:
                 "Every machine goes back to its own mouse and keyboard."):
             return
         self.close()
+
+    def _quit_all(self) -> None:
+        """Quit Nishro Link, fully: the service stops - sharing too, and its
+        use at the sign-in screen - and this person's tray and windows close.
+        Opening Nishro Link starts it all again; so does a restart."""
+        if not self.remote:
+            self._quit()                  # this window's process is the engine
+            return
+        if not messagebox.askokcancel(
+                "Quit Nishro Link",
+                "Quit Nishro Link?\n\nSharing stops on this computer - also at "
+                "the sign-in screen - until you open Nishro Link again or "
+                "restart the computer.", parent=self.root):
+            return
+        self._say("Stopping Nishro Link…", self.C["dim"])
+        from . import service
+        done = []
+        threading.Thread(target=lambda: done.append(service.quit_everything()),
+                         daemon=True).start()
+
+        def wait():
+            if not self._alive:
+                return
+            if not done:
+                self.root.after(200, wait)
+                return
+            if done[0].get("ok"):
+                self.close()
+            else:
+                self._say(f"Could not quit: {done[0].get('error')}", self.C["bad"])
+        wait()
 
     def close(self) -> None:
         """Stop polling, then tear the window down - in that order."""

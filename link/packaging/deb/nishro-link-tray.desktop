@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Nishro Link tray icon
+Comment=Nishro Link's everyday controls in the top bar
+Exec=/usr/bin/nishro-link --tray
+Icon=nishro-link
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=3

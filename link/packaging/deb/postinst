@@ -42,10 +42,32 @@ configure)
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
         systemctl stop nishro-link.service 2>/dev/null || true
-        # A copy someone started by hand holds the ports and the devices.
+        # Tray icons running now come back after the upgrade. Noted first: whose
+        # each is, and its desktop session - taken from the tray itself.
+        trays="$(mktemp -d)"
+        for pid in $(pgrep -f "nishro-link/launch[.]py --tray" 2>/dev/null); do
+            grep -zE '^(HOME|USER|LOGNAME|LANG|LANGUAGE|DISPLAY|WAYLAND_DISPLAY|XDG_RUNTIME_DIR|XDG_CURRENT_DESKTOP|XDG_SESSION_TYPE|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS)=' \
+                "/proc/$pid/environ" > "$trays/$(stat -c %U "/proc/$pid")" 2>/dev/null || true
+        done
+        # Nothing of the old version may keep running: a copy someone started
+        # by hand holds the ports and the devices, and windows and trays would
+        # go on running the old code.
         pkill -f "link[.]nishro_link|nishro-link/launch[.]py" 2>/dev/null || true
         systemctl enable nishro-link.service || true
         systemctl start nishro-link.service || true
+        # Only one tray per person may run: let the old ones finish going.
+        for _ in 1 2 3 4 5 6; do
+            pgrep -f "nishro-link/launch[.]py --tray" >/dev/null 2>&1 || break
+            sleep 0.5
+        done
+        for f in "$trays"/*; do
+            [ -s "$f" ] || continue
+            # As that person, in their session, detached from this script.
+            xargs -0 -a "$f" sh -c 'exec runuser -u "$0" -- env -i "$@" \
+                PATH=/usr/local/bin:/usr/bin:/bin setsid -f /usr/bin/nishro-link --tray \
+                >/dev/null 2>&1 </dev/null' "$(basename "$f")" || true
+        done
+        rm -rf "$trays"
     fi
     ;;
 esac

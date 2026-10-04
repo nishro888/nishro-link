@@ -469,8 +469,20 @@ class AddDevice:
         self.outcome = reason
         at = max(0, min(3, STEP_OF.get(self._last_phase(reason), 0)))
         self._draw_steps(at, failed=True)
-        self._tell(*failure(self.mode, reason, a.get("target") or self.target,
-                            a.get("detail"), self.port))
+        head, detail = failure(self.mode, reason, a.get("target") or self.target,
+                               a.get("detail"), self.port)
+        if reason in ("timeout", "unreachable", "not_found"):
+            # The other side is rarely the one at fault when THIS computer is
+            # on a network Windows calls Public: seen as "didn't connect".
+            try:
+                public = self.api.status().get("network_public") or []
+            except Exception:
+                public = []
+            if public:
+                detail = (f"This computer's network, {', '.join(public)}, is "
+                          f"public, so Windows keeps other devices out. Make it "
+                          f"private from the main window.")
+        self._tell(head, detail)
         self.f_pin.configure(state="normal")
         self.btn_go.set_enabled(True)
         self.btn_go.set_text("Try again")

@@ -50,15 +50,22 @@ WelcomeLabel2=This will install Nishro Link {#AppVersion} - one mouse and keyboa
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
+[InstallDelete]
+; What an earlier version left beside the exe: replaced whole, never mixed.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
-Source: "..\..\..\dist\NishroLink.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The program is a folder: NishroLink.exe and the files it runs from.
+Source: "..\..\..\dist\NishroLink\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\Nishro Link"; Filename: "{app}\NishroLink.exe"; Comment: "One mouse and keyboard across your computers"
 Name: "{autodesktop}\Nishro Link"; Filename: "{app}\NishroLink.exe"; Tasks: desktopicon
+; The tray icon, for everyone, at sign-in (tray.py).
+Name: "{commonstartup}\Nishro Link tray"; Filename: "{app}\NishroLink.exe"; Parameters: "--tray"; Comment: "Nishro Link's everyday controls in the notification area"
 
 [Run]
-Filename: "{app}\NishroLink.exe"; Description: "Open Nishro Link"; Flags: postinstall nowait skipifsilent runasoriginaluser
+Filename:"{app}\NishroLink.exe"; Description: "Open Nishro Link"; Flags: postinstall nowait skipifsilent runasoriginaluser
 
 [Code]
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -92,6 +99,12 @@ begin
              'start.' + #13#10#13#10 + 'Details are in ' +
              ExpandConstant('{commonappdata}\NishroLink\install.log'),
              mbError, MB_OK);
+    // The tray icon at once, for whoever installed - not only from their next
+    // sign-in. Started here, after the service, not as a [Run] entry: those
+    // run BEFORE this step, and installing the service stops every other
+    // NishroLink.exe - the new tray included.
+    ExecAsOriginalUser(ExpandConstant('{app}\NishroLink.exe'), '--tray', '',
+                       SW_SHOWNORMAL, ewNoWait, Code);
   end;
 end;
 

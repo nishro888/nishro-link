@@ -129,3 +129,77 @@ def test_windows_treats_a_repeat_as_another_keydown():
     inj.key(KEY_G, False)
     assert sent[0][1] == 0 and sent[1][1] == 0, "repeat and press are both keydowns"
     assert sent[2][1] == WindowsInjector.KEYUP
+
+
+
+# ------------------------------------------------------------ media keys
+def test_media_keys_travel_both_ways():
+    """Volume, mute and playback keys map to Windows' and back; brightness has
+    no Windows key at all - it is set instead (see the next test)."""
+    from link import keymap
+    for vk, code in ((0xAD, 113), (0xAE, 114), (0xAF, 115), (0xB0, 163),
+                     (0xB1, 165), (0xB2, 166), (0xB3, 164)):
+        assert keymap.vk_to_evdev(vk) == code and keymap.evdev_to_vk(code) == vk
+    assert keymap.evdev_to_vk(224) is None and keymap.evdev_to_vk(225) is None
+    assert set(keymap.BRIGHTNESS) == {224, 225}
+
+
+def test_linux_can_play_media_keys():
+    """Its virtual device must declare them, or uinput drops them."""
+    from link import keymap
+    assert {113, 114, 115, 163, 164, 165, 166, 224, 225} <= set(keymap.E.values())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows injector")
+def test_windows_plays_media_keys_as_extended_keys_and_sets_brightness():
+    import threading
+    from link.inject import WindowsInjector
+    sent, steps = [], []
+    inj = WindowsInjector.__new__(WindowsInjector)
+    inj.u = types.SimpleNamespace(keybd_event=lambda vk, sc, fl, x: sent.append((vk, fl)))
+    inj._b_lock = threading.Lock()
+    inj._b_pending, inj._b_busy = 0, False
+    inj._brightness = lambda step: steps.append(step)
+    inj.key(115, 1)                                   # volume up
+    inj.key(115, 0)
+    assert sent == [(0xAF, WindowsInjector.EXTENDED),
+                    (0xAF, WindowsInjector.EXTENDED | WindowsInjector.KEYUP)]
+    inj.key(225, 1)
+    inj.key(225, 2)                                   # held: a repeat
+    inj.key(225, 0)                                   # its release does nothing
+    inj.key(224, 1)
+    assert steps == [10, 10, -10]
+
+
+def test_brightness_stays_within_its_range():
+    from link.inject import brightness_script
+    s = brightness_script(-10)
+    assert "[Math]::Max(0, [Math]::Min(100" in s and "+ (-10)" in s
+    assert "WmiSetBrightness" in s
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows injector")
+def test_brightness_presses_that_arrive_together_are_added_up(monkeypatch):
+    import threading
+    from link import inject
+    ran = []
+    gate = threading.Event()
+
+    def run(cmd, **kw):
+        gate.wait(2)
+        ran.append(cmd[-1])
+    monkeypatch.setattr(inject.subprocess, "run", run)
+    inj = inject.WindowsInjector.__new__(inject.WindowsInjector)
+    inj._b_lock = threading.Lock()
+    inj._b_pending, inj._b_busy = 0, False
+    inj._brightness(10)                               # starts the worker
+    import time
+    time.sleep(0.05)
+    inj._brightness(10)                               # while PowerShell runs
+    inj._brightness(10)
+    gate.set()
+    for _ in range(100):
+        if not inj._b_busy:
+            break
+        time.sleep(0.02)
+    assert len(ran) == 2 and "+ (10)" in ran[0] and "+ (20)" in ran[1]

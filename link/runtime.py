@@ -327,8 +327,13 @@ def allow_through_firewall(program: str = None) -> bool:
     """
     if sys.platform != "win32":
         return False
-    program = program or sys.executable
-    encoded = base64.b64encode(firewall_fix_script(program).encode("utf-16-le")).decode()
+    return _elevated(firewall_fix_script(program or sys.executable))
+
+
+def _elevated(script: str) -> bool:
+    """Run a PowerShell script through Windows' own elevation prompt, and wait
+    for it. False if the prompt was declined or could not be shown."""
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode()
     outer = ("Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden "
              f"-ArgumentList '-NoProfile','-EncodedCommand','{encoded}'")
     try:
@@ -338,3 +343,54 @@ def allow_through_firewall(program: str = None) -> bool:
     except Exception:
         return False
     return r.returncode == 0
+
+
+def public_networks(program: str = None):
+    """The networks this computer is on that Windows calls Public, when no
+    allow rule of this program's covers public networks: there, Windows
+    Firewall keeps every other device out, whatever else is right.
+
+    Seen on the laptop: its Wi-Fi fell back from the router's 5 GHz network
+    (Private) to its 2.4 GHz one, which Windows had never seen and so made
+    Public. The link dropped, and nothing on screen said why for five hours.
+
+    [] means none. None means it could not be checked - not Windows, or
+    PowerShell failed - which must never be reported as a problem.
+    """
+    if sys.platform != "win32":
+        return None
+    program = program or sys.executable
+    # The profiles first - quick; the firewall's rules, slow to list, only
+    # when there is a public network to ask about.
+    ps = ("$pub = @(Get-NetConnectionProfile | Where-Object { "
+          "$_.NetworkCategory -eq 'Public' -and ($_.IPv4Connectivity -eq "
+          "'LocalNetwork' -or $_.IPv4Connectivity -eq 'Internet') } | "
+          "ForEach-Object { $_.Name }); "
+          "if ($pub.Count -gt 0) { "
+          f"$p = {_ps_quote(program)}; "
+          "$fw = New-Object -ComObject HNetCfg.FwPolicy2; "
+          "$ok = $fw.Rules | Where-Object { $_.ApplicationName -and "
+          "$_.ApplicationName -ieq $p -and $_.Direction -eq 1 -and "
+          "$_.Action -eq 1 -and $_.Enabled -and ($_.Profiles -band 4) } | "
+          "Select-Object -First 1; "
+          "if (-not $ok) { $pub } }")
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
+                            "-Command", ps], capture_output=True, text=True,
+                           timeout=60, creationflags=_NO_WINDOW)
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    return [line.strip() for line in (r.stdout or "").splitlines() if line.strip()]
+
+
+def make_private(names) -> bool:
+    """Ask Windows - through its own elevation prompt - to make these networks
+    Private: what someone says of their own home or office network, and what
+    lets the other devices on it reach this one. Blocks until answered."""
+    if sys.platform != "win32" or not names:
+        return False
+    return _elevated("; ".join(
+        f"Set-NetConnectionProfile -Name {_ps_quote(n)} -NetworkCategory Private"
+        for n in names))

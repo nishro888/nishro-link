@@ -19,14 +19,14 @@ To check that the file is the one published, compare its SHA-256 hash with
 the release's `SHA256SUMS` file. In PowerShell:
 
 ```powershell
-Get-FileHash .\NishroLink-Setup-1.0.1.exe -Algorithm SHA256
+Get-FileHash .\NishroLink-Setup-1.1.0.exe -Algorithm SHA256
 ```
 
 ## What it changes
 
 | | |
 |---|---|
-| **Program** | `C:\Program Files\Nishro Link\NishroLink.exe` - one file, Python and every library inside |
+| **Program** | `C:\Program Files\Nishro Link\` - `NishroLink.exe` and the files it runs from, Python and every library included |
 | **Background service** | *Nishro Link* (`NishroLink`), started automatically, running as SYSTEM. It is what lets another computer's mouse and keyboard work on the lock and sign-in screens. It restarts itself if it stops. |
 | **Firewall** | one inbound rule, *Nishro Link*, allowing the program on **private and domain** networks. On a network Windows calls *public*, other devices cannot reach it: see [troubleshooting](troubleshooting.md#devices-do-not-find-each-other). |
 | **Settings** | `C:\ProgramData\NishroLink\private\config.json`, readable by SYSTEM and Administrators only (it holds the group's password) |
@@ -54,7 +54,7 @@ would be 2.0, and would say so.
 For deploying to several machines:
 
 ```powershell
-NishroLink-Setup-1.0.1.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+NishroLink-Setup-1.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
 It still needs administrator rights, so run it from an elevated prompt or a

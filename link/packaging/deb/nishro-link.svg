@@ -1,21 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#06b6d4"/>
+      <stop offset="0" stop-color="#1e40af"/><stop offset="1" stop-color="#0ea5e9"/>
     </linearGradient>
-    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0f2855"/><stop offset="1" stop-color="#0e486e"/>
-    </linearGradient>
+    <filter id="glow" x="-2" y="-1" width="5" height="3"><feGaussianBlur stdDeviation="11.5"/></filter>
   </defs>
   <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#tile)"/>
-  <g fill="#ffffff">
-    <rect x="31" y="72" width="88" height="63" rx="9"/>
-    <rect x="137" y="72" width="88" height="63" rx="9"/>
-    <rect x="71" y="135" width="15" height="18"/><rect x="177" y="135" width="15" height="18"/>
-    <rect x="53" y="151" width="51" height="10" rx="5"/><rect x="159" y="151" width="51" height="10" rx="5"/>
-  </g>
-  <rect x="40" y="81" width="70" height="45" rx="4" fill="url(#glass)"/>
-  <rect x="146" y="81" width="70" height="45" rx="4" fill="url(#glass)"/>
-  <path d="M133 83 v44 l11.3 -10.1 8.2 18.2 7.5 -3.4 -7.8 -17.6 h14.8 z"
-        fill="#ffffff" stroke="#0b1e3f" stroke-width="6" stroke-linejoin="round"/>
+  <rect x="33.3" y="71.7" width="81.9" height="112.6" rx="17.9" fill="#ffffff"/>
+  <rect x="140.8" y="71.7" width="81.9" height="112.6" rx="17.9" fill="#ffffff"/>
+  <rect x="121.6" y="97.3" width="12.8" height="61.4" rx="6.4" fill="#22d3ee" opacity="0.9" filter="url(#glow)"/>
+  <rect x="121.6" y="97.3" width="12.8" height="61.4" rx="6.4" fill="#67e8f9"/>
 </svg>

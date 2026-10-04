@@ -749,3 +749,62 @@ def test_a_peer_keeps_the_hubs_picture_of_the_group(api):
         {"name": "aio2", "id": "a2", "last_seen": 5, "online": False}]})
     saved = {d["name"] for d in config.load(api.cfg_path)["devices"]}
     assert saved == {"aio2"} | ({"laptop"} if api.node.core.node != "laptop" else set())
+
+
+# ------------------------------------------------------- a public network
+def test_a_public_network_is_reported_and_logged_once(api, monkeypatch):
+    found = [["Home-WiFi"]]
+    monkeypatch.setattr(control_api.runtime, "public_networks", lambda *a: found[0])
+    assert json.loads(get(api, "/api/status")[1])["network_public"] == []
+    api.check_network()
+    api.check_network()
+    assert json.loads(get(api, "/api/status")[1])["network_public"] == ["Home-WiFi"]
+    said = [x for x in api.log.tail if "Windows calls Public" in x]
+    assert len(said) == 1 and "Home-WiFi" in said[0]
+    found[0] = []
+    api.check_network()
+    assert api.network_public == []
+    assert any("no public network any more" in x for x in api.log.tail)
+
+
+def test_a_network_check_that_failed_changes_nothing(api, monkeypatch):
+    api.network_public = ["Home-WiFi"]
+    monkeypatch.setattr(control_api.runtime, "public_networks", lambda *a: None)
+    api.check_network()
+    assert api.network_public == ["Home-WiFi"]
+
+
+def test_the_window_asks_for_a_fresh_look(api, monkeypatch):
+    monkeypatch.setattr(control_api.runtime, "public_networks", lambda *a: [])
+    api.network_public = ["Home-WiFi"]
+    assert post(api, "/api/network", {})[1] == {"network_public": []}
+
+
+def test_nothing_is_spent_on_it_while_everyone_is_connected(api, monkeypatch):
+    looks = []
+    monkeypatch.setattr(api, "check_network", lambda: looks.append(1))
+    everyone = {"devices": [{"name": "laptop", "online": True},
+                            {"name": "aio", "online": True}]}
+    real = api.status
+    monkeypatch.setattr(api, "status", lambda: everyone)
+    halt = api._halt
+
+    class Once:                            # one round of the loop, no waiting
+        n = 0
+
+        def is_set(self):
+            Once.n += 1
+            return Once.n > 1
+
+        def wait(self, t):
+            pass
+    api._halt = Once()
+    api.watch_network()
+    assert looks == []
+    monkeypatch.setattr(api, "status", lambda: {"devices": [
+        {"name": "laptop", "online": True}, {"name": "aio", "online": False}]})
+    Once.n = 0
+    api.watch_network()
+    assert looks == [1], "a device is missing: look"
+    api._halt = halt
+    monkeypatch.setattr(api, "status", real)

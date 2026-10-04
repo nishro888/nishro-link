@@ -350,6 +350,42 @@ def test_the_epoch_moves_on_every_reconnect(pair):
     pair.wait(lambda: pair.hub_core.epoch > before, what="a fresh epoch")
 
 
+def test_a_peer_that_redials_as_sharing_goes_off_is_refused(pair):
+    """Seen on the real machines, from the tray: sharing switched off on the
+    hub, the peer dialled straight back, and the accept already under way let
+    it in - linked to a computer whose sharing was off. The accept loop only
+    checks between accepts; the handshake must check too."""
+    pair.start().connected()
+    real = pair.hub._greet
+
+    def greet_after_switching_off(ch, addr):
+        pair.hub.enabled = False                # off, after accept() let it in
+        return real(ch, addr)
+    pair.hub._greet = greet_after_switching_off
+    pair.aio.ch.close()
+    pair.wait(lambda: any("sharing is off on laptop" in m for m in pair.logs["aio"]),
+              timeout=8, what="the peer to be told sharing is off")
+    pair.wait(lambda: not pair.hub.links, what="the hub to hold no link")
+    assert sum("peer connected" in m for m in pair.logs["hub"]) == 1, pair.logs["hub"]
+    assert pair.aio.blocked is None, "a pause is not a wrong password: it retries"
+
+
+def test_sharing_switched_off_mid_handshake_leaves_no_link(pair):
+    """Off after the handshake's check but before the link was registered for
+    set_enabled() to close: the handshake closes it itself."""
+    pair.start().connected()
+    real = pair.hub_core.peer_online
+
+    def online_then_off(name):
+        pair.hub.enabled = False                # just before _register()
+        return real(name)
+    pair.hub_core.peer_online = online_then_off
+    pair.aio.ch.close()
+    pair.wait(lambda: sum("disconnected" in m for m in pair.logs["hub"]) >= 2,
+              timeout=8, what="the new link to be closed again")
+    pair.wait(lambda: not pair.hub.links, what="the hub to hold no link")
+
+
 def test_stopping_never_leaves_input_suppressed(pair):
     pair.start().connected()
     pair.hub_cap.sink.on_pointer(0, 384, -5, 0)
@@ -773,3 +809,42 @@ def test_a_failsafe_on_the_hub_takes_control_from_the_peer(pair):
     assert pair.hub_core.arbiter.holder == "laptop"
     assert pair.hub_core.suppress_mouse() is False
     assert pair.hub_core.suppress_keyboard() is False
+
+
+def test_the_round_trip_is_measured_finer_than_windows_clock_tick(pair):
+    """Windows' monotonic clock ticks every 15.6 ms: a round trip of a few
+    milliseconds read 0 (shown as no reading) or 16 - and "16 ms" on Home made
+    a quick link look slow. Over loopback it is well under a tick."""
+    pair.start().connected()
+    seen = []
+    pair.wait(lambda: (seen.append(pair.hub.rtt_ms) or
+                       len([r for r in seen if r is not None]) >= 5),
+              timeout=8, what="five round trips")
+    got = [r for r in seen if r is not None]
+    # The old clock gave whole milliseconds only - over loopback almost always
+    # exactly 0. A fine one gives a fraction, and never 0.
+    assert all(r > 0 for r in got), got
+    assert any(r != int(r) for r in got), f"whole milliseconds only: {got}"
+
+
+def test_an_image_crosses_without_holding_up_the_keys(pair):
+    """An image is hundreds of chunks on the link the keys use. Sent at once
+    they filled its queue - and a full queue drops its oldest frame - then the
+    network's buffer, with the keys behind them. Paced, a key pressed in the
+    middle of the transfer arrives at once, and so does the whole image."""
+    import os
+    png = b"\x89PNG\r\n\x1a\n" + os.urandom(300_000)   # ~100 chunks
+    pair.start().connected()
+    pair.hub.CLIP_RATE = 400_000                 # about a second for this one
+    pair.hub_cap.sink.on_pointer(0, 384, -5, 0)            # onto the AIO
+    pair.wait(lambda: pair.hub_core.cursor.screen == "aio", what="crossing")
+    pair.hub_board.copy(("image/png", png))                # copied on the laptop
+    time.sleep(0.6)                                        # under way
+    assert pair.aio_board.text != ("image/png", png), "still arriving"
+    pressed = time.monotonic()
+    pair.hub_cap.sink.on_key(30, 1)                        # an "a", meanwhile
+    pair.hub_cap.sink.on_key(30, 0)
+    pair.wait(lambda: ("key", 30, 1) in pair.aio_inj.calls, what="the key")
+    assert time.monotonic() - pressed < 0.5, "the key waited behind the image"
+    pair.wait(lambda: pair.aio_board.text == ("image/png", png), timeout=15,
+              what="the whole image")

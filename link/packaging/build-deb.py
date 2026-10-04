@@ -51,11 +51,16 @@ FILES = (
     ("nishro-link", "usr/bin/nishro-link", 0o755),
     ("nishro-link-setup", f"{LIB}/nishro-link-setup", 0o755),
     ("nishro-link.desktop", "usr/share/applications/nishro-link.desktop", 0o644),
+    # The tray icon, for everyone, at login (tray.py).
+    ("nishro-link-tray.desktop", "etc/xdg/autostart/nishro-link-tray.desktop", 0o644),
     ("nishro-link.svg", "usr/share/icons/hicolor/scalable/apps/nishro-link.svg",
      0o644),
     ("io.github.nishro888.nishro-link.policy",
      "usr/share/polkit-1/actions/io.github.nishro888.nishro-link.policy", 0o644),
     ("60-nishro-link.rules", "usr/lib/udev/rules.d/60-nishro-link.rules", 0o644),
+    # Quit and Open stop and start the service without a password (polkit).
+    ("nishro-link-quit.rules", "usr/share/polkit-1/rules.d/60-nishro-link.rules",
+     0o644),
     ("nishro-link.service", "usr/lib/systemd/system/nishro-link.service", 0o644),
     ("io.github.nishro888.nishro-link.metainfo.xml",
      "usr/share/metainfo/io.github.nishro888.nishro-link.metainfo.xml", 0o644),
@@ -116,6 +121,8 @@ def payload(ver: str) -> dict:
     # imported from here and never from whatever directory it was started in.
     files[f"{LIB}/launch.py"] = (lf((LINK / "packaging" / "launch.py").read_bytes()),
                                  0o644)
+    for p in sorted((assets / "tray").glob("*.svg")):   # the tray's three states
+        files[f"{LIB}/tray/{p.name}"] = (lf(p.read_bytes()), 0o644)
     for p in sorted((LINK / "theme").iterdir()):  # the controls' look
         data = p.read_bytes()
         files[f"{LIB}/link/theme/{p.name}"] = (
@@ -174,7 +181,9 @@ def control(ver: str, files: dict) -> bytes:
             # dependency, not a recommendation: apt does not add a new
             # Recommends when it upgrades a package (found on the AIO).
             f"Depends: python3 (>= 3.8), python3-tk, python3-evdev, "
-            f"python3-cryptography (>= 2.5), xclip\n"
+            f"python3-cryptography (>= 2.5), xclip, python3-gi, "
+            # The tray icon. A dependency too, for the same reason as xclip.
+            f"gir1.2-ayatanaappindicator3-0.1 | gir1.2-appindicator3-0.1\n"
             f"Recommends: pkexec | policykit-1, x11-xserver-utils\n"
             f"Suggests: wl-clipboard\n"
             f"Section: utils\n"

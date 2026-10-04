@@ -33,9 +33,9 @@ The keyboard follows the pointer, text copied on one computer pastes on
 another, and **whichever mouse you touch takes control** - there is no fixed
 "server" with the keyboard.
 
-> **1.0.** Every 1.x works with every other 1.x. Nishro Link is developed and
+> **1.1.** Every 1.x works with every other 1.x. Nishro Link is developed and
 > used daily on a Windows laptop and an Ubuntu desktop, with an automated suite
-> of about 1,260 tests on Windows and Linux; it has not been independently
+> of about 1,340 tests on Windows and Linux; it has not been independently
 > audited. Read the [limitations](#limitations).
 
 ## Why Nishro Link
@@ -67,9 +67,10 @@ another, and **whichever mouse you touch takes control** - there is no fixed
 | **Arrangement** | drag, snap, resize; bright lines show where the pointer crosses; changes apply everywhere at once, Ctrl+Z undoes |
 | **Wrap-around** | place a copy of a machine: right off the last screen comes back in on the first |
 | **Find the pointer** | shake the mouse: every screen darkens but a circle round the pointer, on whichever computer it is |
+| **Tray icon** | sharing on and off, find the pointer, release input and the devices, from the notification area or the top bar; the state in the icon; a notification when a device connects or drops; the same controls in the Linux dock's right-click menu |
 | **Monitors** | several per computer; plugged in or out, noticed within seconds |
-| **Clipboard** | text, shared |
-| **Quick on Wi-Fi** | a controlled computer keeps its radio awake; bursts of movement are sent together |
+| **Clipboard** | text and images, both ways |
+| **Quick on Wi-Fi** | both computers keep their radios awake while the pointer is across; bursts of movement are sent together |
 | **From boot** | runs as a system service on both systems, so it works before anyone signs in |
 | **A proper program** | light and dark themes, Windows 11-style controls, keyboard shortcuts, a setup wizard and a Debian package with an App Center page |
 
@@ -99,8 +100,8 @@ Every computer needs Nishro Link **1.x** (any 1.x works with any other), on the
 
 | | Download | Needs |
 |---|---|---|
-| **Windows** | `NishroLink-Setup-1.0.1.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
-| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_1.0.1_all.deb` | Ubuntu 20.04+ or Debian 11+ (or derivatives); Wayland or X11 |
+| **Windows** | `NishroLink-Setup-1.1.0.exe` | Windows 10 or 11, 64-bit; administrator rights to install |
+| **Ubuntu, Debian, Mint, Pop!_OS...** | `nishro-link_1.1.0_all.deb` | Ubuntu 20.04+ or Debian 11+ (or derivatives); Wayland or X11 |
 | **Other Linux** | Source code | Python 3.8+, Tk, evdev, cryptography 2.5+ - [instructions](docs/install-linux.md#other-distributions) |
 
 **Windows:** run the setup and approve the one permission prompt. The
@@ -110,7 +111,7 @@ Run anyway**. [Details](docs/install-windows.md).
 **Ubuntu and Debian:** open the `.deb` (the App Center installs it), or
 
 ```bash
-sudo apt install ./nishro-link_1.0.1_all.deb
+sudo apt install ./nishro-link_1.1.0_all.deb
 ```
 
 then log out and back in once. [Details](docs/install-linux.md).
@@ -136,7 +137,7 @@ by step with pictures.
 
 - **Windows and Linux only.** No macOS.
 - **Local network only** - not across the internet.
-- **Clipboard is text only**; no file transfer yet.
+- **Clipboard: text and images**; files don't cross yet.
 - **Linux:** after a monitor is plugged in or out, restart Nishro Link on that
   computer for the pointer to use the new size (the arrangement updates on its
   own). *Find the pointer* works on GNOME only, for now.
@@ -153,7 +154,7 @@ by step with pictures.
 
 Ideas, in no fixed order - not promises:
 
-- images and files over the clipboard
+- files over the clipboard
 - monitor changes on Linux picked up without a restart
 - *Find the pointer* on KDE Plasma and other desktops
 - a code-signed Windows installer, and winget

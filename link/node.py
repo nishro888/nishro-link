@@ -878,13 +878,18 @@ class Node:
     # the ping is the only traffic on an idle link, and it is what stops an idle
     # holder looking like a dead one. 2 ticks = 400ms against a 1500ms TTL.
     PING_EVERY = 2
-    # While another machine drives this one: a tiny frame this often. Wi-Fi
-    # power saving lets a radio that has been quiet doze, and what arrives then
-    # waits for it - measured between the laptop and the AIO: one packet in ten
-    # held back 65 ms or more, the worst 126 ms, exactly when the mouse starts
-    # moving again after a rest. Sending every 40 ms keeps the radio awake:
-    # one in ten then 14-21 ms, the worst 49-53. About 2.5 KB/s, and only
-    # while this machine is being driven.
+    # While the pointer is on another machine's screen: a tiny frame this
+    # often, from BOTH ends. Wi-Fi power saving lets a radio that has been
+    # quiet doze, and what crosses it then waits for it - measured between the
+    # laptop and the AIO: one packet in ten held back 65 ms or more, the worst
+    # 126 ms, exactly when the mouse starts moving again after a rest. Sending
+    # every 40 ms keeps the radio awake: one in ten then 14-21 ms, the worst
+    # 49-53. About 2.5 KB/s, and only while a pointer is across.
+    #
+    # At first only the machine being driven sent it. Reported later: with
+    # the AIO's mouse on the laptop's screen, the pointer was slow to start
+    # moving after a rest - the DRIVING machine's radio dozed while its mouse
+    # was still, and its first movements waited for it to wake.
     KEEP_AWAKE_S = 0.04
 
     def __init__(self, core: NodeCore, capture, injector, port: int = 8770,
@@ -971,6 +976,7 @@ class Node:
         # settings UI needs that: killing the process would take the UI with it.
         self.enabled = True
         self.clip = ClipboardSync(core.node)
+        self.clip.log = self._log_async
         # Clipboard work never runs on the reader or a hook: clip.get()/set()
         # shell out (~200ms on Windows), which would stall input for as long as
         # it takes. The reader only ever enqueues.
@@ -1664,23 +1670,34 @@ class Node:
                 with self._links_lock:
                     links = list(self.links.values())
                 for l in links:          # per link: it is each link we measure
-                    l.ping_at[i] = time.monotonic()
+                    # perf_counter, not monotonic: on Windows monotonic ticks
+                    # every 15.6 ms, so a 3 ms round trip read 0 or 16 - and 0
+                    # showed as no reading at all.
+                    l.ping_at[i] = time.perf_counter()
                     if len(l.ping_at) > 16:
                         l.ping_at.pop(min(l.ping_at))
                     l.ch.send(protocol.ping(i))
 
     def _keep_awake(self) -> None:
-        """While another machine drives this one, keep this machine's radio
-        awake - see KEEP_AWAKE_S. Only then: the machine driving sends all
-        the time anyway, and an idle link is left alone."""
+        """While the pointer is across - another machine driving this one, or
+        this one driving another's screen - keep this machine's radio awake:
+        see KEEP_AWAKE_S. An idle link is left alone."""
         while not self._stop:
             time.sleep(self.KEEP_AWAKE_S)
-            if self.driven_from() is None:
+            if self.driven_from() is None and not self.driving_elsewhere():
                 continue
             with self._links_lock:
                 links = list(self.links.values())
             for l in links:
                 l.ch.send(protocol.keep_awake())
+
+    def driving_elsewhere(self) -> bool:
+        """Is this machine's mouse driving another machine's screen now?"""
+        core = self.core
+        with self._lock:
+            mine = core.baton.holder == core.node
+            away = core.cursor_is_remote()
+        return mine and away and self.connected()
 
     def driven_from(self):
         """The machine driving this one right now, or None."""
@@ -1724,7 +1741,30 @@ class Node:
                         m["to"] = msg.get("origin") or msg.get("from")
                     elif m.get("t") == "clipdata":
                         m["to"] = msg.get("from")
+                if m.get("t") == "clipdata":
+                    self._clip_room()
                 self._send(m)
+                if m.get("t") == "clipdata":
+                    time.sleep(len(m.get("v") or "") / self.CLIP_RATE)
+
+    # An image is hundreds of chunks on the same link as the pointer. Sent at
+    # once they filled its queue - and a full queue makes room by dropping its
+    # oldest frame, which could have been a key - then the network's own
+    # buffer, where the pointer would wait behind them. So each chunk waits
+    # for the queue to be nearly empty, and they go no faster than this.
+    CLIP_BACKLOG = 8
+    CLIP_RATE = 3_000_000                # bytes a second
+
+    def _clip_room(self, patience: float = 10.0) -> None:
+        """Wait until the links have hardly anything waiting to go."""
+        end = time.monotonic() + patience
+        while time.monotonic() < end and not self._stop:
+            with self._links_lock:
+                busiest = max((getattr(l.ch, "backlog", int)() for l in self.links.values()),
+                              default=0)
+            if busiest < self.CLIP_BACKLOG:
+                return
+            time.sleep(0.002)
 
     def _clip_look(self) -> list:
         """One tick of watching our own clipboard.
@@ -1737,7 +1777,10 @@ class Node:
         remote = self.core.cursor_is_remote()
         left = remote and not self._was_remote
         self._was_remote = remote
-        return self.clip.poll() if (self.clip.cheap() or left) else []
+        # On leaving, always a real look, whatever the change counter says:
+        # the moment a copy made here can next be pasted elsewhere, and a
+        # counter that is missing or wrong must not keep it back.
+        return self.clip.poll(force=left) if (self.clip.cheap() or left) else []
 
     # ----------------------------------------------------------- networking
     def _serve(self) -> None:
@@ -1833,6 +1876,14 @@ class Node:
                          "node": self.core.node,
                          "proof": protocol.proof(self._own_key(), hello["nonce"],
                                                  self.core.node, who, bind)})
+            return None
+        if not self.enabled:
+            # Sharing was switched off while this connection was being
+            # accepted: the accept loop checks only between accepts, and a
+            # member dials straight back when its link drops. Refuse - it tries
+            # again later, as after any refusal - rather than link a paused
+            # computer. Before anything about the device is changed.
+            ch.send(protocol.err(f"sharing is off on {self.core.node}", code="paused"))
             return None
         their_id = hello.get("id")
         want = self.pending_names.get(their_id) if their_id else None
@@ -1940,6 +1991,12 @@ class Node:
         with self._lock:
             self.core.peer_online(who)
         self._register(who, ch, addr)
+        if not self.enabled:
+            # Switched off during the handshake, after the check above but
+            # before this link was registered for set_enabled() to close.
+            # Closed here instead; the pump sees it and cleans up.
+            ch.close()
+            return who
         if self.on_devices:
             try:
                 self.on_devices("joined", who, {
@@ -2027,6 +2084,27 @@ class Node:
         return None
 
     # ------------------------------------------------------- adding, inviting
+    _ADDING = {"searching": "looking for it on the network",
+               "connecting": "connecting to {d}",
+               "verifying": "checking the password with {d}",
+               "joining": "the password is right - waiting for {d} to connect "
+                          "and join",
+               "checked": "the password is right",
+               "connected": "done - {d} is in the group"}
+
+    def _log_adding(self, mode, target, phase, reason, detail) -> None:
+        """Adding a device leaves a trace in the log: each step, and how it
+        ended. Seen: two attempts that stuck, with nothing in either computer's
+        log to say where. Never the password - `detail` holds names, addresses
+        and the other side's words."""
+        what = f"adding {target}" if mode == "invite" else f"joining {target}'s group"
+        if phase == "failed":
+            self._log_async(f"{what}: failed - {reason}"
+                            + (f" ({detail})" if detail else ""))
+        elif phase in self._ADDING:
+            self._log_async(f"{what}: "
+                            + self._ADDING[phase].format(d=detail or target))
+
     def invite(self, name: str, pin: str, addr: str = None, port: int = None) -> dict:
         """Add a device that is on its own to THIS group, using the password it
         shows. Blocks for a few seconds; progress is in `adding`.
@@ -2038,6 +2116,7 @@ class Node:
         def state(phase, reason=None, detail=None):
             self.adding = {"mode": "invite", "phase": phase, "reason": reason,
                            "detail": detail, "target": name, "since": time.time()}
+            self._log_adding("invite", name, phase, reason, detail)
             return {"ok": phase == "connected", "reason": reason, "detail": detail}
 
         if self.core.is_hub:
@@ -2147,6 +2226,7 @@ class Node:
         def state(phase, reason=None, detail=None, **extra):
             self.adding = {"mode": "join", "phase": phase, "reason": reason,
                            "detail": detail, "target": target, "since": time.time()}
+            self._log_adding("join", target, phase, reason, detail)
             return dict({"ok": phase == "checked", "reason": reason,
                          "detail": detail}, **extra)
 
@@ -2621,7 +2701,7 @@ class Node:
                 l = self.links.get(name)
             sent = l.ping_at.pop(msg.get("i"), None) if l else None
             if sent:
-                l.rtt_ms = self.rtt_ms = (time.monotonic() - sent) * 1000.0
+                l.rtt_ms = self.rtt_ms = (time.perf_counter() - sent) * 1000.0
         elif t == "err":
             self._log(f"{name} says: {msg.get('msg')}")
         # "ka": arriving was its whole job (and it fed the watchdog above)

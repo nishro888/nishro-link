@@ -357,3 +357,46 @@ def test_declining_the_prompt_is_reported_as_declined(monkeypatch):
     monkeypatch.setattr(_rt.subprocess, "run", lambda *a, **k: _types.SimpleNamespace(
         returncode=1, stdout="", stderr="The operation was canceled by the user."))
     assert _rt.allow_through_firewall(r"C:\p\NishroLink.exe") is False
+
+
+# ------------------------------------------------------- a public network
+def test_a_public_network_is_named(monkeypatch):
+    """Seen: the laptop's Wi-Fi moved to a network Windows called Public, and
+    its firewall kept the other computer out for five hours, unexplained."""
+    import subprocess
+    from link import runtime
+    monkeypatch.setattr(runtime.sys, "platform", "win32")
+    seen = []
+
+    def run(cmd, **kw):
+        seen.append(cmd[-1])
+        return subprocess.CompletedProcess(cmd, 0, stdout="Home-WiFi\r\n", stderr="")
+    monkeypatch.setattr(runtime.subprocess, "run", run)
+    assert runtime.public_networks("C:/x.exe") == ["Home-WiFi"]
+    assert "Get-NetConnectionProfile" in seen[0] and "'C:/x.exe'" in seen[0]
+    monkeypatch.setattr(runtime.subprocess, "run", lambda cmd, **kw:
+                        subprocess.CompletedProcess(cmd, 0, stdout="\r\n", stderr=""))
+    assert runtime.public_networks("C:/x.exe") == []
+
+
+def test_a_network_check_that_failed_is_not_a_problem(monkeypatch):
+    import subprocess
+    from link import runtime
+    monkeypatch.setattr(runtime.sys, "platform", "win32")
+    monkeypatch.setattr(runtime.subprocess, "run", lambda cmd, **kw:
+                        subprocess.CompletedProcess(cmd, 1, stdout="", stderr="no"))
+    assert runtime.public_networks("C:/x.exe") is None
+    monkeypatch.setattr(runtime.sys, "platform", "linux")
+    assert runtime.public_networks() is None
+
+
+def test_making_a_network_private_goes_through_the_elevation_prompt(monkeypatch):
+    from link import runtime
+    monkeypatch.setattr(runtime.sys, "platform", "win32")
+    scripts = []
+    monkeypatch.setattr(runtime, "_elevated", lambda s: scripts.append(s) or True)
+    assert runtime.make_private(["Home-WiFi", "it's mine"]) is True
+    assert scripts == ["Set-NetConnectionProfile -Name 'Home-WiFi' -NetworkCategory "
+                       "Private; Set-NetConnectionProfile -Name 'it''s mine' "
+                       "-NetworkCategory Private"]
+    assert runtime.make_private([]) is False

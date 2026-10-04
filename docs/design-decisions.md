@@ -450,9 +450,31 @@ with a random **token** the service writes to a small file (`api.json`).
   root and the `input` group; on Windows it is every local account (a known
   limitation, documented in [security](security.md#who-is-trusted)).
 
+### The tray, the dock and the command line: more clients
+
+1.1 added the everyday controls outside the window. Each is one more client of
+the same API, so none of them added anything to the engine.
+
+| Choice | Why |
+|---|---|
+| **The tray is its own small process** (`--tray`), started at sign-in | The window comes and goes; the tray lives for the whole session. A thread of the window would die with it. |
+| **Notifications come from the tray**, not the service | The service runs as SYSTEM or root, in nobody's session: it has no desktop to show a notification on. The tray runs in the person's session. |
+| **What to show is decided as plain data** (`tray.state`, `menu`, `changes`) | One place decides the icon, the words and the menu for both systems, and it is tested anywhere. The Windows and Linux parts only draw it and report clicks. |
+| **Windows: `Shell_NotifyIcon` through ctypes** | No new dependency and no bigger installer. A hidden top-level window owns the menu: a popup menu closes when its owner loses the foreground, and a message-only window cannot own one. |
+| **Linux: an AppIndicator** (StatusNotifierItem) through the GTK bindings | What Ubuntu's top bar and KDE show. The libraries are distribution packages, so the `.deb` depends on them, and nothing comes from pip. |
+| **Not a library such as pystray** | Another dependency to vet and package on both systems, to save about 400 lines of drawing code. On GNOME it would sit on the same AppIndicator library anyway. |
+| **It polls `/api/status` every 2 s** and redraws only on change | A push channel would be new code in the engine for a loopback call that costs almost nothing. What changes every poll, the round trip, is left out of the menu. |
+| **One tray per person**: a named mutex on Windows, a file lock on Linux | The window starts a tray each time it opens, so a hidden one comes back. A second copy finds the first and exits. |
+| **Quit stops the service**, not only the window | Asked for after processes had to be closed by hand in Task Manager - where the service, restarted by Windows' recovery, came straight back. Quit means everything stops until it is opened again or the computer restarts. Pausing is what the Sharing switch is for. |
+| **...without a password**: Windows lets interactive users start and stop this one service; a polkit rule does the same on Linux for the person at the desktop in the `input` group | Stopping takes sharing away from that computer and gives nobody anything, and a password prompt on every Quit and Open would be a reason not to use them. Both rights are that narrow: start and stop, this service. |
+| **The tray and windows learn of a Quit from a note** in the person's own folder (a time), not a signal | Cross-platform, no process IDs that could be reused, and a tray started afterwards knows the note is older than itself. |
+| **Opening starts a stopped service** | Before, opening with the service stopped ran a second engine in the window's own process, with the person's old settings. |
+| **The dock's right-click menu and `--sharing` / `--find-pointer` / `--release-input`** | Each is a one-shot client: find the service, send one command, exit. They work where there is no tray, and they can be bound to a key. |
+
 **In one sentence:** the engine is a service and the window a replaceable
 client over a token-protected local API, so the UI can never take the link
-down with it.
+down with it. The tray, the dock and the command line are three more clients
+of the same API.
 
 ---
 
@@ -492,18 +514,26 @@ just another door.
 
 ## 16. The clipboard: announce, then fetch
 
-**Decision.** Copying announces *that* something was copied (a small message);
-the data moves only when another computer actually **pastes**, in chunks, up to
-1 MiB of text.
+**Decision.** Copying announces *that* something was copied, and in what form
+(a small message); the other computers then ask for it, and it comes in
+chunks: text up to 1 MiB, an image up to 16 MB, as PNG.
 
-- Nothing large is pushed around on every copy.
+- What a computer cannot use, it does not ask for: a 1.0 computer never asks
+  for an image, and one announced too big is left alone.
 - On Windows a clipboard *sequence number* makes "has it changed?" a function
-  call instead of reading the clipboard twice a second.
-- On Linux under Wayland it works through `wl-copy`/`wl-paste`, in the logged-in
+  call, and the clipboard is read through user32 itself - first through
+  PowerShell, which flashed a console window on every Ctrl+C and took a fifth
+  of a second. Images go through GDI+, Windows' own: no new dependency.
+- On Linux it works through `xclip` or `wl-copy`/`wl-paste`, in the logged-in
   user's session.
+- **The chunks are paced.** They share the link with the pointer and the keys:
+  sent at once they filled its queue - which, full, drops its oldest frame,
+  possibly a key - and then the network's buffer, with the pointer behind
+  them. Each chunk waits for the queue to be nearly empty, and they go no
+  faster than about 3 MB/s.
 
-**In one sentence:** lazy clipboard sharing, announce on copy and fetch on
-paste, so copying costs nothing until someone pastes.
+**In one sentence:** announce on copy, fetch in paced chunks, text or PNG, so
+a large copy never holds up the pointer.
 
 ---
 
@@ -541,14 +571,17 @@ program's own handling of an event took about **0.3 ms**. The delay was the
 
 **Fixes, in order of effect:**
 
-1. **Keep the radio awake:** while a computer is being controlled, a tiny
-   message goes to it every **40 ms**, so its radio never dozes off.
+1. **Keep the radio awake:** while the pointer is across, each computer - the
+   one driven and the one driving - sends a tiny message every **40 ms**, so
+   its radio never dozes off. (At first only the driven one did. Reported
+   later: the driving computer's radio dozed while its mouse rested, and the
+   pointer was slow to start moving again.)
 2. **Batch and collapse** in the sender ([§7](#7-the-wire-protocol-json-lines-over-tcp)).
 3. A **shorter thread switch interval** in Python, so the reader thread runs
    promptly.
 
 **In one sentence:** measurement showed the lag was Wi-Fi power saving, not
-the code, so the fix was a 40 ms keep-awake while controlled, plus batching,
+the code, so the fix was a 40 ms keep-awake while the pointer is across, plus batching,
 not micro-optimising.
 
 ---
@@ -576,12 +609,18 @@ codebase beats marginal speed.
 
 | | How | Why |
 |---|---|---|
-| **Windows** | PyInstaller **one-file exe**, inside an **Inno Setup** wizard | No Python needed on the target. The wizard installs the service, the firewall rule and the Start Menu entry, and uninstalls cleanly. |
+| **Windows** | PyInstaller, as a **folder** (not one exe), inside an **Inno Setup** wizard | No Python needed on the target. The wizard installs the service, the firewall rule and the Start Menu entry, and uninstalls cleanly. It was one self-extracting exe until Windows Defender's machine-learning check took the setup for a trojan: an installer carrying a program that unpacks a thousand files into %TEMP% at every start looks like a dropper. A folder starts faster too. |
 | **Linux** | A **`.deb` built by a pure-Python script** | Builds anywhere (even on Windows), reproducibly, and checks itself: file modes, line endings, control fields. Dependencies come from the system via `apt`. |
 | **No Flatpak or Snap** | | Their sandboxes exist to prevent exactly what this program must do: read all input, create a virtual device, run from boot. Packaged there, it would need so many holes that the sandbox would only look like protection. |
 | **Releases** | Built by **GitHub Actions from a tag**, with `SHA256SUMS` | Nothing published is built on anyone's own computer, and every file can be verified. |
 
-**In one sentence:** a one-file exe in a real installer, a self-checking `.deb`,
+**The icon** is drawn by a script (`make-icons.py`) for each size rather than
+shrunk from one picture. Up to 32 pixels every shape sits on whole pixels, so
+the seam between the two screens stays a line of its own. The first icon had a
+pointer arrow in it; in a dock or a tray it looked like the real pointer, which
+is confusing in a program that moves the real pointer about.
+
+**In one sentence:** a program folder in a real installer, a self-checking `.deb`,
 no sandboxed formats because they cannot honestly host an input tool, and
 releases built only by CI from tags.
 
@@ -589,7 +628,7 @@ releases built only by CI from tags.
 
 ## 21. Testing
 
-About **1,260 tests**, run on every change by CI on Windows (Python 3.8, 3.11,
+About **1,340 tests**, run on every change by CI on Windows (Python 3.8, 3.11,
 3.12), Linux (3.10, 3.12, 3.14), and inside real **Ubuntu 20.04** and
 **Debian 11** with their own Python and libraries; plus the `.deb` installed on
 five systems.
@@ -646,6 +685,17 @@ bug".
 | **A restart said "another copy is running" when none was** | On Linux, closing a socket another thread is blocked in `accept()` on neither wakes it nor frees the port. | `shutdown()` before `close()`. |
 | **Reconnecting timed out again and again on a slow machine** | 2 s for a handshake in which the hub first derives a deliberately slow key. | Deliberately slow crypto needs timeouts sized for the slowest hardware. |
 | **The Details window flickered** | Its "has anything changed?" check included the round-trip time, which changes every poll. | Separate values that update in place from structure that needs a rebuild. |
+| **The window would not open from the Linux app menu** | The launcher ran `python3 -m link...`, which imports from the current directory first. The app menu starts programs in the home folder, where an old unpacked `~/link` ran instead. | Start an installed program by its path, never by a module name. CI now launches from a folder holding a stale copy. |
+| **Linux: it crashed at once when started from VS Code's terminal** | VS Code installed as a snap leaks its library and module paths into its terminal, and GTK loaded the snap's copies: `symbol lookup error`. | A launcher inherits whatever environment it is started from. Clear what is not yours. |
+| **The Linux tray menu closed under the person reading it** | Its labels held the round trip, which changes every poll, and a changed menu is rebuilt. | Again: keep what changes every second out of anything that rebuilds on change. |
+| **Images copied on the Windows computer never left it** | Two things, both invisible in tests that read and write in one process: Windows lists the "PNG" clipboard form to the service's helper (SYSTEM) but calls it unavailable, and a bitmap handle another program made could not be converted (GDI+ status 7) - so the helper read "nothing". Images from the other computer still arrived, which hid it. | Test across the real process boundary, as the real user and the real service. Here: read CF_DIB, plain memory, like text. Found by logging what the helper saw, not by guessing. |
+| **A console window flashed on every Ctrl+C** | The clipboard was read by running PowerShell from the service's desk agent, which has no console - so Windows made one for each run. | Read the clipboard through the OS's own functions; a helper program is never free. |
+| **The process crashed reading the clipboard** (heap corruption) | Opening the Windows clipboard keeps other programs out, not other threads of the same one: one thread emptied it while another was still reading. | One lock around every clipboard operation in the process. |
+| **Sharing was off, yet a device stayed connected** | The hub's accept loop checked the switch only between accepts, each waiting up to half a second; the device, dropped by the switch, dialled straight back into that window. | A check made before a blocking call is stale when the call returns: check again where the decision takes effect. |
+| **Five hours "not connected", and nothing on screen said why** | A laptop's Wi-Fi fell back from the router's 5 GHz network to its 2.4 GHz one, which Windows had never seen and made Public; the firewall rule, rightly, covers private networks only. The firewall check ran once, at startup, and looked only for block rules. | Check the conditions that decide reachability, not only the rules, and look again when the world can change - here, every minute while a device is missing. |
+| **Closing the window broke the tray it had started** | The one-file Windows build unpacks to a temporary folder, and a copy it starts reuses that folder - which the first copy's launcher deletes when it exits: 1,002 files down to 19. | A process meant to outlive its parent must not share its parent's temporary files. `PYINSTALLER_RESET_ENVIRONMENT=1` makes it unpack for itself. |
+| **The new tray icon vanished as soon as it was installed** | Windows: the setup started the tray, then installing the service stopped every other `NishroLink.exe` - Inno Setup runs `[Run]` entries *before* the post-install step. Linux: an upgrade stops everything of the old version, trays included, and nothing started them again. | Whatever an installer stops, it must start again, after the last step that stops things. Found by installing the real builds, not by the tests. |
+| **Windows Defender called the setup a trojan** ("Bearfoos.A!ml") | A machine-learning guess, not a signature: an unsigned installer carrying a one-file program that unpacks itself into %TEMP% at every start, and stops and re-creates a service. It flagged some builds and not others. | Package the way the scanners expect a program to look: a folder, nothing unpacked at run time. A code signature is the lasting answer. |
 | **The installer said the service failed when it hadn't** | Its clean-up killed the one-file exe's own launcher process. | Know your packaging's process tree. |
 
 ---
@@ -658,12 +708,19 @@ bug".
   expensive (about 2⁶⁰ work) → a **PAKE** would remove it.
 - On Windows, any local account can use the control API → narrow `api.json`'s
   permissions to the signed-in user.
-- Clipboard is text only; no file transfer.
+- Files don't cross the clipboard → next, as decided: copied files are sent
+  in the background when the pointer arrives, on a connection of their own (a
+  big file must not hold up the pointer), into Downloads → Nishro Link, and
+  that computer's clipboard then holds them, so pasting in a folder works.
+  Up to 2 GB a copy, with progress shown.
 - On Linux, a monitor change needs a restart for the pointer's new size.
+- The tray, the dock menu and the command-line controls find the background
+  service, so a from-source install, which has no service, has only the
+  window's controls → publish a per-user handle when running as an app.
 - The Windows installer is not code-signed; the code is not independently
   audited.
 
-**Next, roughly in order:** images and files over the clipboard; monitor
+**Next, roughly in order:** files over the clipboard; monitor
 changes on Linux without a restart; *Find the pointer* on KDE; a PAKE; a signed
 installer; tighter local access on Windows.
 
@@ -708,11 +765,17 @@ desktop.
 and readability matters for debugging. It is made fast with no-delay, batching and
 dropping of superseded pointer positions.
 
+**How does the tray work?** It is a separate small process per person, and
+one more client of the same local API as the window: it polls the status every
+two seconds and sends the same commands. The logic is plain data, tested on any
+system; thin layers draw it with `Shell_NotifyIcon` on Windows and an
+AppIndicator on Linux, with no new dependency on Windows.
+
 **Why Python?** One codebase for both systems, everything in the standard library,
 and a measured 0.3 ms per event.
 
 **How do you know it's reliable?** Safety properties first (never freeze the
-mouse, always give the machine back, no stuck keys), about 1,260 tests, and CI
+mouse, always give the machine back, no stuck keys), about 1,340 tests, and CI
 across Windows, three Linux Python versions and old distributions with their
 own libraries.
 

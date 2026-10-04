@@ -12,7 +12,7 @@ from source for everything else. Wayland and X11 both work. See
    terminal:
 
    ```bash
-   sudo apt install ./nishro-link_1.0.1_all.deb
+   sudo apt install ./nishro-link_1.1.0_all.deb
    ```
 
    Use `apt`, not `dpkg -i`: `apt` also installs what it depends on.
@@ -36,13 +36,16 @@ sha256sum -c SHA256SUMS --ignore-missing
 | **Service** | `nishro-link.service`, a systemd system service, enabled and started. It runs from boot, so another computer's mouse and keyboard also work on the login and lock screens. |
 | **Input access** | reads the mouse and keyboard through `/dev/input` and plays input through `/dev/uinput` (the kernel's `uinput` module, loaded now and at every boot). A udev rule gives `/dev/uinput` to the `input` group, and **the person installing is added to the `input` group** - the window reaches the service through a file only that group can read. |
 | **Polkit action** | lets the window's *Set up permissions* button add you to the `input` group, after asking for your password |
+| **Polkit rule** | lets the person at the desktop, if in the `input` group, stop and start the service - **Quit**, and opening it again - without a password (polkit 0.106 and later; older ones ask) |
 | **Settings** | `/var/lib/nishro-link/config.json`, readable by root only (it holds the group's password). The first install copies your own settings from `~/.config/nishro-link/` if you had run it before. |
 | **Log** | `/var/log/nishro-link/link.log` |
-| **App menu** | *Nishro Link*, with its icon and an App Center page |
+| **App menu** | *Nishro Link*, with its icon and an App Center page; right-click it in the dock for *Find the pointer*, *Release input* and *Pause* / *Resume sharing* |
+| **Tray icon** | in the top bar, started at every login (`/etc/xdg/autostart/nishro-link-tray.desktop`). Ubuntu shows it as it comes; plain GNOME needs the AppIndicator extension (`gnome-shell-extension-appindicator`). |
 
 It needs, and `apt` installs: `python3` (3.8 or later), `python3-tk`,
-`python3-evdev`, `python3-cryptography` and `xclip`. It recommends `pkexec`
-and `x11-xserver-utils`.
+`python3-evdev`, `python3-cryptography`, `xclip`, and for the tray icon
+`python3-gi` and the Ayatana AppIndicator library. It recommends `pkexec` and
+`x11-xserver-utils`.
 
 **About the `input` group:** its members can read every keyboard and mouse on
 the computer. That is what software like this needs, and it is also why the
@@ -108,8 +111,8 @@ Fedora, Arch, openSUSE and others: install from source, for your user only.
    run the installer:
 
    ```bash
-   tar xf nishro-link-1.0.1.tar.gz
-   cd nishro-link-1.0.1
+   tar xf nishro-link-1.1.0.tar.gz
+   cd nishro-link-1.1.0
    ./link/packaging/install-linux.sh
    ```
 
@@ -128,7 +131,11 @@ Fedora, Arch, openSUSE and others: install from source, for your user only.
    ```
 
 This install runs as your user, not as a system service: it works once you
-are logged in, but not on the login screen. To uninstall:
+are logged in, but not on the login screen. The tray icon, the dock's
+right-click menu and the `--sharing` / `--find-pointer` / `--release-input`
+commands come with the `.deb`; here, the window has the same controls.
+
+To uninstall:
 
 ```bash
 systemctl --user disable --now nishro-link

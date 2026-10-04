@@ -13,9 +13,10 @@ remote update would otherwise look exactly like a fresh local copy and bounce
 straight back. `origin` stops the echo, and remembering what we just wrote stops
 us re-announcing it.
 
-NEVER ON THE HOOK THREAD. get() shells out - PowerShell on Windows takes roughly
-200ms - and P1 says a capture thread may not block for a microsecond longer than
-arithmetic. Everything here runs on Node's own clipboard worker.
+NEVER ON THE HOOK THREAD. get() shells out on Linux, and P1 says a capture
+thread may not block for a microsecond longer than arithmetic. Everything here
+runs on Node's own clipboard worker. (Windows is read through user32 directly
+- clip_win.py - since PowerShell flashed a console window on every Ctrl+C.)
 
 NO WINDOWS ON GNOME. GNOME under Wayland gives background programs no way to
 the clipboard, so wl-clipboard gets there by opening a tiny window for a moment
@@ -25,20 +26,32 @@ GNOME the X11 tools come first: they reach the same clipboard through XWayland
 without a window. (Elsewhere wl-clipboard uses a proper protocol and is best.)
 And on Linux the clipboard is read only when the pointer has just left this
 machine, not on a timer - see Node._clipboard.
+
+TEXT AND IMAGES. A clipboard value is either text (a str) or an image,
+("image/png", bytes): PNG is what both systems' clipboards speak. Text wins
+when both are offered - a range of cells copied is text, even if a picture
+of it comes along. An image travels base64 in the same chunks, paced so that
+the pointer and the keys never queue behind it (Node._clipboard). Files are
+not shared yet.
 """
 from __future__ import annotations
 
+import base64
 import functools
+import hashlib
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
 
 from . import protocol
 
-# Text only for now, and capped: this rides the input channel, and a runaway
-# paste buffer should be refused rather than chunked into ten thousand frames.
-MAX_BYTES = 1024 * 1024
+# Capped: this rides the input channel, and a runaway paste buffer should be
+# refused rather than chunked into ten thousand frames.
+MAX_BYTES = 1024 * 1024               # text
+MAX_IMAGE_BYTES = 16 * 1024 * 1024    # an image, as PNG
+IMAGE = "image/png"
 
 
 READ = {"wl": ["wl-paste", "-n", "--type", "text"],
@@ -48,6 +61,15 @@ WRITE = {"wl": ["wl-copy", "--type", "text/plain"],
          "xclip": ["xclip", "-selection", "clipboard", "-i"],
          "xsel": ["xsel", "-b", "-i"]}
 _BINARY = {"wl": "wl-paste", "xclip": "xclip", "xsel": "xsel"}
+# What each tool offers, and how to read and write an image. xsel cannot.
+TYPES = {"wl": ["wl-paste", "--list-types"],
+         "xclip": ["xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"]}
+READ_IMAGE = {"wl": ["wl-paste", "--type", IMAGE],
+              "xclip": ["xclip", "-selection", "clipboard", "-t", IMAGE, "-o"]}
+WRITE_IMAGE = {"wl": ["wl-copy", "--type", IMAGE],
+               "xclip": ["xclip", "-selection", "clipboard", "-t", IMAGE, "-i"]}
+TEXT_TYPES = frozenset({"text/plain", "text/plain;charset=utf-8", "UTF8_STRING",
+                        "STRING", "TEXT"})
 
 
 def order(env=None) -> list:
@@ -90,27 +112,47 @@ def _run(cmd, **kw):
     return session.run(cmd, **kw)
 
 
-def get() -> str:
+last_error = None      # why the last get() or set() failed, for the log
+
+
+def get():
+    """The clipboard: its text, ("image/png", bytes) for an image, or "" -
+    or None when another program held it just then: look again."""
+    global last_error
+    last_error = None
     try:
         if sys.platform == "win32":
-            out = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
-                                 capture_output=True, text=True, timeout=5)
-            return out.stdout.rstrip("\r\n")
+            from . import clip_win
+            text = clip_win.get_text()
+            if text is None or text:
+                return text
+            png = clip_win.get_image()
+            return (IMAGE, png) if png else ""
         for tool in _tools():
+            if tool in TYPES:
+                t = _run(TYPES[tool], capture_output=True, text=True, timeout=5)
+                offered = frozenset(t.stdout.split()) if t.returncode == 0 else frozenset()
+                if IMAGE in offered and not offered & TEXT_TYPES:
+                    r = _run(READ_IMAGE[tool], capture_output=True, timeout=10)
+                    if r.returncode == 0 and r.stdout.startswith(b"\x89PNG"):
+                        return (IMAGE, r.stdout)
             r = _run(READ[tool], capture_output=True, text=True, timeout=5)
             if r.returncode == 0:
                 return r.stdout
-    except Exception:
-        pass
+    except Exception as e:
+        last_error = repr(e)
     return ""
 
 
-def set(text: str) -> bool:
+def set(value) -> bool:
+    """Put text (a str) or an image (("image/png", bytes)) on the clipboard."""
+    if isinstance(value, tuple):
+        return _set_image(value[1])
+    text = value
     try:
         if sys.platform == "win32":
-            subprocess.run(["powershell", "-NoProfile", "-Command", "$input | Set-Clipboard"],
-                           input=text, text=True, timeout=5, capture_output=True)
-            return True
+            from . import clip_win
+            return clip_win.set_text(text)
         for tool in _tools():
             # Not captured: wl-copy and xclip stay behind to hold the clipboard,
             # and a pipe held open by that child made run() wait out the whole
@@ -124,13 +166,61 @@ def set(text: str) -> bool:
     return False
 
 
+def _set_image(png: bytes) -> bool:
+    global last_error
+    last_error = None
+    try:
+        if sys.platform == "win32":
+            from . import clip_win
+            return clip_win.set_image(png)
+        for tool in _tools():
+            if tool not in WRITE_IMAGE:
+                continue
+            r = _run(WRITE_IMAGE[tool], input=png, timeout=10,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if r.returncode == 0:
+                return True
+    except Exception as e:
+        last_error = repr(e)
+    return False
+
+
+def to_wire(value, spool):
+    """A clipboard value for a JSON message: text as itself, an image as the
+    path of a file holding it - the agent's channel takes lines of 128 KB at
+    most, and the service and its agent share the disk (agent.py). `spool` is
+    a function giving that path: asked only when there is an image."""
+    if isinstance(value, tuple):
+        path = pathlib.Path(spool())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(value[1])
+        return {"fmt": value[0], "file": str(path)}
+    return value
+
+
+def from_wire(value):
+    """The other half of to_wire. The file goes once read: a copied image can
+    be anything, and nothing needs it on disk."""
+    if isinstance(value, dict) and value.get("file"):
+        path = pathlib.Path(value["file"])
+        try:
+            return (value.get("fmt") or IMAGE, path.read_bytes())
+        except OSError:
+            return ""
+        finally:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    return value
+
+
 def sequence():
     """A cheap "has the clipboard changed?" counter, or None if unavailable.
 
     Windows gives us one for the cost of a function call, which means we can
-    check several times a second and only pay for the expensive PowerShell read
-    when something actually changed. Without it we would be spawning a shell
-    twice a second forever on a laptop that cannot spare it.
+    check several times a second and read the clipboard only when something
+    actually changed.
     """
     if sys.platform == "win32":
         try:
@@ -145,17 +235,21 @@ class ClipboardSync:
     """The lazy-clipboard state machine. I/O is injected, so it is testable."""
 
     def __init__(self, node: str, read=get, write=set, seq_fn=sequence,
-                 max_bytes: int = MAX_BYTES):
+                 max_bytes: int = MAX_BYTES, max_image_bytes: int = MAX_IMAGE_BYTES):
         self.node = node
         self._read = read
         self._write = write
         self._seq_fn = seq_fn
         self.max_bytes = max_bytes
+        self.max_image_bytes = max_image_bytes
         self._seq = 0
         self._native = None           # last OS clipboard sequence number
-        self._last = None             # last text we know about, either direction
-        self._offer = None            # (seq, text) we have announced
+        self._last = None             # what we last knew of, either direction
+        self._offer = None            # (seq, format, data) we have announced
         self._incoming = {}           # seq -> {index: chunk}
+        # Said in the log: what was asked for, sent, and whether it landed -
+        # never what it was. An image that did not cross left no trace at all.
+        self.log = lambda line: None
 
     def cheap(self) -> bool:
         """Is looking at the clipboard nearly free here? True where the OS keeps
@@ -165,24 +259,37 @@ class ClipboardSync:
         return self._cheap
 
     # ---- our side changed ----
-    def poll(self) -> list:
+    def poll(self, force: bool = False) -> list:
         """Check the local clipboard. Returns messages to send (usually none).
 
-        Called on a worker thread a few times a second.
+        Called on a worker thread a few times a second. `force` reads it even
+        when the change counter says nothing changed: the pointer has just
+        left - the moment a copy can next be pasted elsewhere - and a counter
+        that is missing or wrong must not keep a copy back.
         """
         native = self._seq_fn()
         if native is not None:
-            if native == self._native:
+            if native == self._native and not force:
                 return []             # provably unchanged, and we paid almost nothing
             self._native = native
-        text = self._read()
-        if text == self._last or not text:
+        value = self._read()
+        if value is None:             # held by another program: look again
+            self._native = None
             return []
-        self._last = text
+        if isinstance(value, tuple):
+            fmt, data = value
+            size = len(data or b"")
+        else:
+            fmt, data = "text", value
+            size = len((data or "").encode("utf-8"))
+        if not data or _key(fmt, data) == self._last:
+            return []
+        self._last = _key(fmt, data)
+        if size > (self.max_image_bytes if fmt == IMAGE else self.max_bytes):
+            return []                 # too big to offer: nothing announced
         self._seq += 1
-        self._offer = (self._seq, text)
-        return [protocol.clipmeta(self.node, self._seq, ["text"],
-                                  len(text.encode("utf-8")))]
+        self._offer = (self._seq, fmt, data)
+        return [protocol.clipmeta(self.node, self._seq, [fmt], size)]
 
     # ---- the other side's ----
     def on_message(self, msg: dict) -> list:
@@ -198,17 +305,30 @@ class ClipboardSync:
     def _on_meta(self, msg) -> list:
         if msg.get("origin") == self.node:
             return []                 # our own announcement, come back to us
-        if msg.get("bytes", 0) > self.max_bytes:
+        formats = msg.get("formats") or ["text"]
+        fmt = "text" if "text" in formats else IMAGE if IMAGE in formats else None
+        if fmt is None:
+            return []                 # nothing we can take
+        who, size = msg.get("origin") or msg.get("from") or "another device", msg.get("bytes", 0)
+        if size > (self.max_image_bytes if fmt == IMAGE else self.max_bytes):
+            self.log(f"clipboard: {who} copied {_what(fmt)} of {_size(size)} - "
+                     f"too big to bring across")
             return []                 # too big to be worth the input channel
-        return [protocol.clipget(msg["seq"], "text")]
+        self.log(f"clipboard: {who} copied {_what(fmt)} ({_size(size)}) - asking for it")
+        return [protocol.clipget(msg["seq"], fmt)]
 
     def _on_get(self, msg) -> list:
         if not self._offer or self._offer[0] != msg.get("seq"):
             return []                 # they want something we no longer hold
-        seq, text = self._offer
-        parts = [text[i:i + protocol.CLIP_CHUNK]
-                 for i in range(0, len(text), protocol.CLIP_CHUNK)] or [""]
-        return [protocol.clipdata(seq, "text", i, len(parts), part)
+        seq, fmt, data = self._offer
+        if msg.get("format", "text") != fmt:
+            return []                 # an older 1.x asks for text, whatever is offered
+        body = data if fmt == "text" else base64.b64encode(data).decode("ascii")
+        parts = [body[i:i + protocol.CLIP_CHUNK]
+                 for i in range(0, len(body), protocol.CLIP_CHUNK)] or [""]
+        self.log(f"clipboard: sending {_what(fmt)} ({_size(_bytes(fmt, data))}) "
+                 f"to {msg.get('from') or 'another device'}")
+        return [protocol.clipdata(seq, fmt, i, len(parts), part)
                 for i, part in enumerate(parts)]
 
     def _on_data(self, msg) -> list:
@@ -217,11 +337,49 @@ class ClipboardSync:
         buf[i] = msg.get("v", "")
         if len(buf) < n:
             return []
-        text = "".join(buf[k] for k in sorted(buf))
+        body = "".join(buf[k] for k in sorted(buf))
         self._incoming.pop(seq, None)
+        fmt = msg.get("format") or "text"
+        if fmt == IMAGE:
+            try:
+                value = (IMAGE, base64.b64decode(body))
+            except ValueError:
+                return []
+            key = _key(IMAGE, value[1])
+        elif fmt == "text":
+            value = key = body
+        else:
+            return []
         # Remember it BEFORE writing: the write is what our own poll() would
         # otherwise see as a brand new local copy and announce straight back.
-        self._last = text
+        self._last = key
         self._native = None           # force one real read to resync the counter
-        self._write(text)
+        ok = self._write(value)
+        self.log(f"clipboard: {_what(fmt)} from {msg.get('from') or 'another device'} "
+                 f"({_size(_bytes(fmt, value[1] if fmt == IMAGE else value))}) "
+                 + ("is on this computer's clipboard" if ok is not False else
+                    "could NOT be put on this computer's clipboard"))
         return []
+
+
+def _what(fmt) -> str:
+    return "an image" if fmt == IMAGE else "text"
+
+
+def _bytes(fmt, data) -> int:
+    return len(data) if fmt == IMAGE else len((data or "").encode("utf-8"))
+
+
+def _size(n: int) -> str:
+    n = int(n or 0)
+    if n < 1024:
+        return f"{n} bytes"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{n / 1024 / 1024:.1f} MB"
+
+
+def _key(fmt, data):
+    """What a clipboard value is known by, to tell a new copy from one we have
+    already seen: text by itself, an image by its digest."""
+    return data if fmt == "text" else (fmt, hashlib.sha256(data).hexdigest())

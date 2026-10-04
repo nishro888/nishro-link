@@ -85,10 +85,19 @@ password** as well.
 The control API listens on 127.0.0.1 (this computer only) and needs the token
 from that file.
 
+**Stopping and starting the service** - what **Quit** does, and opening Nishro
+Link again - is allowed without a password to anyone signed in on Windows (the
+installer grants interactive users the right to start and stop this one
+service, and nothing more), and on Linux to someone at the desktop who is in
+the `input` group (a polkit rule; older polkit asks for the password). Stopping
+it takes sharing away from that computer until it is opened again or
+restarted; it gives no one anything.
+
 ## What is stored, and where
 
 | | Windows | Linux (.deb) |
 |---|---|---|
+| An image crossing the clipboard, for the moment it passes between the service and its helper (deleted once read) | `C:\ProgramData\NishroLink\private\clip-in.png`, `clip-out.png` - SYSTEM and Administrators | - (not written to disk) |
 | Settings, including the group's password, in plain text | `C:\ProgramData\NishroLink\private\config.json` - SYSTEM and Administrators | `/var/lib/nishro-link/config.json` - root, mode 600 |
 | Handle for the window (port and token) | `C:\ProgramData\NishroLink\api.json` - all local accounts | `/run/nishro-link/api.json` - root and `input`, mode 640 |
 | Log (names, addresses, events - not passwords or what is typed) | `C:\ProgramData\NishroLink\link.log` | `/var/log/nishro-link/link.log` |

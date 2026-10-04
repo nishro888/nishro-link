@@ -532,6 +532,10 @@ class LineChannel:
         self._sender = threading.Thread(target=self._send_loop, daemon=True)
         self._sender.start()
 
+    def backlog(self) -> int:
+        """Frames queued and not yet sent."""
+        return self._q.qsize()
+
     @property
     def dropped(self) -> int:
         """How many events the queue has shed. The control API reports this -

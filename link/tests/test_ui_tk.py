@@ -760,7 +760,8 @@ def test_a_window_onto_the_service_points_at_the_services_log():
 def test_the_navigation_pane_holds_only_navigation(app):
     """Reported: Settings and Help looked no different from the status line
     and the two buttons under them. The pane is pages only now; the actions
-    are on Home, next to who has control."""
+    are on Home, next to who has control. The one exception, asked for later:
+    Quit, at the very foot, under Help - it quits Nishro Link, not the window."""
     def texts(w, out):
         try:
             t = w.cget("text")
@@ -772,8 +773,13 @@ def test_the_navigation_pane_holds_only_navigation(app):
             texts(c, out)
         return out
     side = texts(app.sidebar, [])
-    for gone in ("Release input", "Find the pointer", "Hide", "Quit", "online"):
+    for gone in ("Release input", "Find the pointer", "Hide", "online"):
         assert not any(gone in t for t in side), gone
+    assert "Quit" in side and "quit" not in app.nav, "an action, not a page"
+    app.root.update()
+    rows = [app.nav["settings"]["row"], app.nav["help"]["row"], app.actions["quit"]["row"]]
+    ys = [r.winfo_y() for r in rows]
+    assert ys == sorted(ys) and len(set(ys)) == 3, "Settings, Help, then Quit"
     for page in ("Home", "Devices", "Arrangement", "Activity", "Settings", "Help"):
         assert page in side
     home = app.pages["overview"]
@@ -782,3 +788,89 @@ def test_the_navigation_pane_holds_only_navigation(app):
         while w is not None and w is not home:
             w = w.master
         assert w is home, "on the Home page"
+
+
+# ---------------------------------------------------------------- Quit
+def _until(app, cond, n=100):
+    import time
+    for _ in range(n):
+        if cond():
+            return True
+        try:
+            app.root.update()
+        except tk.TclError:
+            pass
+        time.sleep(0.02)
+    return cond()
+
+
+def test_quit_in_the_window_stops_everything(app, monkeypatch, tmp_path):
+    """Asked for: "an option in the app and the taskbar to quit Nishro Link
+    fully". A window onto the service: Quit stops the service, then closes."""
+    from link import service
+    monkeypatch.setattr(service, "_quit_marker", lambda: tmp_path / "quit")
+    app.remote = True
+    monkeypatch.setattr(ui_tk.messagebox, "askokcancel", lambda *a, **k: True)
+    asked, closed = [], []
+    monkeypatch.setattr(service, "quit_everything",
+                        lambda: asked.append(1) or {"ok": True})
+    monkeypatch.setattr(app, "close", lambda: closed.append(1))
+    app._quit_all()
+    assert _until(app, lambda: closed), "the window closed"
+    assert asked == [1]
+
+
+def test_a_quit_that_failed_leaves_the_window_saying_why(app, monkeypatch, tmp_path):
+    from link import service
+    monkeypatch.setattr(service, "_quit_marker", lambda: tmp_path / "quit")
+    app.remote = True
+    monkeypatch.setattr(ui_tk.messagebox, "askokcancel", lambda *a, **k: True)
+    monkeypatch.setattr(service, "quit_everything",
+                        lambda: {"ok": False, "error": "access denied"})
+    closed = []
+    monkeypatch.setattr(app, "close", lambda: closed.append(1))
+    app._quit_all()
+    assert _until(app, lambda: "access denied" in app.msg.cget("text"))
+    assert not closed
+
+
+def test_a_quit_from_the_tray_closes_the_window(app, monkeypatch, tmp_path):
+    import time
+    from link import service
+    monkeypatch.setattr(service, "_quit_marker", lambda: tmp_path / "quit")
+    monkeypatch.setattr(service, "installed", lambda: False)
+    app.remote = True
+    closed = []
+    monkeypatch.setattr(app, "close", lambda: closed.append(1))
+    app._poll()
+    assert not closed
+    time.sleep(0.05)                           # Windows' clock ticks every 16 ms
+    service.quit_everything()                  # what the tray's Quit does
+    app._poll()
+    assert closed
+
+
+# ------------------------------------------------------- a public network
+def test_a_public_network_is_shown_with_a_way_out(app):
+    """Seen: five hours of "not connected" with nothing on screen to say why -
+    the laptop's Wi-Fi had moved to a network Windows called Public."""
+    s = app.api.status()
+    app._render(dict(s, network_public=[]))
+    assert app.net_box.winfo_manager() == ""
+    app._render(dict(s, network_public=["Home-WiFi"]))
+    assert app.net_box.winfo_manager() == "pack"
+    assert "Home-WiFi" in app.net_text.cget("text")
+    assert app.net_btn.cget("text") == "Make it private"
+    app._render(dict(s, network_public=[]))
+    assert app.net_box.winfo_manager() == ""
+
+
+def test_make_it_private_asks_windows_then_looks_again(app, monkeypatch):
+    from link import runtime
+    asked = []
+    monkeypatch.setattr(runtime, "make_private", lambda names: asked.append(names) or True)
+    monkeypatch.setattr(runtime, "public_networks", lambda *a: [])
+    app._render(dict(app.api.status(), network_public=["Home-WiFi"]))
+    app._fix_network()
+    assert _until(app, lambda: "Done" in app.msg.cget("text"))
+    assert asked == [["Home-WiFi"]]

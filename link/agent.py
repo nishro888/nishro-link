@@ -31,6 +31,14 @@ from . import protocol
 HELLO_TIMEOUT = 5.0
 
 
+def _spool(way: str):
+    """Where an image crosses between the service and its agent: a file in
+    the service's own folder, which only SYSTEM and Administrators can read.
+    Both are SYSTEM; the channel between them takes 128 KB lines at most."""
+    from . import service
+    return service.BASE / "private" / f"clip-{way}.png"
+
+
 # ================================================================ service side
 class AgentHub:
     """Accepts the agent, relaunches it, and relays between it and the node."""
@@ -182,13 +190,31 @@ class AgentHub:
     # the clipboard lives in the console session too
     def clip_seq(self):
         v = self.call("clip_seq", 1.0)
+        if v == 0 and not getattr(self, "_said_seq", False):
+            self._said_seq = True         # once: it is a fact about this desktop
+            self.log("clipboard: the desk agent sees no change counter here - "
+                     "the clipboard is read when the pointer leaves instead")
         return 0 if v is None else v      # a number: see ClipboardSync.cheap()
 
-    def clip_read(self) -> str:
-        return self.call("clip_get", 6.0) or ""
+    def clip_read(self):
+        from . import clip
+        v = self.call("clip_get", 10.0)
+        if v is None:
+            self.log("clipboard: the desk agent did not answer a read")
+        elif isinstance(v, dict) and v.get("error"):
+            self.log(f"clipboard: could not be read here ({v['error']})")
+            return ""
+        return clip.from_wire(v) or ""
 
-    def clip_write(self, text: str) -> bool:
-        return bool(self.call("clip_set", 6.0, v=text))
+    def clip_write(self, value) -> bool:
+        from . import clip
+        ok = self.call("clip_set", 10.0, v=clip.to_wire(value, lambda: _spool("in")))
+        if ok is None:
+            self.log("clipboard: the desk agent did not answer a write")
+        elif isinstance(ok, dict):
+            self.log(f"clipboard: could not be written here ({ok.get('error')})")
+            return False
+        return bool(ok)
 
 
 class AgentCapture:
@@ -314,8 +340,21 @@ def run(port: int, token: str, capture=None, injector=None, detect=None,
                     rid = msg.get("rid")
 
                     def answer(t=t, rid=rid, v=msg.get("v")):
-                        value = (clip_seq() if t == "clip_seq" else
-                                 clip_get() if t == "clip_get" else clip_set(v))
+                        # A failure says why, in the service's log - not "".
+                        try:
+                            if t == "clip_seq":
+                                value = clip_seq()
+                            elif t == "clip_get":
+                                got = clip_get()
+                                value = ({"error": _clip.last_error}
+                                         if got == "" and _clip.last_error else
+                                         _clip.to_wire(got, lambda: _spool("out")))
+                            else:
+                                value = clip_set(_clip.from_wire(v))
+                                if not value and _clip.last_error:
+                                    value = {"error": _clip.last_error}
+                        except Exception as e:
+                            value = {"error": repr(e)}
                         ch.send({"t": "ret", "rid": rid, "v": value})
                     threading.Thread(target=answer, daemon=True).start()
                 elif t == "bye":

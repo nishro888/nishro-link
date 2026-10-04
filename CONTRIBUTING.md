@@ -34,7 +34,7 @@ the tests there - so no `match`, no `X | Y` outside annotations, and
 git clone https://github.com/nishro888/nishro-link.git
 cd nishro-link
 python -m pip install -e ".[dev]"          # cryptography, pytest, ruff (+ evdev on Linux)
-python -m pytest                           # about 1,260 tests, a few minutes
+python -m pytest                           # about 1,340 tests, a few minutes
 python -m ruff check .
 python -m link.nishro_link                 # run it from source
 ```
@@ -52,10 +52,12 @@ Where things are:
 | Pairing and encryption | `link/pairing.py`, `link/secure.py` |
 | Input capture and injection | `link/capture_win.py`, `link/capture_linux.py`, `link/inject.py` |
 | The window | `link/ui_*.py` |
+| The tray icon | `link/tray.py` (what it shows), `link/tray_win.py`, `link/tray_linux.py` |
 | Installers | `link/packaging/` |
 
 [link/DESIGN.md](link/DESIGN.md) explains how it works and why - worth reading
-before a larger change.
+before a larger change. Releases follow [RELEASING.md](RELEASING.md), which
+includes the checks made by hand on a real Windows and Linux computer.
 
 ### Guidelines
 
@@ -63,7 +65,7 @@ before a larger change.
 - **Safety first.** Nothing may block the input hooks, and the user must always
   get their own mouse and keyboard back (the rules are in DESIGN.md, section 4).
 - **Explain the why** in comments and commit messages - the code says what.
-- Keep dependencies few: the program ships as one file on Windows and as a
+- Keep dependencies few: the program ships as one folder on Windows and as a
   small package on Linux.
 
 Open an issue before a large change, so we can agree on the approach first.

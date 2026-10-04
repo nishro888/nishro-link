@@ -22,6 +22,10 @@ from . import service, winsvc
 
 NAME = winsvc.SERVICE_NAME
 RULES = ("Nishro Link", "Nishro Link (service)", "Nishro Link (program)")
+# What Windows gives a new service, with start (RP) and stop (WP) added for
+# interactive users (IU).
+SDDL = ("D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)"
+        "(A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)")
 CREATE_NO_WINDOW = 0x08000000
 
 
@@ -62,11 +66,12 @@ def state() -> str:
 def _stop_everything(log) -> None:
     """The service - even one stuck starting - and any copy started by hand.
 
-    Not this process, and not its parent: the exe is one file, which runs as
-    a small launcher that unpacks the program and waits for it - both named
-    NishroLink.exe. Killing the launcher was killing the process the setup
-    wizard waits on, so the wizard said the service had not started while
-    this process went on to start it."""
+    Not this process, and not its parent. When the build was one file, it ran
+    as a small launcher that unpacked the program and waited for it - both
+    named NishroLink.exe - and killing the launcher was killing the process
+    the setup wizard waits on, so the wizard said the service had not started
+    while this process went on to start it. (The build is a folder now; the
+    rule stays: whatever starts this process may be one of ours.)"""
     if state():
         _run(["sc", "stop", NAME], log)
         for _ in range(20):
@@ -145,6 +150,11 @@ def install(exe: str, from_config: str = None, log=None) -> int:
           "computers - from boot, on the lock and sign-in screens."], log)
     _run(["sc", "failure", NAME, "reset=", "60",
           "actions=", "restart/2000/restart/5000/restart/10000"], log)
+    # Quit and Open - in the window and the tray - stop and start this one
+    # service as whoever is signed in, with no elevation prompt each time.
+    # Windows' usual rights, plus start (RP) and stop (WP) for interactive
+    # users (IU). Nothing else: they cannot change or delete it.
+    _run(["sc", "sdset", NAME, SDDL], log)
     err = service.BASE / "service-error.log"
     try:
         err.unlink()

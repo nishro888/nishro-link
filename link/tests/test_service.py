@@ -201,3 +201,86 @@ def test_find_says_why_it_found_nothing(tmp_path):
     handle.write_text('{"port": 1, "token": "x"}')
     assert service.find(handle, timeout=0.5) is None
     assert "did not answer on port 1" in service.problem
+
+
+# ------------------------------------------------------------- Quit, and Open
+def _free_port():
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def test_opening_after_a_quit_starts_the_service(monkeypatch):
+    """Quit stops the service. Opening Nishro Link must start it again - not
+    run a second engine here from this person's old settings, which is what
+    opening did with the service stopped."""
+    from link import nishro_link
+    running, asked = {"yes": False}, []
+
+    def control(action):
+        asked.append(action)
+        running["yes"] = True
+        return {"ok": True}
+    port = _free_port()
+    monkeypatch.setattr(nishro_link.time, "sleep", lambda s: None)
+    monkeypatch.setattr(service, "installed", lambda: True)
+    monkeypatch.setattr(service, "published", lambda *a: running["yes"])
+    monkeypatch.setattr(service, "control", control)
+    monkeypatch.setattr(service, "find", lambda *a, **k: (port, "t") if running["yes"] else None)
+    monkeypatch.setattr(nishro_link, "load_window", lambda log: None)   # no Tk here
+    args = nishro_link.build_parser().parse_args([])
+    assert nishro_link.attach(args, {"port": port}) == 0, "attached to the service"
+    assert asked == ["start"]
+
+
+def test_a_quit_holds_at_login(monkeypatch):
+    """Started at login (--background), it does not undo a Quit."""
+    from link import nishro_link
+    monkeypatch.setattr(service, "installed", lambda: True)
+    monkeypatch.setattr(service, "published", lambda *a: False)
+    monkeypatch.setattr(service, "find", lambda *a, **k: None)
+    monkeypatch.setattr(service, "control", lambda action: (_ for _ in ()).throw(
+        AssertionError("started the service")))
+    args = nishro_link.build_parser().parse_args(["--background"])
+    assert nishro_link.attach(args, {"port": _free_port()}) is None
+
+
+def test_a_service_that_will_not_start_is_said(monkeypatch):
+    from link import nishro_link
+    said = []
+    monkeypatch.setattr(service, "installed", lambda: True)
+    monkeypatch.setattr(service, "published", lambda *a: False)
+    monkeypatch.setattr(service, "control", lambda action: {"ok": False,
+                                                            "error": "access denied"})
+    monkeypatch.setattr(nishro_link, "_not_started", lambda e: said.append(e) or 5)
+    args = nishro_link.build_parser().parse_args([])
+    assert nishro_link.attach(args, {"port": _free_port()}) == 5
+    assert said == ["access denied"]
+
+
+def test_quitting_stops_the_service_then_tells_the_tray(monkeypatch, tmp_path):
+    import time
+    marker = tmp_path / "quit"
+    monkeypatch.setattr(service, "_quit_marker", lambda: marker)
+    monkeypatch.setattr(service, "installed", lambda: True)
+    asked = []
+    monkeypatch.setattr(service, "control",
+                        lambda action: asked.append(action) or {"ok": True})
+    before = time.time() - 1
+    assert not service.quit_asked_since(before)
+    assert service.quit_everything() == {"ok": True}
+    assert asked == ["stop"]
+    assert service.quit_asked_since(before)
+    assert not service.quit_asked_since(time.time() + 1), "a tray started later stays"
+
+
+def test_a_quit_that_could_not_stop_the_service_closes_nothing(monkeypatch, tmp_path):
+    marker = tmp_path / "quit"
+    monkeypatch.setattr(service, "_quit_marker", lambda: marker)
+    monkeypatch.setattr(service, "installed", lambda: True)
+    monkeypatch.setattr(service, "control", lambda action: {"ok": False, "error": "no"})
+    assert service.quit_everything() == {"ok": False, "error": "no"}
+    assert not marker.exists(), "the tray and windows stay: nothing stopped"

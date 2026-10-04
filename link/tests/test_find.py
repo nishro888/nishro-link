@@ -319,6 +319,38 @@ def test_a_driven_machine_keeps_its_radio_awake_and_stops_after():
         p.stop()
 
 
+def test_the_driving_machine_keeps_its_radio_awake_while_its_mouse_rests():
+    """Reported: with the AIO's mouse on the laptop's screen, the pointer was
+    slow to start moving after a rest. Only the machine being driven kept its
+    radio awake; the driver's dozed while its mouse was still, and the first
+    movements after a rest waited for it to wake."""
+    from test_node_live import Pair
+    p = Pair().start().connected()
+    try:
+        seen = []
+        link = p.hub.links["aio"]
+        orig = link.ch.send
+        link.ch.send = lambda m: (seen.append(m.get("t")), orig(m))
+        assert not p.hub.driving_elsewhere()
+        p.hub.on_pointer(5, 400, -10, 0)
+        time.sleep(0.2)
+        p.hub.on_pointer(0, 400, -10, 0)            # onto the AIO, then still
+        p.wait(lambda: p.hub.driving_elsewhere(), what="the laptop driving the aio")
+        time.sleep(0.1)
+        before = seen.count("ka")
+        time.sleep(0.4)                             # its mouse at rest
+        n = seen.count("ka") - before
+        assert n >= 5, f"only {n} in 0.4 s"
+        p.hub.on_motion(3000, 0)                    # back home
+        p.wait(lambda: not p.hub.driving_elsewhere(), what="cursor home")
+        time.sleep(0.1)
+        before = seen.count("ka")
+        time.sleep(0.4)
+        assert seen.count("ka") == before, "an idle link is left alone"
+    finally:
+        p.stop()
+
+
 @pytest.mark.parametrize("px_per_s, turn_ms", [(1250, 72), (2000, 72), (3000, 48)])
 def test_an_ordinary_mouse_shaken_by_hand_is_noticed(px_per_s, turn_ms):
     """A 125 Hz office mouse, shaken moderately to hard."""

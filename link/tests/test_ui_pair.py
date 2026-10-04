@@ -354,3 +354,21 @@ def test_closing_during_a_search_is_harmless(root, api):
     d = dialog(root, api)
     d.close()
     time.sleep(0.2)                                  # the search lands on nothing
+
+
+def test_a_device_that_did_not_connect_back_names_this_computers_network(root, api):
+    """Seen: adding the AIO from the laptop stuck at its third step, "aio
+    didn't connect - check that sharing is on there". Sharing was on; the
+    laptop was on a network Windows called Public, which kept the AIO out."""
+    api.network_public = ["Home-WiFi"]
+    d = dialog(root, api)
+    try:
+        d._password("invite", "aio")
+        d.f_pin.insert(0, "b3nr-8wzc-4tyh")
+        d._go()
+        progress(api, "failed", reason="timeout", detail="aio")
+        settle(d, lambda: d.outcome == "timeout")
+        assert "Home-WiFi" in d.msg_detail.cget("text")
+        assert "public" in d.msg_detail.cget("text")
+    finally:
+        d.close()

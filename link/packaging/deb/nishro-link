@@ -6,4 +6,23 @@
 # first, and the app menu starts programs in the home folder - where an old
 # unpacked ~/link was imported instead of this program, and the window never
 # opened. A script's own folder comes first, and launch.py is in ours.
+#
+# Started from inside a snap - VS Code's terminal, typically - the snap's GTK,
+# GIO and locale paths come along, and GTK loads that snap's own libraries into
+# this process: built against another C library, they crash it ("symbol lookup
+# error ... /snap/..."). Nishro Link is not a snap: leave them behind.
+if [ -n "${SNAP:-}" ]; then
+    for v in GTK_PATH GTK_EXE_PREFIX GTK_IM_MODULE_FILE GIO_MODULE_DIR \
+             GDK_PIXBUF_MODULE_FILE GDK_PIXBUF_MODULEDIR GSETTINGS_SCHEMA_DIR \
+             LOCPATH XDG_DATA_HOME; do
+        eval "val=\${$v:-}"
+        case "$val" in */snap/*) unset "$v" ;; esac
+    done
+    if [ -n "${XDG_DATA_DIRS:-}" ]; then
+        XDG_DATA_DIRS=$(printf '%s' "$XDG_DATA_DIRS" | tr ':' '\n' |
+                        grep -v '/snap/' | paste -sd: -)
+        export XDG_DATA_DIRS
+    fi
+    unset SNAP
+fi
 exec python3 /usr/lib/nishro-link/launch.py "$@"
