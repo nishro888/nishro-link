@@ -3,6 +3,18 @@
 A software KVM: one mouse and keyboard across Windows and Linux computers.
 Plain Python (3.8+), Tk for the window, a system service on both systems.
 
+## First: the project's working memory - `devnotes/`
+
+Work continues from where it stopped, on any computer. **At the start of a
+session, read `devnotes/STATE.md`**, and before a build, a test run, an install
+or a release, the matching section of `devnotes/LESSONS.md`: what already
+failed is there, with what works instead - do not repeat it.
+
+As you go: a step that fails or misleads -> a line in `LESSONS.md`, at once; a
+result that matters (CI, a real-machine check) -> `TESTLOG.md`; before
+stopping -> `STATE.md` brought up to date, and `devnotes/` committed with the
+work. `devnotes/README.md` has the routine. Nothing personal in any of it.
+
 ## Where the knowledge is
 
 | | |
@@ -13,6 +25,7 @@ Plain Python (3.8+), Tk for the window, a system service on both systems.
 | `RELEASING.md` | The release checklist, including the checks made by hand on real machines. |
 | `CHANGELOG.md` | What changed, per version. Update it with every user-visible change. |
 | `docs/manual.md` | The user manual. Update it when behaviour or the window changes. |
+| `tools/` | The docs' screenshots, and a local Windows install. |
 
 ## Commands
 
