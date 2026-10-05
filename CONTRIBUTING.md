@@ -54,8 +54,10 @@ Where things are:
 | The window | `link/ui_*.py` |
 | The tray icon | `link/tray.py` (what it shows), `link/tray_win.py`, `link/tray_linux.py` |
 | Installers | `link/packaging/` |
+| Tools for development: screenshots, a local Windows install | `tools/` |
 
-[link/DESIGN.md](link/DESIGN.md) explains how it works and why - worth reading
+[CLAUDE.md](CLAUDE.md) is the short guide for working on it - written for AI
+assistants, and useful to anyone. [link/DESIGN.md](link/DESIGN.md) explains how it works and why - worth reading
 before a larger change. Releases follow [RELEASING.md](RELEASING.md), which
 includes the checks made by hand on a real Windows and Linux computer.
 
