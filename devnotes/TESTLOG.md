@@ -6,6 +6,10 @@ the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
 ## 2026-10-05 - 1.1.0 release candidate
 
+- The laptop's 2.4 GHz network was still saved as Public (category 0)
+  since 09-30; set to Private (1) in its saved profile, with the
+  maintainer's OK. Firewall: no block rules for Nishro Link; six allow
+  rules for old development builds (harmless).
 - Unit tests: **1,340 pass** (Windows, Python 3.11); ruff clean.
 - CI on `f106a6b`: **15/15 green** - lint; Windows 3.8, 3.11, 3.12; Linux
   3.10, 3.12, 3.14; Ubuntu 20.04 and Debian 11 with their own Python and
