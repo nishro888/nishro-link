@@ -4,6 +4,11 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-06 - notes pushed
+
+- CI on `8087ffa` (`CLAUDE.md`, `tools/`, `devnotes/` on top of `f106a6b`):
+  **15/15 green**.
+
 ## 2026-10-05 - 1.1.0 release candidate
 
 - The laptop's 2.4 GHz network was still saved as Public (category 0)
