@@ -123,3 +123,9 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   Capture windows with PrintWindow (`tools/docs/shot_manual_grab.py`).
 - **Defender's history** is the quickest way to see what was blocked and when:
   `Get-MpThreatDetection | Sort-Object InitialDetectionTime -Descending`.
+- **`set -e` did not stop a script in the assistant's Bash tool**: the tool
+  runs the command inside an `&&` list, where `set -e` is ignored. A failed
+  step went on to commit the wrong tree. Put `|| exit 1` after each step that
+  must not fail.
+- **`git rm` refuses files that `cherry-pick -n` just staged** ("changes
+  staged in the index"); `git rm -f` removes them.
