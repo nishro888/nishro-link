@@ -15,7 +15,8 @@ the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 - Each new test was checked against a deliberate break of the code it guards:
   24 breaks, all caught.
 - Full suite: **1,380 pass**, 1 skipped (6 min, Windows, Python 3.11); ruff
-  clean. Linux: CI runs them on the next push.
+  clean. CI on `f153064`: **15/15 green** - the new tests pass on Linux and
+  Python 3.8 too.
 - Not covered by tests, checked on the real machines instead: the platform
   shells (`tray_win.py`, `clip_win.py`, and `tray_linux.py`, which cannot run
   on Windows) and the desk agent's error paths.
