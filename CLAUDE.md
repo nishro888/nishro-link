@@ -31,7 +31,7 @@ work. `devnotes/README.md` has the routine. Nothing personal in any of it.
 
 ```bash
 python -m pip install -e ".[dev]"        # cryptography, pytest, ruff (+ evdev on Linux)
-python -m pytest -q                      # ~1,340 tests, a few minutes
+python -m pytest -q                      # ~1,380 tests, about 6 minutes
 python -m ruff check .
 python link/packaging/build-deb.py       # dist/nishro-link_<v>_all.deb, self-checking
 powershell -File link/packaging/build-windows.ps1   # dist/NishroLink/ and the setup

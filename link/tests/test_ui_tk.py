@@ -874,3 +874,100 @@ def test_make_it_private_asks_windows_then_looks_again(app, monkeypatch):
     app._fix_network()
     assert _until(app, lambda: "Done" in app.msg.cget("text"))
     assert asked == [["Home-WiFi"]]
+
+
+def test_a_declined_permission_prompt_does_not_claim_a_fix(app, monkeypatch):
+    """Windows' prompt answered No: the network is still Public, and the window
+    must say nothing changed - and let the person try again."""
+    import threading
+    from link import runtime
+    answered = threading.Event()               # the prompt waits for the person
+    monkeypatch.setattr(runtime, "make_private", lambda names: answered.wait(5) and False)
+    monkeypatch.setattr(runtime, "public_networks", lambda *a: ["Home-WiFi"])
+    app._render(dict(app.api.status(), network_public=["Home-WiFi"]))
+    app._fix_network()
+    assert not app.net_btn.enabled, "one prompt at a time"
+    answered.set()
+    assert _until(app, lambda: "declined" in app.msg.cget("text"))
+    assert "Done" not in app.msg.cget("text")
+    assert app.net_btn.enabled
+
+
+def test_a_network_windows_still_calls_public_is_said_so(app, monkeypatch):
+    from link import runtime
+    monkeypatch.setattr(runtime, "make_private", lambda names: True)
+    monkeypatch.setattr(runtime, "public_networks", lambda *a: ["Home-WiFi"])
+    app._render(dict(app.api.status(), network_public=["Home-WiFi"]))
+    app._fix_network()
+    assert _until(app, lambda: "still calls it a public network" in app.msg.cget("text"))
+
+
+def test_make_it_private_with_nothing_public_asks_nothing(app, monkeypatch):
+    from link import runtime
+    asked = []
+    monkeypatch.setattr(runtime, "make_private", lambda names: asked.append(names) or True)
+    app._render(dict(app.api.status(), network_public=[]))
+    app._fix_network()
+    _until(app, lambda: False, n=10)
+    assert asked == [], "no permission prompt for nothing"
+
+
+def test_cancelling_quit_stops_nothing(app, monkeypatch, tmp_path):
+    from link import service
+    monkeypatch.setattr(service, "_quit_marker", lambda: tmp_path / "quit")
+    app.remote = True
+    monkeypatch.setattr(ui_tk.messagebox, "askokcancel", lambda *a, **k: False)
+    asked, closed = [], []
+    monkeypatch.setattr(service, "quit_everything", lambda: asked.append(1) or {"ok": True})
+    monkeypatch.setattr(app, "close", lambda: closed.append(1))
+    app._quit_all()
+    _until(app, lambda: False, n=10)
+    assert asked == [] and closed == []
+    assert not (tmp_path / "quit").exists()
+
+
+def test_quit_in_a_window_that_is_the_engine_quits_it_without_the_service(app, monkeypatch):
+    """Started without the service (from source): this window's process runs
+    the link itself, so Quit is its own quit - there is no service to stop."""
+    from link import service
+    app.remote = False
+    quits = []
+    monkeypatch.setattr(app, "_quit", lambda: quits.append(1))
+    monkeypatch.setattr(service, "quit_everything", lambda: pytest.fail("stopped a service"))
+    app._quit_all()
+    assert quits == [1]
+
+
+def test_the_quit_row_lights_up_under_the_pointer_like_the_pages(app):
+    row = app.actions["quit"]["row"]
+    app._nav_hover("quit", True)
+    assert row.cget("bg") == app.C["card"]
+    app._nav_hover("quit", False)
+    assert row.cget("bg") == app.C["sidebar"]
+
+
+def test_notifications_are_a_switch_that_applies_at_once(app):
+    app._render(app.api.status())
+    assert app.notify.get() is True
+    app.notify.set(False)
+    app._set_notify()
+    assert app.api.cfg["notify"] is False
+    assert app.api.status()["notify"] is False
+    app.notify.set(True)
+    app._set_notify()
+    assert app.api.status()["notify"] is True
+
+
+def test_the_notifications_switch_follows_the_service(app):
+    s = app.api.status()
+    app._render(dict(s, notify=False))
+    assert app.notify.get() is False
+    app._render(dict(s, notify=True))
+    assert app.notify.get() is True
+
+
+def test_a_refused_notifications_change_says_why(app, monkeypatch):
+    monkeypatch.setattr(app.api, "command", lambda path, body: {"error": "the settings file is read-only"})
+    app.notify.set(False)
+    app._set_notify()
+    assert "read-only" in app.msg.cget("text")

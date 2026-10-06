@@ -50,6 +50,21 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   on the real service before believing it.
 - **A bug-fix test must fail without the fix.** Each new test here was checked
   by reverting the fix and running it.
+- **Coverage shows what no test runs** (`pip install coverage`; `python -m
+  coverage run --source=link -m pytest`, then compare with the lines a commit
+  added). Of 1.1.0's new lines, 62% ran; the gaps were real behaviour - Quit
+  and Open's start/stop, the tray's menu when things go wrong, the launcher.
+  To check a new test, break the code it guards on purpose (one change at a
+  time, restored from git after) and see that test fail.
+- **A launcher test gone wrong reached the real service.** With a check
+  broken on purpose, `attach()` went on to `service.find()`, which found the
+  Nishro Link installed on the laptop and opened a real window onto it until
+  the run was stopped. Tests through `attach()` block the real lookup, and
+  `test_service.py` fails any test that would open a real window.
+- **A fake that answers at once can hide a state.** "Make it private" turns
+  its button off while Windows' prompt is open; a fake prompt that returned
+  instantly had turned it back on before the test looked. Make the fake wait
+  (an Event) like the real thing.
 
 ## Windows at run time
 

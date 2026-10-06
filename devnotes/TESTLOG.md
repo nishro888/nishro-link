@@ -4,6 +4,22 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-06 - tests for what 1.1.0 left untested
+
+- Coverage of the lines 1.1.0 added (Windows): 62% run by tests. 41 tests
+  added where it mattered; now **70%**: `service.py` 37% -> 95% (start and
+  stop under Quit and Open, with a pretend `sc.exe` and `systemctl`), the
+  launcher 54% -> 93%, the window 76% -> 94% (Make it private's outcomes,
+  Cancel on Quit, the Notifications switch), the tray 69% -> 89% (its menu when
+  things go wrong, starting it), pairing 100%.
+- Each new test was checked against a deliberate break of the code it guards:
+  24 breaks, all caught.
+- Full suite: **1,380 pass**, 1 skipped (6 min, Windows, Python 3.11); ruff
+  clean. Linux: CI runs them on the next push.
+- Not covered by tests, checked on the real machines instead: the platform
+  shells (`tray_win.py`, `clip_win.py`, and `tray_linux.py`, which cannot run
+  on Windows) and the desk agent's error paths.
+
 ## 2026-10-06 - notes pushed
 
 - CI on `8087ffa` (`CLAUDE.md`, `tools/`, `devnotes/` on top of `f106a6b`):

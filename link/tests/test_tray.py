@@ -325,3 +325,128 @@ def test_what_the_tray_starts_is_its_own_instance(monkeypatch):
     (cmd, kw), = started
     assert cmd == ["nishro-link", "--tray"]
     assert kw["env"]["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
+
+
+# ----------------------------------------------- the menu, with things wrong
+class NotesUI(FakeUI):
+    """Keeps what each notification said, not only its title."""
+
+    def notify(self, title, text):
+        self.notes.append((title, text))
+
+
+def test_with_no_service_to_be_found_the_tray_says_so():
+    ui = FakeUI()
+    t = tray.Tray(lambda: None, ui, ["nishro-link"])
+    t.poll_once()
+    assert ui.shown == [tray.state(None)]
+
+
+def test_with_the_service_away_its_controls_do_nothing():
+    """The menu may still show them for a moment; a click must not fail."""
+    ui = NotesUI()
+    t = tray.Tray(lambda: None, ui, ["nishro-link"])
+    for action in ("sharing", "find", "release"):
+        t.act(action)
+    assert ui.notes == []
+
+
+def test_a_control_that_fails_says_so_and_the_tray_goes_on():
+    api = FakeAPI(status())
+
+    def gone(path, body):
+        raise OSError("the service went away")
+    api.command = gone
+    ui = NotesUI()
+    t = tray.Tray(lambda: api, ui, ["nishro-link"])
+    t.poll_once()
+    t.act("find")
+    assert ui.notes == [("Nishro Link", "That didn't work: the service went away")]
+    assert not ui.quit_called
+
+
+def test_the_tray_lives_through_a_hiccup_and_stops_when_told(monkeypatch):
+    monkeypatch.setattr(tray, "POLL_S", 0.01)
+    t, _ = make(FakeAPI(status()))
+    polls = []
+
+    def poll_once():
+        polls.append(1)
+        if len(polls) == 1:
+            raise RuntimeError("a hiccup")
+        if len(polls) == 3:
+            t.stop()
+    t.poll_once = poll_once
+    t.loop()                                   # returns once stopped
+    assert len(polls) == 3
+
+
+# --------------------------------------------------- starting the tray at all
+def test_the_window_brings_back_a_hidden_tray(monkeypatch):
+    started = []
+    monkeypatch.setattr(tray, "spawn", lambda cmd: started.append(cmd))
+    tray.start_in_background(["NishroLink.exe"])
+    assert started == [["NishroLink.exe", "--tray"]]
+
+
+def test_a_tray_that_cannot_start_does_not_stop_the_window(monkeypatch):
+    def cannot(cmd):
+        raise OSError("not found")
+    monkeypatch.setattr(tray, "spawn", cannot)
+    tray.start_in_background(["missing.exe"])  # no exception
+
+
+class RunUI(FakeUI):
+    """A tray icon whose run() returns at once - as when Hide is chosen."""
+
+    def __init__(self):
+        super().__init__()
+        self.on_action, self.ran = None, False
+
+    def run(self):
+        self.ran = True
+
+
+@pytest.fixture
+def desktop(monkeypatch):
+    """tray.run() with the platform's tray, the one-per-person lock and the
+    service all pretended."""
+    import types
+
+    import link
+    from link import service
+    d = types.SimpleNamespace(ui=RunUI(), first=True, made=0)
+
+    def make_ui(log):
+        d.made += 1
+        return d.ui
+    fake = types.SimpleNamespace(make=make_ui)
+    for name in ("tray_win", "tray_linux"):
+        monkeypatch.setitem(sys.modules, "link." + name, fake)
+        monkeypatch.setattr(link, name, fake, raising=False)
+
+    class Only:
+        def acquire(self):
+            return d.first
+    monkeypatch.setattr(tray, "_Only", Only)
+    monkeypatch.setattr(service, "find", lambda *a, **k: None)
+    monkeypatch.setattr(tray, "POLL_S", 0.01)
+    return d
+
+
+def test_the_tray_shows_until_it_is_hidden(desktop):
+    assert tray.run(log=lambda *a: None) == 0
+    assert desktop.ui.ran
+    assert desktop.ui.on_action is not None, "its menu does something"
+    assert desktop.ui.shown, "it drew its icon before showing"
+
+
+def test_a_second_tray_exits_at_once(desktop):
+    desktop.first = False
+    assert tray.run(log=lambda *a: None) == 0
+    assert desktop.made == 0, "no second icon"
+
+
+def test_a_desktop_without_a_tray_is_not_an_error(desktop, monkeypatch):
+    desktop.ui = None
+    assert tray.run(log=lambda *a: None) == 0

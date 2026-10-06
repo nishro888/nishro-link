@@ -372,3 +372,31 @@ def test_a_device_that_did_not_connect_back_names_this_computers_network(root, a
         assert "public" in d.msg_detail.cget("text")
     finally:
         d.close()
+
+
+def test_a_failure_is_still_explained_when_the_network_cannot_be_looked_up(root, api):
+    """Naming a Public network is extra help; if the service stops answering
+    right after it reported the failure, the failure must still be explained,
+    and Try again offered."""
+    d = dialog(root, api)
+    try:
+        d._password("invite", "aio")
+        d.f_pin.insert(0, "b3nr-8wzc-4tyh")
+        d._go()
+        real, told = api.status, []
+
+        def status():
+            if told:
+                raise OSError("the service did not answer")
+            s = real()
+            if (s.get("adding") or {}).get("phase") == "failed":
+                told.append(1)                 # it has said so; now it goes quiet
+            return s
+        api.status = status
+        progress(api, "failed", reason="timeout", detail="aio")
+        settle(d, lambda: d.outcome == "timeout")
+        assert d.msg_detail.cget("text")
+        assert "public" not in d.msg_detail.cget("text")
+        assert d.btn_go.enabled
+    finally:
+        d.close()
