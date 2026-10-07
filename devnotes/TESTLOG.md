@@ -39,8 +39,17 @@ the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
   the real dial's bounce timings, pointer on the laptop - the laptop's
   volume: 3 slow clicks up 36 -> 42% (one step each), a 1 s fast spin up to
   52% (5 steps), the spin down to 42% (5), 3 slow clicks down to 36%.
-- **Not yet confirmed by hand:** the real dial's feel on that build, fast and
-  slow.
+- **Wrong, and taken out:** the maintainer: "if i rotate it one click ... no
+  problem, but when i am rotating multiple clicks at a time, then only 2-4
+  volume is increased". Measured on the AIO, rolled continuously, the dial
+  sends ONE press per click, evenly 7-57 ms apart (16 up in 0.29 s, 19 down
+  in 0.39 s). The first trace's "bursts of 2-5 presses per click" were
+  quick turns of several clicks, misread as bounce - so the grouping (both
+  versions) threw real clicks away. Removed: every press is sent, as the
+  keyboard sends it (`node.py` is back to `cc99afc`). A test of a real roll
+  (16 presses, 7-43 ms apart, all sent) failed before. See LESSONS.
+- **Not yet confirmed by hand:** one slow click = one 2% step, and a roll of
+  N clicks = N steps, on the laptop.
 
 ## 2026-10-06 - tests for what 1.1.0 left untested
 

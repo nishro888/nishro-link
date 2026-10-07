@@ -61,6 +61,13 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   Nishro Link installed on the laptop and opened a real window onto it until
   the run was stopped. Tests through `attach()` block the real lookup, and
   `test_service.py` fails any test that would open a real window.
+- **Before designing around what a device "does", measure it under control.**
+  The volume dial's first trace was taken with a person told "3 clicks up"
+  and showed bursts of 2-5 presses; they were read as one click's bounce,
+  and two versions of grouping followed - each losing real clicks when the
+  dial was rolled. One click at a time, slowly, with the presses timed,
+  would have shown one press per click from the start. Ask for single,
+  paced actions; let a script prompt and label them.
 - **A fake that answers at once can hide a state.** "Make it private" turns
   its button off while Windows' prompt is open; a fake prompt that returned
   instantly had turned it back on before the test looked. Make the fake wait
