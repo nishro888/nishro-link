@@ -48,8 +48,9 @@ the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
   versions) threw real clicks away. Removed: every press is sent, as the
   keyboard sends it (`node.py` is back to `cc99afc`). A test of a real roll
   (16 presses, 7-43 ms apart, all sent) failed before. See LESSONS.
-- **Not yet confirmed by hand:** one slow click = one 2% step, and a roll of
-  N clicks = N steps, on the laptop.
+- **Confirmed by the maintainer** with that build on the AIO (`d4fcc628...`,
+  installed 23:49, paced test of single clicks and 5-click rolls, pointer on
+  the laptop): "now it's okay" - every click counts, slow or rolled.
 
 ## 2026-10-06 - tests for what 1.1.0 left untested
 
