@@ -31,7 +31,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import pairing, protocol, runtime, secure
+from . import keymap, pairing, protocol, runtime, secure
 from .baton import Arbiter, BatonState, ClaimDetector, Grant, now_ms
 from .clip import ClipboardSync
 from .motion import Cursor, exits, to_pixels
@@ -121,6 +121,7 @@ class NodeCore:
         # What WE have injected and not yet released. P3 hangs off this: a key
         # latched on a uinput device outlives the process that set it.
         self._held_keys: set = set()
+        self._home_keys: set = set()      # power/sleep/wake pressed here for us
         self._held_buttons: set = set()
 
         if is_hub:                       # the hub starts out holding its own baton
@@ -416,6 +417,15 @@ class NodeCore:
         """Keyboard follows the CURSOR, not the baton - so this forwards whenever
         the cursor is elsewhere, whether or not we are the one driving."""
         a = Actions()
+        if code in keymap.SYSTEM:
+            # Power, sleep and wake are about THIS computer. While the cursor is
+            # away its keyboard is held for the other one, so they are pressed
+            # here again - and a release follows its press here even if the
+            # cursor came home in between, or the key would stay down.
+            if self.cursor_is_remote() or code in self._home_keys:
+                a.inject.append(("key", code, down))
+                (self._home_keys.add if down else self._home_keys.discard)(code)
+            return a
         if self.cursor_is_remote():
             a.send.append(self._to_owner(protocol.key(code, down, epoch=self.epoch)))
         return a

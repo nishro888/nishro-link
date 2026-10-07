@@ -203,3 +203,12 @@ def test_brightness_presses_that_arrive_together_are_added_up(monkeypatch):
             break
         time.sleep(0.02)
     assert len(ran) == 2 and "+ (10)" in ran[0] and "+ (20)" in ran[1]
+
+
+
+def test_linux_can_press_power_sleep_and_wake_here():
+    """They stay on this computer while its keyboard is held for another
+    (NodeCore.local_key), so its virtual device must declare them."""
+    from link import keymap
+    assert {116, 142, 143} <= keymap.SYSTEM
+    assert keymap.SYSTEM <= set(keymap.linux_keys())

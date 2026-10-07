@@ -60,6 +60,9 @@ _VK_NAME = {
 # take them for something else.
 MEDIA_VKS = frozenset({0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3})
 BRIGHTNESS = {E["BRIGHTNESSDOWN"]: -10, E["BRIGHTNESSUP"]: +10}   # percent a press
+# Power, sleep and wake are about the computer the keyboard is on: they never
+# go to another one (NodeCore.local_key), so they need no Windows key.
+SYSTEM = frozenset({116, 142, 143})     # KEY_POWER, KEY_SLEEP, KEY_WAKEUP
 # letters A-Z  (VK 0x41-0x5A) and digits 0-9 (VK 0x30-0x39)
 for _c in range(0x41, 0x5B):
     _VK_NAME[_c] = chr(_c)
@@ -81,3 +84,8 @@ def vk_to_evdev(vk: int):
 
 def evdev_to_vk(code: int):
     return EVDEV_TO_VK.get(code)
+
+
+def linux_keys() -> list:
+    """Every key the Linux virtual device must declare - uinput drops the rest."""
+    return sorted(set(E.values()) | SYSTEM)

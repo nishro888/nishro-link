@@ -236,3 +236,24 @@ def test_never_a_device_that_carries_the_power_button():
     keys would go with it."""
     assert should_capture("Gaming KB System Control", [116, 142, 143], []) is False
     assert should_capture("Intel HID events", [113, 114, 115, 116], []) is False
+
+
+
+def test_a_keyboards_media_device_listing_power_and_sleep_is_read():
+    """Asked for: the volume dial on the AIO's keyboard should act on the
+    computer the pointer is on. Cheap keyboards declare the whole consumer
+    range on their media device, power and sleep included, with no such keys
+    on the keyboard; that device was skipped, so its keys always acted here.
+    A keyboard's media device is read now; its power, sleep and wake keys
+    stay on this computer (NodeCore.local_key)."""
+    consumer = [113, 114, 115, 116, 142, 163, 164, 165]
+    assert should_capture("SINO WEALTH Gaming KB Consumer Control", consumer, []) is True
+    assert should_capture("SINO WEALTH Gaming KB  Consumer Control", consumer, []) is True
+
+
+def test_the_power_button_devices_are_still_left_alone():
+    """Not a keyboard's media collection: the machine's own buttons."""
+    assert should_capture("Power Button", [116], []) is False
+    assert should_capture("Sleep Button", [142], []) is False
+    assert should_capture("Gaming KB System Control", [116, 142, 143, 113, 114, 115], []) is False
+    assert should_capture("Intel HID events", [113, 114, 115, 116], []) is False

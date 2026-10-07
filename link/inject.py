@@ -174,7 +174,7 @@ class LinuxInjector(Injector):
         from evdev import UInput, ecodes as e, AbsInfo
         self.e = e
         self.abs = screen is not None
-        keys = sorted(set(keymap.E.values())) + [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE]
+        keys = keymap.linux_keys() + [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE]
         if self.abs:
             w, h = screen
             cap = {

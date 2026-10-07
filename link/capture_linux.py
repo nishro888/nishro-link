@@ -23,6 +23,7 @@ import selectors
 import threading
 import time
 
+from . import keymap
 from .inject import VIRTUAL_DEVICE_NAME
 
 KEY_LEFTCTRL, KEY_RIGHTCTRL = 29, 97
@@ -34,9 +35,14 @@ KEY_A, BTN_LEFT, REL_X = 30, 272, 0   # for should_capture, which takes no evdev
 # known by its sound and playback keys: brightness alone is the display's own
 # device ("Video Bus"), which is not a keyboard and is left alone.
 MEDIA_KEYS = frozenset({113, 114, 115, 163, 164, 165, 166})
-# ...but never a device that also carries power, sleep or wake: grabbed while
-# the pointer is elsewhere, this computer's power button would go with it.
-SYSTEM_KEYS = frozenset({116, 142, 143})      # KEY_POWER, KEY_SLEEP, KEY_WAKEUP
+# ...but not a device that also carries power, sleep or wake - grabbed while the
+# pointer is elsewhere, the machine's own buttons would go with it - unless it
+# is a keyboard's media collection ("... Consumer Control"). Cheap keyboards
+# declare the whole consumer range there, power and sleep included, with no
+# such keys on them: skipping it left the AIO keyboard's volume dial acting on
+# the AIO wherever the pointer was. Power, sleep and wake never leave this
+# computer anyway (NodeCore.local_key presses them here again).
+SYSTEM_KEYS = keymap.SYSTEM
 RESCAN_S = 2.0      # how often to look for a keyboard or mouse that has just appeared
 
 
@@ -59,7 +65,9 @@ def should_capture(name: str, key_codes, rel_codes) -> bool:
     if KEY_A in key_codes or REL_X in rel_codes or BTN_LEFT in key_codes:
         return True
     keys = set(key_codes)
-    return bool(keys & MEDIA_KEYS) and not keys & SYSTEM_KEYS
+    if not keys & MEDIA_KEYS:
+        return False
+    return not keys & SYSTEM_KEYS or (name or "").rstrip().endswith("Consumer Control")
 
 
 class LinuxCapture:

@@ -558,3 +558,47 @@ def test_a_message_from_a_newer_1x_is_ignored_not_an_error():
             a = c.on_message(dict(msg))
             if msg["t"] != "baton":
                 assert (a.send, a.inject) == ([], []), msg
+
+
+# ============================== this computer's power keys stay on it
+def test_power_sleep_and_wake_stay_on_this_computer():
+    """The keyboard is held for the other computer while the cursor is there,
+    so these went with it - or, when a keyboard's media device listed them,
+    that device was never read at all. They are about THIS computer: pressed
+    here again instead, never sent."""
+    n = hub()
+    n.local_pointer("laptop", 0, 384, -5, 0)        # the cursor is on the aio
+    for code in (116, 142, 143):                     # KEY_POWER, KEY_SLEEP, KEY_WAKEUP
+        a = n.local_key(code, 1)
+        assert sent(a, "k") == [], code
+        assert ("key", code, 1) in a.inject
+        a = n.local_key(code, 0)
+        assert sent(a, "k") == [], code
+        assert ("key", code, 0) in a.inject
+
+
+def test_the_volume_still_follows_the_cursor():
+    n = hub()
+    n.local_pointer("laptop", 0, 384, -5, 0)
+    for code in (113, 114, 115):                     # mute, volume down, up
+        a = n.local_key(code, 1)
+        assert len(sent(a, "k")) == 1 and a.inject == [], code
+
+
+def test_at_home_power_keys_are_left_to_the_system():
+    n = hub()
+    a = n.local_key(116, 1)
+    assert a.send == [] and a.inject == []
+
+
+def test_a_power_key_let_go_after_the_cursor_came_home_is_let_go_here():
+    """Pressed with the cursor away, released after it came back: the press
+    was made here by Nishro Link, so its release must be too, or the key
+    stays down."""
+    n = hub()
+    n.local_pointer("laptop", 0, 384, -5, 0)
+    assert ("key", 142, 1) in n.local_key(142, 1).inject
+    n.local_motion(+50, 0)
+    assert n.cursor_is_remote() is False
+    assert ("key", 142, 0) in n.local_key(142, 0).inject
+    assert n.local_key(142, 1).inject == [], "at home again, the system has it"
