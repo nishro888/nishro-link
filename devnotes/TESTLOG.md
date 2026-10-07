@@ -19,9 +19,19 @@ the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
   the laptop's master volume, sampled every 0.2 s, went 24% -> 48% in four
   steps, down to 20% in three, then back to 30% (16:39:05-08) - the dial's
   clicks, a few presses each.
-- Still to hear from the maintainer: that the AIO's own volume stayed put
-  meanwhile, and that the dial still works on the AIO with the pointer
-  there.
+- The maintainer confirmed: with the pointer on the laptop only the laptop's
+  volume changed; with the pointer on the AIO the dial works there as before.
+  Asked for one click = one step: a run of the same volume key with under
+  150 ms between presses now counts as one, for keys sent on (`731b12a`;
+  5 tests, 2 failed first; full suite 1,392 pass; the engine on the real
+  clock: one press per click).
+- That build on the AIO (`2355738341155edd`): a temporary virtual
+  "... Consumer Control" device listing power and sleep pressed volume-up
+  three times, a second apart, with the pointer on the laptop - the laptop
+  went 32% -> 34% -> 36% -> 38%, one step each, in time. Forwarded keys are
+  not logged, by design.
+- **Not yet confirmed by hand:** the real dial's feel on that build (one click,
+  one step); its bounce is covered by tests built from the AIO's own trace.
 
 ## 2026-10-06 - tests for what 1.1.0 left untested
 

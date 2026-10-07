@@ -426,8 +426,10 @@ bumped ([§14](#14-settings)).
 
 **Typing.** Keys go to the computer whose screen the pointer is on. Letters
 follow that computer's keyboard layout, as if the keyboard were plugged into it.
-So do the volume, mute and media keys, and brightness: they act on the computer
-the pointer is on. (On Windows, brightness changes the built-in screen only; a
+So do the volume, mute and media keys, a keyboard's volume dial, and
+brightness: they act on the computer the pointer is on, one click of a dial a
+step. Power, sleep and wake keys always act on the computer the keyboard is
+plugged into. (On Windows, brightness changes the built-in screen only; a
 laptop's own Fn brightness keys are handled by its hardware and always act on
 the laptop.)
 

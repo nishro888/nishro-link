@@ -75,10 +75,13 @@ Works with every 1.x.
   every other key. On Linux they come on a device of their own ("Consumer
   Control"), which was never read, so a keyboard's volume keys always acted on
   its own computer; and the Windows side knew no media keys at all, so a
-  Windows keyboard's were lost while the pointer was elsewhere. A device that
-  also carries the power, sleep or wake keys is still never taken. Windows
-  has no brightness key to send, so there the built-in screen's brightness is
-  set directly (external monitors don't take it).
+  Windows keyboard's were lost while the pointer was elsewhere. A keyboard's
+  volume dial follows the pointer too, one click a step (a dial's click often
+  sends several presses). Power, sleep and wake keys always act on the
+  computer they were pressed on, and the computer's own power-button devices
+  are never taken. Windows has no brightness key to send, so there the
+  built-in screen's brightness is set directly (external monitors don't take
+  it).
 - **The pointer was slow to start moving after a rest** when one computer's
   mouse drove another's screen over Wi-Fi. Only the computer being driven
   kept its Wi-Fi radio awake; the one driving dozed while its mouse was
