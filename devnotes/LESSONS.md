@@ -39,6 +39,12 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
 
 ## Testing
 
+- **A CI job stuck or failed at `apt-get` never ran a test.** Ubuntu's package
+  servers once stopped answering plain HTTP (HTTPS still worked): the
+  container jobs failed, the others hung - for up to GitHub's 6 hours.
+  Check `curl -I http://archive.ubuntu.com/ubuntu/dists/focal/InRelease`,
+  then cancel the run and `gh run rerun <id> --failed` (with the
+  maintainer's OK).
 - **`pytest -q` twice hides the summary line** (`-q` is already in the
   project's options), and **`... | tail` reports `tail`'s exit code**. Judge a
   run by pytest's own exit code, with the output saved to a file.

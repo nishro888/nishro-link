@@ -6,6 +6,9 @@ the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
 ## 2026-10-07 - the AIO keyboard's volume dial follows the pointer
 
+- CI on `2fab8cb` (the dial work): **15/15 green** - three jobs only after a
+  re-run: Ubuntu's package servers did not answer plain HTTP for a while,
+  so they failed or hung at `apt-get` before any test ran.
 - On the AIO (1.1.0 as installed): the keyboard shows up as five devices. The
   dial fires KEY_VOLUMEUP / KEY_VOLUMEDOWN on its "... Consumer Control"
   device only - which also lists KEY_POWER and KEY_SLEEP, so Nishro Link did
