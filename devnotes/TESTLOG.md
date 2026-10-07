@@ -30,8 +30,17 @@ the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
   three times, a second apart, with the pointer on the laptop - the laptop
   went 32% -> 34% -> 36% -> 38%, one step each, in time. Forwarded keys are
   not logged, by design.
-- **Not yet confirmed by hand:** the real dial's feel on that build (one click,
-  one step); its bounce is covered by tests built from the AIO's own trace.
+- **The maintainer then found a fast spin did not register** (slow clicks
+  did): that build merged any run of presses under 150 ms apart, so a whole
+  spin was one step. Now a step at most every 230 ms (the dial's bounce lasts
+  up to 187 ms; 200 ms left too little room). A test reproduced the report
+  first (a 1 s spin: 1 step), and gives 5 now; full suite passes.
+- That build on the AIO (`22f1a3b8e610225a`), a temporary device replaying
+  the real dial's bounce timings, pointer on the laptop - the laptop's
+  volume: 3 slow clicks up 36 -> 42% (one step each), a 1 s fast spin up to
+  52% (5 steps), the spin down to 42% (5), 3 slow clicks down to 36%.
+- **Not yet confirmed by hand:** the real dial's feel on that build, fast and
+  slow.
 
 ## 2026-10-06 - tests for what 1.1.0 left untested
 

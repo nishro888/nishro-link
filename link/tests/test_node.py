@@ -606,10 +606,11 @@ def test_a_power_key_let_go_after_the_cursor_came_home_is_let_go_here():
 
 # ======================================== a bouncing volume dial
 def _turn(n, clock, code, gaps):
-    """One click of the dial: a press and release for each gap (ms before it)."""
+    """Presses `gaps` ms apart, press to press as in the AIO's trace, each let
+    go 4 ms later. The first gap is the pause before them."""
     out = []
-    for gap in gaps:
-        clock.advance(gap)
+    for i, gap in enumerate(gaps):
+        clock.advance(gap if i == 0 else gap - 4)
         out += sent(n.local_key(code, 1), "k")
         clock.advance(4)
         out += sent(n.local_key(code, 0), "k")
@@ -618,15 +619,28 @@ def _turn(n, clock, code, gaps):
 
 def test_one_click_of_a_bouncing_volume_dial_is_one_step_over_there():
     """Seen on the AIO's keyboard: each click of its volume dial sends 2-5
-    presses, 22-120 ms apart, so one click moved the laptop's volume by 4-10%.
-    Asked for: one click, one step. A run of the same volume key with less
-    than 150 ms between presses counts as one press."""
+    presses over up to 190 ms, so one click moved the laptop's volume by
+    4-10%. Asked for: one click, one step."""
     clock = FakeClock()
     n = hub(clock)
     n.local_pointer("laptop", 0, 384, -5, 0)
     assert _turn(n, clock, 115, (0, 62, 22, 54, 22)) == [(115, 1), (115, 0)]
     assert _turn(n, clock, 114, (300, 49, 74, 42)) == [(114, 1), (114, 0)]
     assert _turn(n, clock, 115, (300, 22, 120, 45)) == [(115, 1), (115, 0)]
+    # a little slower than any seen (225 ms in all) is still one click
+    assert _turn(n, clock, 115, (300, 60, 80, 85)) == [(115, 1), (115, 0)]
+
+
+def test_a_fast_spin_keeps_stepping_about_four_a_second():
+    """Reported: "fast scrolling isn't registered, slow movement is". The
+    first try counted any run of presses under 150 ms apart as one click, so
+    a whole fast spin was one step. Now a step at most every 230 ms."""
+    clock = FakeClock()
+    n = hub(clock)
+    n.local_pointer("laptop", 0, 384, -5, 0)
+    spin = _turn(n, clock, 115, [0] + [40] * 24)    # a press every 40 ms, 0-960 ms
+    assert spin.count((115, 1)) == 5                 # at 0, 240, 480, 720, 960
+    assert spin.count((115, 0)) == 5, "each step is let go"
 
 
 def test_separate_clicks_are_separate_steps():

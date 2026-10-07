@@ -67,7 +67,7 @@ class Actions:
 
 # A volume dial's click bounces: see NodeCore._dial_bounce.
 DIAL_KEYS = frozenset({114, 115})        # KEY_VOLUMEDOWN, KEY_VOLUMEUP
-DIAL_BURST_MS = 150
+DIAL_STEP_MS = 230                       # the dial's bounce: up to 187 ms seen
 
 
 class NodeCore:
@@ -127,7 +127,7 @@ class NodeCore:
         # latched on a uinput device outlives the process that set it.
         self._held_keys: set = set()
         self._home_keys: set = set()      # power/sleep/wake pressed here for us
-        self._dial_last: dict = {}        # volume key -> when it was last pressed
+        self._dial_last: dict = {}        # volume key -> when a press was last sent
         self._dial_dropped: set = set()   # its press was bounce: drop the release
         self._held_buttons: set = set()
 
@@ -443,19 +443,21 @@ class NodeCore:
         """Is this press (or its release) the bounce of a volume dial's click?
 
         Seen on the AIO's keyboard: each click of its volume dial sends 2-5
-        presses, 22-120 ms apart, and clicks come 288 ms apart and more. At
-        home the system takes them as they come; sent on, one click moved the
-        laptop's volume 4-10%, and one click should be one step. So a press
-        less than DIAL_BURST_MS after the last press of the same key is
-        dropped, with its release - measured press to press, so a whole run
-        is one."""
+        presses over up to 190 ms; clicks turned slowly come 288 ms apart and
+        more. At home the system takes them as they come; sent on, one click
+        moved the laptop's volume 4-10%. Asked for: one click, one step - and
+        a fast spin must still count: the first try merged any run of presses
+        under 150 ms apart, so a whole fast spin was one step ("fast scrolling
+        isn't registered"). So a press is sent on only if DIAL_STEP_MS have
+        passed since the last one sent: a click is one step, and a spin moves
+        about four steps a second."""
         if value == 1:
             now = self._clock()
             last = self._dial_last.get(code)
-            self._dial_last[code] = now
-            if last is not None and now - last < DIAL_BURST_MS:
+            if last is not None and now - last < DIAL_STEP_MS:
                 self._dial_dropped.add(code)
                 return True
+            self._dial_last[code] = now
             self._dial_dropped.discard(code)
             return False
         if value == 0 and code in self._dial_dropped:
