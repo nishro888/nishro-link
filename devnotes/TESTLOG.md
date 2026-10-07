@@ -4,6 +4,25 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-07 - the AIO keyboard's volume dial follows the pointer
+
+- On the AIO (1.1.0 as installed): the keyboard shows up as five devices. The
+  dial fires KEY_VOLUMEUP / KEY_VOLUMEDOWN on its "... Consumer Control"
+  device only - which also lists KEY_POWER and KEY_SLEEP, so Nishro Link did
+  not read it ("reads it: False"). The keyboard's other devices list the
+  volume keys too but never send them. Each click sends 2-5 quick presses
+  (the dial bounces); the AIO's own volume follows them.
+- 4 of the 7 new tests failed before the fix (`cc99afc`); full suite 1,387
+  pass.
+- **Verified on the real machines:** the AIO took the build (`ef6ec409...`),
+  reconnected at 16:39:01; its pointer was on the laptop from 16:39:02, and
+  the laptop's master volume, sampled every 0.2 s, went 24% -> 48% in four
+  steps, down to 20% in three, then back to 30% (16:39:05-08) - the dial's
+  clicks, a few presses each.
+- Still to hear from the maintainer: that the AIO's own volume stayed put
+  meanwhile, and that the dial still works on the AIO with the pointer
+  there.
+
 ## 2026-10-06 - tests for what 1.1.0 left untested
 
 - Coverage of the lines 1.1.0 added (Windows): 62% run by tests. 41 tests
