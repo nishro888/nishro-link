@@ -602,3 +602,64 @@ def test_a_power_key_let_go_after_the_cursor_came_home_is_let_go_here():
     assert n.cursor_is_remote() is False
     assert ("key", 142, 0) in n.local_key(142, 0).inject
     assert n.local_key(142, 1).inject == [], "at home again, the system has it"
+
+
+# ======================================== a bouncing volume dial
+def _turn(n, clock, code, gaps):
+    """One click of the dial: a press and release for each gap (ms before it)."""
+    out = []
+    for gap in gaps:
+        clock.advance(gap)
+        out += sent(n.local_key(code, 1), "k")
+        clock.advance(4)
+        out += sent(n.local_key(code, 0), "k")
+    return [(k["c"], k["d"]) for k in out]
+
+
+def test_one_click_of_a_bouncing_volume_dial_is_one_step_over_there():
+    """Seen on the AIO's keyboard: each click of its volume dial sends 2-5
+    presses, 22-120 ms apart, so one click moved the laptop's volume by 4-10%.
+    Asked for: one click, one step. A run of the same volume key with less
+    than 150 ms between presses counts as one press."""
+    clock = FakeClock()
+    n = hub(clock)
+    n.local_pointer("laptop", 0, 384, -5, 0)
+    assert _turn(n, clock, 115, (0, 62, 22, 54, 22)) == [(115, 1), (115, 0)]
+    assert _turn(n, clock, 114, (300, 49, 74, 42)) == [(114, 1), (114, 0)]
+    assert _turn(n, clock, 115, (300, 22, 120, 45)) == [(115, 1), (115, 0)]
+
+
+def test_separate_clicks_are_separate_steps():
+    """Clicks came 288 ms apart and more."""
+    clock = FakeClock()
+    n = hub(clock)
+    n.local_pointer("laptop", 0, 384, -5, 0)
+    steps = []
+    for _ in range(3):
+        steps += _turn(n, clock, 115, (288, 30, 30))
+    assert steps == [(115, 1), (115, 0)] * 3
+
+
+def test_up_then_down_at_once_are_both_steps():
+    clock = FakeClock()
+    n = hub(clock)
+    n.local_pointer("laptop", 0, 384, -5, 0)
+    assert _turn(n, clock, 115, (0,)) + _turn(n, clock, 114, (20,)) == [
+        (115, 1), (115, 0), (114, 1), (114, 0)]
+
+
+def test_a_held_volume_key_still_repeats_over_there():
+    clock = FakeClock()
+    n = hub(clock)
+    n.local_pointer("laptop", 0, 384, -5, 0)
+    assert len(sent(n.local_key(115, 1), "k")) == 1
+    for _ in range(5):
+        clock.advance(33)
+        assert len(sent(n.local_key(115, protocol.KEY_REPEAT), "k")) == 1
+    assert len(sent(n.local_key(115, 0), "k")) == 1
+
+
+def test_at_home_the_dial_is_left_to_the_system():
+    clock = FakeClock()
+    n = hub(clock)
+    assert _turn(n, clock, 115, (0, 30, 30)) == []

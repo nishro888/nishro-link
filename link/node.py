@@ -65,6 +65,11 @@ class Actions:
         return bool(self.send or self.inject or self.placement_changed)
 
 
+# A volume dial's click bounces: see NodeCore._dial_bounce.
+DIAL_KEYS = frozenset({114, 115})        # KEY_VOLUMEDOWN, KEY_VOLUMEUP
+DIAL_BURST_MS = 150
+
+
 class NodeCore:
     def __init__(self, node: str, layout: Desk, policy: dict = None,
                  is_hub: bool = False, screen: str = None, clock=None,
@@ -122,6 +127,8 @@ class NodeCore:
         # latched on a uinput device outlives the process that set it.
         self._held_keys: set = set()
         self._home_keys: set = set()      # power/sleep/wake pressed here for us
+        self._dial_last: dict = {}        # volume key -> when it was last pressed
+        self._dial_dropped: set = set()   # its press was bounce: drop the release
         self._held_buttons: set = set()
 
         if is_hub:                       # the hub starts out holding its own baton
@@ -427,8 +434,34 @@ class NodeCore:
                 (self._home_keys.add if down else self._home_keys.discard)(code)
             return a
         if self.cursor_is_remote():
+            if code in DIAL_KEYS and self._dial_bounce(code, int(down)):
+                return a
             a.send.append(self._to_owner(protocol.key(code, down, epoch=self.epoch)))
         return a
+
+    def _dial_bounce(self, code: int, value: int) -> bool:
+        """Is this press (or its release) the bounce of a volume dial's click?
+
+        Seen on the AIO's keyboard: each click of its volume dial sends 2-5
+        presses, 22-120 ms apart, and clicks come 288 ms apart and more. At
+        home the system takes them as they come; sent on, one click moved the
+        laptop's volume 4-10%, and one click should be one step. So a press
+        less than DIAL_BURST_MS after the last press of the same key is
+        dropped, with its release - measured press to press, so a whole run
+        is one."""
+        if value == 1:
+            now = self._clock()
+            last = self._dial_last.get(code)
+            self._dial_last[code] = now
+            if last is not None and now - last < DIAL_BURST_MS:
+                self._dial_dropped.add(code)
+                return True
+            self._dial_dropped.discard(code)
+            return False
+        if value == 0 and code in self._dial_dropped:
+            self._dial_dropped.discard(code)
+            return True
+        return False                       # a held key's repeats go on as ever
 
     def local_failsafe(self) -> Actions:
         """Panic hotkey. Give up the baton and stop touching anything.
