@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-10-05
+**Last updated:** 2026-10-10
 
 ## Versions
 
@@ -14,6 +14,10 @@
   Quit Nishro Link, the public-network warning, images on the clipboard, media
   keys that follow the pointer, keep-awake on both ends, the sharing-off race
   fix, the folder (onedir) Windows build, the "Doorway" logo. See CHANGELOG.
+- Since then, also for 1.1.0: a keyboard's media device read even when it
+  lists power and sleep (the AIO's volume dial follows the pointer, every
+  click; verified on both machines), and a link silent for 8 s is dropped
+  and dialled again (`6906f09`; tested, **real-machine sleep test pending**).
 
 ## The test machines
 
@@ -41,11 +45,33 @@
    `link/packaging/deb/io.github.nishro888.nishro-link.metainfo.xml`, push,
    tag `v1.1.0`, then install the PUBLISHED builds on both machines and repeat
    the tray and app-menu checks.
-3. **1.2 - files over the clipboard.** Design agreed: copied files are sent in
-   the background when the pointer arrives, on a connection of their own (a
-   big file must not hold up the pointer); they land in Downloads > Nishro
-   Link, and that computer's clipboard then holds them, so pasting in a
-   folder works; 2 GB a copy; progress shown.
+3. **1.2 - files over the clipboard - in progress.** Copy files, folders or
+   several at once (Ctrl+C), paste on the other computer (Ctrl+V). They land
+   in Desktop > Nishro Link Files (the maintainer's choice), and that
+   computer's clipboard then holds them, so pasting in a folder works; 2 GB a
+   copy; progress shown. Steps:
+   1. Clipboard formats - Windows: CF_HDROP read and written, checked both
+      ways (Explorer's list read exactly; ours read back exactly).
+      **GNOME Files: still to check on the AIO** - which target it copies
+      (`x-special/gnome-copied-files`, `text/uri-list`) and which it pastes.
+   2. **Done** (`86c73b1`): `link/files.py` - Offer (the list, the pieces),
+      Receive (names cleaned, nothing outside the folder, SHA-256 per file,
+      temporary names, limits, room checked). 32 tests.
+   3. **Done**: the files connection - a second connection, proved and sealed
+      like the link and never a link (`files` in the hello; the member always
+      dials; the hub asks with `fwant`); paced on the queue, so nothing is
+      dropped. 7 live tests.
+   4. Next: the clipboards - announce a copied file list (`clipmeta` with
+      format "files"), pull on arrival of the pointer, put the received
+      files on the clipboard (CF_HDROP + Preferred DropEffect on Windows; the
+      GNOME target on Linux); the arrivals folder per user (Desktop through
+      the user's shell folders / `xdg-user-dir`); files owned by the person
+      on Linux.
+   5. Progress notifications; then both machines, both ways: one file,
+      several, a folder tree, a big file, odd names.
+4. **After 1.2 - drag and drop across the edge**, with the system's own drag
+   icon: first a feasibility test on the AIO (GNOME on Wayland lets a program
+   start a drag only from a press on its own window).
 
 ## Open questions and loose ends
 

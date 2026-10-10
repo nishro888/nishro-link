@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 
 FOLDER = "Nishro Link Files"        # under the Desktop, on every computer
@@ -139,7 +140,7 @@ class Offer:
     def manifest(self) -> dict:
         return {"items": self.items, "total": self.total, "files": self.files}
 
-    def pieces(self, chunk: int = CHUNK):
+    def pieces(self, chunk: int = None):
         """Everything to send after the manifest, in order:
         ("data", index, base64 text) for each piece of each file, then
         ("end", index, sha256 hex) once a file is complete."""
@@ -147,6 +148,7 @@ class Offer:
             if item["d"]:
                 continue
             h = hashlib.sha256()
+            chunk = chunk or CHUNK
             with open(_long(src), "rb") as f:
                 while True:
                     data = f.read(chunk)
@@ -247,6 +249,72 @@ class Receive:
         if not 0 <= index < len(self.items) or self.items[index]["dir"]:
             raise FilesError(f"a piece for an unknown file ({index})")
         return self.items[index]
+
+
+# ------------------------------------------------------ over a connection
+# The connection's own queue drops its OLDEST frames when full - right for
+# pointer positions, fatal for a file. So the sender waits while more than
+# BACKLOG pieces are queued, and nothing is ever dropped.
+BACKLOG = 32
+
+
+def send_over(ch, offer: Offer, seq: int, progress=None, stopped=lambda: False) -> None:
+    """Send `offer` down `ch`: the manifest, the pieces, then wait for the other
+    side to say it has all of it. `progress(sent_bytes, total)` is told as it goes."""
+    ch.send(dict({"t": "fman", "seq": seq}, **offer.manifest()))
+    sent = 0
+    for kind, index, value in offer.pieces():
+        while ch.backlog() > BACKLOG:
+            if stopped():
+                ch.send({"t": "ferr", "msg": "the copy was stopped"})
+                raise FilesError("the copy was stopped")
+            time.sleep(0.002)
+        if kind == "data":
+            ch.send({"t": "fdata", "f": index, "d": value})
+            sent += len(value) * 3 // 4
+            if progress:
+                progress(sent, offer.total)
+        else:
+            ch.send({"t": "fend", "f": index, "h": value})
+    ch.send({"t": "fdone", "seq": seq})
+    reply = ch.recv()
+    if not reply or reply.get("t") != "fok":
+        raise FilesError((reply or {}).get("msg") or "the other side did not confirm the copy")
+
+
+def receive_over(ch, dest, progress=None) -> list:
+    """Receive one copy from `ch` into `dest`; the paths of its top-level items.
+    Anything wrong - a bad name, a damaged file, a dropped connection - leaves
+    nothing half-written and is said back to the sender."""
+    first = ch.recv()
+    if not first or first.get("t") != "fman":
+        raise FilesError((first or {}).get("msg") or "the other side sent no list of files")
+    receive = None
+    try:
+        receive = Receive(dest, first)
+        while True:
+            msg = ch.recv()
+            if msg is None:
+                raise FilesError("the connection dropped in the middle of the copy")
+            t = msg.get("t")
+            if t == "fdata":
+                receive.data(int(msg["f"]), msg.get("d") or "")
+                if progress:
+                    progress(receive.received, int(first.get("total") or 0))
+            elif t == "fend":
+                receive.end(int(msg["f"]), str(msg.get("h") or ""))
+            elif t == "fdone":
+                if not receive.complete():
+                    raise FilesError("the copy ended with files missing")
+                ch.send({"t": "fok"})
+                return receive.top_paths
+            elif t == "ferr":
+                raise FilesError(msg.get("msg") or "the other side stopped the copy")
+    except FilesError as e:
+        if receive is not None:
+            receive.abort()
+        ch.send({"t": "ferr", "msg": str(e)})
+        raise
 
 
 # ----------------------------------------------------------------- helpers

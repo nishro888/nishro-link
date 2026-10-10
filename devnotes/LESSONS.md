@@ -39,6 +39,13 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
 
 ## Testing
 
+- **A test that reads what a background thread saw must join it first.** The
+  impostor-hub test failed 9 times in 15: it checked before the fake hub's
+  thread had noted the member hanging up. Run a new test 15-20 times before
+  trusting it; join the thread, never sleep.
+- **A pacing test on one machine may never fill the queue**: loopback drains
+  faster than the sender fills it, so removing the pacing passed. Make the
+  receiver slower than the sender, then the break shows.
 - **A CI job stuck or failed at `apt-get` never ran a test.** Ubuntu's package
   servers once stopped answering plain HTTP (HTTPS still worked): the
   container jobs failed, the others hung - for up to GitHub's 6 hours.

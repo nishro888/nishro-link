@@ -24,6 +24,7 @@ discarded part is exactly what carries the cursor onto the next screen.
 """
 from __future__ import annotations
 
+import os
 import queue
 import secrets
 import socket
@@ -31,7 +32,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import keymap, pairing, protocol, runtime, secure
+from . import files, keymap, pairing, protocol, runtime, secure
 from .baton import Arbiter, BatonState, ClaimDetector, Grant, now_ms
 from .clip import ClipboardSync
 from .motion import Cursor, exits, to_pixels
@@ -967,6 +968,11 @@ class Node:
         self.removed_ids = set()      # hub: devices removed from the group
         self._leaving = set()         # hub: forget these when they disconnect
         self.on_event = None          # (kind, info) - for the window's notices
+        # Files over the clipboard: the copies this machine offers, by number;
+        # where arrivals go; who is told when a copy has arrived.
+        self.file_offers = {}
+        self.files_dest = None        # () -> the "Nishro Link Files" folder
+        self.on_files = None          # (top-level paths, from whom)
         self.on_invited = None        # (hub, hub_id, addr, port, secret, by) -> bool
         self.on_removed = None        # (by) - this device was removed from its group
         # Adding a device, either way - invite() or probe() - for the window.
@@ -1208,6 +1214,107 @@ class Node:
         """The key this device's password proves, as a hub: salted with its
         own ID. See pairing.key."""
         return pairing.key(self.pin, self.device_id)
+
+    # ------------------------------------------------------------- files
+    def _files_folder(self):
+        dest = self.files_dest() if self.files_dest else None
+        return dest or os.path.join(os.path.expanduser("~"), "Desktop", files.FOLDER)
+
+    def _files_serve(self, ch, who: str, want: dict) -> None:
+        """The hub's side of a files connection: send a copy it offers, or
+        receive one a member sends."""
+        kind, seq = want.get("want"), want.get("seq")
+        try:
+            if kind == "pull":
+                offer = self.file_offers.get(seq)
+                if offer is None:
+                    ch.send({"t": "ferr", "msg": "that copy is no longer offered"})
+                    return
+                files.send_over(ch, offer, seq, stopped=lambda: self._stop)
+                self._log(f"files: sent {offer.files} file(s), "
+                          f"{files._size(offer.total)}, to {who}")
+            elif kind == "push":
+                self._files_arrived(files.receive_over(ch, self._files_folder()), who)
+        except files.FilesError as e:
+            self._log(f"files: {who}: {e}")
+
+    def _files_arrived(self, tops, who: str) -> None:
+        self._log(f"files: {len(tops)} item(s) from {who} are in {files.FOLDER}")
+        if self.on_files:
+            try:
+                self.on_files(tops, who)
+            except Exception:
+                pass
+
+    def files_request(self, name: str, seq: int) -> None:
+        """The hub asks a member for its copy; the member pushes it."""
+        self._send({"t": "fwant", "seq": seq, "to": name})
+
+    def _files_channel(self, want: str, seq: int):
+        """A member's second connection to the hub, for one copy: proved both
+        ways and sealed like the link itself."""
+        hub = self.trusted_peer
+        with self._links_lock:
+            link = self.links.get(hub)
+        if link is None or not isinstance(link.addr, tuple):
+            raise files.FilesError("not connected")
+        sock = socket.create_connection(link.addr, timeout=5)
+        sock.settimeout(30)
+        ch = protocol.LineChannel(sock)
+        try:
+            greet = ch.recv()
+            if not greet or greet.get("t") != "auth" or not greet.get("dh"):
+                raise files.FilesError((greet or {}).get("msg") or "no answer from the hub")
+            if greet.get("node") != hub:
+                raise files.FilesError(f"{link.addr[0]} is not {hub} any more")
+            mine = protocol.nonce()
+            dh_priv, dh_pub = secure.keypair()
+            bind = f"{greet['dh']}|{dh_pub}"
+            k = self._key_for(greet.get("id"))
+            ch.send(protocol.hello(
+                self.core.node, [], None,
+                proof=protocol.proof(k, greet["nonce"], self.core.node, hub, bind),
+                chal=mine, dev_id=self.device_id, version=self.version, dh=dh_pub,
+                files={"want": want, "seq": seq}))
+            reply = ch.recv()
+            if not reply or reply.get("t") != "files_ok":
+                raise files.FilesError((reply or {}).get("msg") or "the hub refused")
+            if not protocol.verify(k, mine, hub, self.core.node, reply.get("proof", ""), bind):
+                raise files.FilesError(f"{hub} could not prove it knows the password")
+            ch.seal(*secure.session(secure.shared(dh_priv, greet["dh"]), k,
+                                    greet["nonce"], mine, "dialer"))
+            return ch, hub
+        except Exception:
+            ch.close()
+            raise
+
+    def files_pull(self, seq: int, progress=None) -> list:
+        """A member takes the hub's copy `seq`; the top-level paths it saved."""
+        ch, hub = self._files_channel("pull", seq)
+        try:
+            tops = files.receive_over(ch, self._files_folder(), progress)
+        finally:
+            ch.close(flush=1.0)
+        self._files_arrived(tops, hub)
+        return tops
+
+    def files_push(self, seq: int, progress=None) -> None:
+        """A member sends its copy `seq` to the hub."""
+        offer = self.file_offers.get(seq)
+        if offer is None:
+            raise files.FilesError("that copy is no longer offered")
+        ch, hub = self._files_channel("push", seq)
+        try:
+            files.send_over(ch, offer, seq, progress, stopped=lambda: self._stop)
+        finally:
+            ch.close(flush=1.0)
+        self._log(f"files: sent {offer.files} file(s), {files._size(offer.total)}, to {hub}")
+
+    def _files_push_quietly(self, seq) -> None:
+        try:
+            self.files_push(seq)
+        except (files.FilesError, OSError) as e:
+            self._log(f"files: could not send copy {seq}: {e}")
 
     def _key_for(self, hub_id) -> str:
         """The key this device's password proves to a hub with that ID."""
@@ -1951,6 +2058,15 @@ class Node:
         except secure.SecureError as e:
             ch.send(protocol.err(str(e)))
             return None
+        if isinstance(hello.get("files"), dict):
+            # A second connection, for files only: proved and sealed exactly
+            # like a link, so a big copy never queues in front of the pointer -
+            # but never a link: no baton, no session, no change to the group.
+            ch.send({"t": "files_ok", "v": protocol.VERSION, "node": self.core.node,
+                     "proof": my_proof})
+            ch.seal(*secure.session(dh_secret, self._own_key(), chal, their_chal, "hub"))
+            self._files_serve(ch, who, hello["files"])
+            return None
         if their_id:
             self.pending_names.pop(their_id, None)
             old = self.names_by_id.get(their_id)
@@ -2608,6 +2724,10 @@ class Node:
                     break
                 if not hub and t == "rename" and msg.get("name"):
                     self._renamed_to(str(msg["name"]))
+                    continue
+                if not hub and t == "fwant":
+                    threading.Thread(target=self._files_push_quietly,
+                                     args=(msg.get("seq"),), daemon=True).start()
                     continue
                 if not hub and t == "set_policy":
                     rights = {k: bool(msg[k]) for k in ("may_drive", "may_be_driven")

@@ -203,7 +203,8 @@ def auth(node: str, chal: str, dev_id: str = None, dh: str = None) -> dict:
 def hello(node: str, screens, policy: dict = None, pin: str = "",
           resume: str = None, proof: str = None, chal: str = None,
           dev_id: str = None, join: bool = False, invite: bool = False,
-          probe: bool = False, version: str = None, dh: str = None) -> dict:
+          probe: bool = False, version: str = None, dh: str = None,
+          files: dict = None) -> dict:
     """Both peers send this; neither is 'the client'.
 
     `proof` answers the listener's challenge; `chal` is our own challenge for it
@@ -238,6 +239,8 @@ def hello(node: str, screens, policy: dict = None, pin: str = "",
         ev["version"] = version         # the program's, for the device list
     if dh:
         ev["dh"] = dh
+    if files:
+        ev["files"] = dict(files)       # {"want": "pull"|"push", "seq": n}
     return ev
 
 
