@@ -341,6 +341,46 @@ def test_the_peer_reconnects_by_itself(pair):
     assert pair.aio.session == first                   # same session, resumed
 
 
+def _go_silent(ch):
+    """The other side freezes - asleep, its program suspended - while its
+    computer still keeps the connection open: nothing more is sent, nothing
+    is closed."""
+    ch.send = lambda *a, **k: None
+
+
+def test_a_hub_gone_silent_is_dropped_and_dialled_again(pair):
+    """Seen: the laptop slept for 14 hours; the AIO never noticed, and once the
+    laptop woke and had dropped the link, the AIO spoke into the dead one for
+    another 16 minutes - until Linux gave up on it - before dialling again."""
+    pair.aio.LINK_DEAD_S = 1.0
+    pair.start().connected()
+    before = pair.aio.ch
+    _go_silent(pair.hub.links["aio"].ch)
+    pair.wait(lambda: pair.aio.ch is not None and pair.aio.ch is not before,
+              timeout=8, what="the AIO to drop the silent link and dial again")
+    assert any("no word from laptop" in m for m in pair.logs["aio"]), pair.logs["aio"][-5:]
+
+
+def test_a_peer_gone_silent_is_dropped_by_the_hub(pair):
+    """The other way round: the AIO asleep."""
+    pair.hub.LINK_DEAD_S = 1.0
+    pair.start().connected()
+    _go_silent(pair.aio.ch)
+    pair.wait(lambda: any("no word from aio" in m for m in pair.logs["hub"]),
+              timeout=8, what="the hub to drop the silent link")
+    pair.wait(lambda: "aio" in pair.hub.links, timeout=8, what="the AIO back")
+
+
+def test_a_quiet_but_healthy_link_is_kept(pair):
+    """Nobody touching anything is not silence: the pings keep coming."""
+    pair.aio.LINK_DEAD_S = pair.hub.LINK_DEAD_S = 1.0
+    pair.start().connected()
+    before = pair.aio.ch
+    time.sleep(2.5)
+    assert pair.aio.ch is before
+    assert not any("no word" in m for m in pair.logs["aio"] + pair.logs["hub"])
+
+
 def test_the_epoch_moves_on_every_reconnect(pair):
     """So input still in flight from before the drop cannot land afterwards."""
     pair.start().connected()

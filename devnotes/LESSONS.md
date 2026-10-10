@@ -116,6 +116,14 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
 
 ## Linux at run time
 
+- **`close()` on a socket does not wake a thread blocked in `recv()` on
+  Linux** (on Windows it does). A link closed because the far side went
+  silent stayed blocked; `shutdown(SHUT_RDWR)` first wakes it. The link tests
+  only passed before because the far side answered the close.
+- **A connection can look alive for hours with nobody behind it.** A sleeping
+  Windows laptop kept acknowledging packets while Nishro Link was frozen;
+  Linux then needed ~16 minutes of unanswered retries to give up. Only the
+  application can tell: no message for LINK_DEAD_S means dead.
 - **`python3 -m link...` imports from the current directory**: the app menu
   starts programs in $HOME, where a stale `~/link` ran instead. Launch by path.
 - **A terminal in VS Code installed as a snap** leaks the snap's library and

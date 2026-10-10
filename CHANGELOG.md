@@ -65,6 +65,13 @@ Works with every 1.x.
   seam stays a clear line even at 16 pixels.
 
 ### Fixed
+- **After one computer slept, the other could stay disconnected for many
+  minutes.** The two ping each other all the time, but nothing checked that
+  the pings were answered: while a laptop slept, Windows kept the connection
+  answering though Nishro Link itself was frozen, and the other computer
+  noticed only when its system gave up on the connection - 16 minutes after
+  the laptop woke, when it was seen. A link that carries nothing for 8
+  seconds is now dropped and dialled again.
 - **Windows: a console window flashed up on every Ctrl+C** (and on every paste
   that arrived). The clipboard was read by running PowerShell, from the
   background service's helper, which has no console of its own - so Windows

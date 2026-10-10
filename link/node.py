@@ -888,6 +888,13 @@ class Node:
     # the ping is the only traffic on an idle link, and it is what stops an idle
     # holder looking like a dead one. 2 ticks = 400ms against a 1500ms TTL.
     PING_EVERY = 2
+    # A link that has carried nothing at all for this long is dead, even if the
+    # connection still looks open: both ends ping every PING_EVERY ticks, so a
+    # quiet but healthy link is never this silent. Seen: the laptop slept for
+    # 14 hours - Windows kept the connection answering while Nishro Link was
+    # frozen - and the AIO noticed only when Linux gave up on the connection,
+    # 16 minutes after the laptop woke. Dropped, the link dials again at once.
+    LINK_DEAD_S = 8.0
     # While the pointer is on another machine's screen: a tiny frame this
     # often, from BOTH ends. Wi-Fi power saving lets a radio that has been
     # quiet doze, and what crosses it then waits for it - measured between the
@@ -1679,7 +1686,18 @@ class Node:
             if i % self.PING_EVERY == 0:
                 with self._links_lock:
                     links = list(self.links.values())
+                now = time.monotonic()
                 for l in links:          # per link: it is each link we measure
+                    quiet = now - getattr(l.ch, "heard", now)
+                    if quiet > self.LINK_DEAD_S:
+                        if not getattr(l.ch, "dead", False):
+                            l.ch.dead = True
+                            self._log_async(
+                                f"no word from {l.name} for {quiet:.0f} s - the link is "
+                                f"dead (asleep, or the network dropped); closing it so "
+                                f"it can connect again")
+                            l.ch.close()
+                        continue
                     # perf_counter, not monotonic: on Windows monotonic ticks
                     # every 15.6 ms, so a 3 ms round trip read 0 or 16 - and 0
                     # showed as no reading at all.

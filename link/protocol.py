@@ -66,6 +66,7 @@ import queue
 import secrets
 import socket
 import threading
+import time
 
 VERSION = 8
 # v8: the link's encryption is X25519 + HKDF-SHA256 + ChaCha20-Poly1305 from
@@ -527,6 +528,9 @@ class LineChannel:
         self._lines = collections.deque()   # complete frames not yet returned
         self.coalesced = 0                  # positions superseded before sending
         self._opener = None           # set once the handshake has keyed the link
+        # When a frame last arrived. The link's owner reads it to tell a quiet
+        # link (pings still coming) from a dead one (nothing at all).
+        self.heard = time.monotonic()
         self._q: queue.Queue = queue.Queue(maxsize=queue_size)
         self._dropped = 0
         self._sender = threading.Thread(target=self._send_loop, daemon=True)
@@ -640,6 +644,7 @@ class LineChannel:
             *frames, self._buf = (self._buf + chunk).split(b"\n")
             self._lines.extend(frames)
         line = self._lines.popleft()
+        self.heard = time.monotonic()
         if len(line) > MAX_LINE:
             raise ProtocolError(f"frame is {len(line)}B, over the {MAX_LINE}B cap")
         if self._opener is not None:
@@ -664,6 +669,13 @@ class LineChannel:
             else:
                 self._q.put_nowait(None)   # best-effort: wake the sender to exit
         except queue.Full:
+            pass
+        try:
+            # A reader blocked in recv() on another thread: on Windows close()
+            # wakes it, on Linux only shutdown() does - without it, a link
+            # closed because the far side went silent stays blocked for good.
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
             pass
         try:
             self.sock.close()
