@@ -145,6 +145,12 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
 
 ## The tools used to do the work
 
+- **A test that borrows the person's clipboard must give it back whatever
+  happens.** One saved it through PowerShell's text output, which failed on a
+  character the console codepage could not decode; the restore then crashed,
+  leaving a test file list on the clipboard and the copied text lost. Save it
+  as raw clipboard data (CF_UNICODETEXT through user32), restore in a
+  `finally` that cannot raise - or test against a fake clipboard.
 - **Inline Python in a shell heredoc lost backslashes** on the way, and a
   Windows path like `"...\NishroLink"` is a syntax error (`\N`). Write scripts to
   a file; use raw strings for paths.
