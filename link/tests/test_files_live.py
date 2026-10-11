@@ -104,6 +104,19 @@ def test_a_copy_no_longer_offered_is_said_so(pair):
         pair.aio.files_pull(99)
 
 
+def test_the_hub_hangs_up_once_the_copy_is_dealt_with(pair):
+    """A files connection is proved and sealed like a link, so it must never
+    be read as one: once the copy is dealt with (here, refused), the hub hangs
+    up - nothing sent on it after that is read, let alone taken as input."""
+    ch, _ = pair.aio._files_channel("pull", 99)          # a copy not offered
+    try:
+        ch.sock.settimeout(5)
+        assert ch.recv()["t"] == "ferr"
+        assert ch.recv() is None, "the hub hung up"
+    finally:
+        ch.close()
+
+
 def test_a_wrong_password_opens_no_files_connection(pair, src, tmp_path):
     pair.hub.file_offers[5] = Offer([src / "letter.docx"])
     pair.aio.pin = "wrong-words-for-this-group"
