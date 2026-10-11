@@ -81,9 +81,15 @@ def test_a_big_copy_arrives_whole_while_the_link_carries_on(pair, tmp_path, monk
     import time
     monkeypatch.setattr(files, "CHUNK", 2048)
     real_data = files.Receive.data
+    pieces = []
 
+    # A pause every 16th piece, not a tiny one at every piece: before Python
+    # 3.11 a sleep on Windows lasts at least a timer tick (up to 15.6 ms), and
+    # 3,072 of those outlasted the test (CI, Python 3.8).
     def slow_data(self, index, text):
-        time.sleep(0.0004)
+        pieces.append(index)
+        if len(pieces) % 16 == 0:
+            time.sleep(0.004)
         real_data(self, index, text)
     monkeypatch.setattr(files.Receive, "data", slow_data)
     big = tmp_path / "video.mp4"
