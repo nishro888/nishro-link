@@ -58,6 +58,15 @@ the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
     slow to register makes it fail every time (5/5). The maintainer: not
     now - the fix and the test wait (STATE, loose ends); `6b81041` is not
     pushed either, so CI on `main` stays red until then.
+- **The Release run's builds installed on both machines** (the maintainer
+  asked), for the final check before publishing:
+  - the laptop: the setup (`F16B216C...`) silently, over the 10-04 build -
+    installed in 10 s; the service restarted, the tray came back, the AIO
+    reconnected 2 s after the service started. Defender, the installed
+    folder (1,009 files): no threats; no detection at all since 10-04.
+  - the AIO: the `.deb` (`744900b7...`, checked), `apt-get install
+    --reinstall` (the same version number); the service restarted, the tray
+    came back as the same user, reconnected to the laptop within 1 s.
 
 ## 2026-10-10 - dead links, and files over the clipboard (local, not pushed)
 
