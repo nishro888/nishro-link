@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-10-10
+**Last updated:** 2026-10-11
 
 ## Versions
 
@@ -18,6 +18,9 @@
   lists power and sleep (the AIO's volume dial follows the pointer, every
   click; verified on both machines), and a link silent for 8 s is dropped
   and dialled again (`6906f09`; tested, **real-machine sleep test pending**).
+- And the Windows release build: PyInstaller's bootloader compiled from
+  source; signing through SignPath Foundation, skipped until it is set up
+  (Next 3).
 
 ## The test machines
 
@@ -45,7 +48,26 @@
    `link/packaging/deb/io.github.nishro888.nishro-link.metainfo.xml`, push,
    tag `v1.1.0`, then install the PUBLISHED builds on both machines and repeat
    the tray and app-menu checks.
-3. **1.2 - files over the clipboard - in progress.** Copy files, folders or
+3. **Windows builds antivirus programs trust** (the maintainer chose
+   SignPath Foundation, and the bootloader compiled from source). Done
+   locally: `release.yml` compiles PyInstaller's bootloader
+   (`pyinstaller-from-source.ps1`: prebuilt ones deleted first, Microsoft's
+   compiler only, the result checked against the prebuilt ones), then -
+   once SignPath is set up - signs `NishroLink.exe`, smoke-tests it, builds
+   the setup around it and signs that; each signature checked
+   (`check-signature.ps1`); publish takes the finished files by name. The
+   README has the code signing policy ("applied for") and the privacy
+   statement; the setup's first page names the firewall rule.
+   `link/packaging/signpath/README.md` has the setup steps. Next:
+   - a Release run by hand (builds only): the bootloader has never been
+     compiled yet - this laptop has no Microsoft compiler;
+   - the maintainer applies to SignPath; once accepted: the SignPath
+     project, the secret `SIGNPATH_API_TOKEN`, the variable
+     `SIGNPATH_ORGANIZATION_ID`; then the "not code-signed yet" lines;
+   - at the first signing, watch the setup: Inno pads its name and version
+     strings with spaces, which SignPath's check may not ignore.
+   The uninstaller stays unsigned (signpath/README.md says why).
+4. **1.2 - files over the clipboard - in progress.** Copy files, folders or
    several at once (Ctrl+C), paste on the other computer (Ctrl+V). They land
    in Desktop > Nishro Link Files (the maintainer's choice), and that
    computer's clipboard then holds them, so pasting in a folder works; 2 GB a
@@ -60,7 +82,7 @@
    3. **Done**: the files connection - a second connection, proved and sealed
       like the link and never a link (`files` in the hello; the member always
       dials; the hub asks with `fwant`); paced on the queue, so nothing is
-      dropped. 7 live tests.
+      dropped. 8 live tests.
    4. Next: the clipboards - announce a copied file list (`clipmeta` with
       format "files"), pull on arrival of the pointer, put the received
       files on the clipboard (CF_HDROP + Preferred DropEffect on Windows; the
@@ -69,7 +91,7 @@
       on Linux.
    5. Progress notifications; then both machines, both ways: one file,
       several, a folder tree, a big file, odd names.
-4. **After 1.2 - drag and drop across the edge**, with the system's own drag
+5. **After 1.2 - drag and drop across the edge**, with the system's own drag
    icon: first a feasibility test on the AIO (GNOME on Wayland lets a program
    start a drag only from a press on its own window).
 
@@ -85,4 +107,4 @@
 - The social preview image must be uploaded by hand (repository Settings).
 - Ideas: a Linux Wi-Fi power-save banner with a fix (like the Windows
   public-network one); a per-user handle so the tray works for source
-  installs; a PAKE; a signed installer; a demo GIF for the README.
+  installs; a PAKE; a demo GIF for the README.

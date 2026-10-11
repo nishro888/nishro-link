@@ -5,6 +5,11 @@ name: Release
 # listed in SHA256SUMS. The source
 # comes as GitHub's own "Source code" archives of the tag. Run by hand, it only
 # builds (the files are kept as the run's artifacts) and publishes nothing.
+#
+# The Windows program and its setup are signed through SignPath once that is
+# set up (link/packaging/signpath/README.md); each signing request waits, up to
+# an hour, for the maintainer to approve it there. Until then they are built
+# unsigned, as before.
 
 on:
   push:
@@ -17,14 +22,84 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read       # SignPath's action reads this run and its artifacts
+    env:
+      SIGN: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - run: pip install "pyinstaller>=6" "cryptography>=3.4"
+      # PyInstaller's bootloader - the front of NishroLink.exe - compiled here
+      # from source: the prebuilt one is in every program built with it, and
+      # antivirus programs have learned to distrust it.
+      - run: powershell -ExecutionPolicy Bypass -File link/packaging/pyinstaller-from-source.ps1 6.22.3
+      - run: pip install "cryptography>=3.4"
       - run: choco install innosetup --no-progress -y
-      - run: powershell -ExecutionPolicy Bypass -File link/packaging/build-windows.ps1
+      - id: version
+        run: echo "version=$(python -c 'import link; print(link.__version__)')" >> $env:GITHUB_OUTPUT
+      - run: powershell -ExecutionPolicy Bypass -File link/packaging/build-windows.ps1 -Step app
+
+      # The program is signed first, so that the setup carries the signed one.
+      - id: unsigned-program
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-program
+          path: dist/NishroLink/NishroLink.exe
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign the program (approve it on SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: nishro-link
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: program
+          github-artifact-id: ${{ steps.unsigned-program.outputs.artifact-id }}
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed/program
+      - if: env.SIGN == 'true'
+        run: |
+          Copy-Item signed/program/NishroLink.exe dist/NishroLink/NishroLink.exe -Force
+          powershell -ExecutionPolicy Bypass -File link/packaging/check-signature.ps1 dist/NishroLink/NishroLink.exe
+      # The program as the setup will carry it: it still starts.
+      - run: powershell -ExecutionPolicy Bypass -File link/packaging/build-windows.ps1 -Step smoke
+      - run: powershell -ExecutionPolicy Bypass -File link/packaging/build-windows.ps1 -Step setup
+
+      - id: unsigned-setup
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: unsigned-setup
+          path: dist/NishroLink-Setup-${{ steps.version.outputs.version }}.exe
+          if-no-files-found: error
+          retention-days: 1
+      - name: Sign the setup (approve it on SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: nishro-link
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: setup
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          parameters: |
+            version: "${{ steps.version.outputs.version }}"
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed/setup
+      - if: env.SIGN == 'true'
+        run: |
+          Copy-Item signed/setup/NishroLink-Setup-${{ steps.version.outputs.version }}.exe dist/ -Force
+          powershell -ExecutionPolicy Bypass -File link/packaging/check-signature.ps1 dist/NishroLink-Setup-${{ steps.version.outputs.version }}.exe
+
       - uses: actions/upload-artifact@v7
         with:
           name: windows
@@ -51,10 +126,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # The finished files only, by name: the run also keeps the unsigned
+      # copies handed to SignPath, the setup under the same file name.
       - uses: actions/download-artifact@v8
         with:
+          name: windows
           path: out
-          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux
+          path: out
       - name: Checksums
         run: cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS
       - name: Release notes from CHANGELOG.md
@@ -66,6 +147,8 @@ jobs:
             on {print}
           ' CHANGELOG.md > notes.md
           printf '\n---\nVerify a download: `sha256sum -c SHA256SUMS --ignore-missing`\n' >> notes.md
+          printf '\n[Code signing policy](%s/%s#code-signing-policy)\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" >> notes.md
           cat notes.md
       - name: Publish
         env:

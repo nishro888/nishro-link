@@ -63,6 +63,13 @@ Works with every 1.x.
   The old one had a pointer arrow between two screens, which in a dock or a
   tray looked like the real pointer. Every size is drawn for itself, so the
   seam stays a clear line even at 16 pixels.
+- **Windows: the bootloader is compiled from source.** The small program at
+  the front of `NishroLink.exe` that starts Python comes from PyInstaller,
+  which publishes it prebuilt - the same bytes at the front of every program
+  built with it, malware included, so antivirus programs' machine-learning
+  checks have learned to distrust them. The release build now compiles it
+  from PyInstaller's source. The setup's first page also says that it adds a
+  Windows Firewall rule (home and work networks, not public ones).
 
 ### Fixed
 - **After one computer slept, the other could stay disconnected for many

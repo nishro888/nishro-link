@@ -4,6 +4,53 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-11 - Windows builds antivirus programs trust (local, not pushed)
+
+- `test_release_build.py`, 10 tests on the release build as written: the
+  bootloader compiled, never the prebuilt one; the program signed before the
+  setup packs it; signing skipped until SignPath is set up; each signature
+  checked; only the finished files published; the code signing policy; the
+  setup naming the firewall rule. Written first: the 9 run then all failed.
+  8 deliberate breaks, each caught by its own test.
+- `check-signature.ps1`: the unsigned `NishroLink.exe` -> "not signed";
+  Microsoft-signed `powershell.exe` -> "signed by CN=Microsoft Windows...,
+  not SignPath Foundation". A wildcard matching nothing **first passed**
+  (exit 0) -> fixed: "no file to check". The signer pattern takes
+  `CN=`/`O=SignPath Foundation`, not "SignPath Foundation Fans". No
+  SignPath-signed file on this laptop (985 programs looked at): the passing
+  case waits for the first signed release.
+- `pyinstaller-from-source.ps1`, in a throwaway environment on this laptop
+  (no Microsoft compiler): Windows' `tar` failed on three symbolic links ->
+  `tarfile`; waf then set up a 32-bit build with an old MinGW gcc (failed in
+  zlib) -> `--check-c-compiler=msvc`: now "msvc: not found", it stops,
+  nothing installed, no temporary folder left. **The compile itself is
+  untested** - it needs a Release run on GitHub.
+- `build-windows.ps1 -Step smoke` (the earlier build) and `-Step app` (a fresh
+  one, 36.9 MB): pass; its Properties say "Nishro Link", "1.1.0" exactly. An
+  unknown step is refused. `-Step setup` not run here (local Inno builds are
+  what Defender flags - LESSONS).
+- `release.yml` parsed (PyYAML): 16 Windows steps, the 6 for signing
+  conditional; publish downloads `windows` and `linux` by name.
+- The files connection, re-checked: "a files connection becomes a link" was
+  **missed** (on 10-10 only the then-racy impostor test failed on it) -> new
+  live test, the hub hangs up once the copy is dealt with: 15/15 runs; all 5
+  breaks of the files connection caught.
+- Full suite: **1,442 passed**, 2 skipped. ruff clean.
+
+## 2026-10-10 - dead links, and files over the clipboard (local, not pushed)
+
+- A link gone silent (`6906f09`): 3 live tests - a hub gone silent is dropped
+  and dialled again, a member gone silent is dropped by the hub, a quiet but
+  healthy link is kept (`LINK_DEAD_S` 1 s in them). **The real-machine sleep
+  test is pending.**
+- The files core (`86c73b1`): `test_files.py`, 33 tests (the symlink one
+  skipped on Windows). Breaks caught: more data than announced, a damaged
+  file kept, a copy over the limit.
+- The files connection (`5c9be8b`): 7 live tests. The impostor-hub test failed
+  9 of 15 runs - it asserted before its thread had finished; it joins it now:
+  20/20. Removing the pacing went unnoticed until the 6 MB test got a slow
+  receiver and 2 KB pieces.
+
 ## 2026-10-07 - the AIO keyboard's volume dial follows the pointer
 
 - CI on `2fab8cb` (the dial work): **15/15 green** - three jobs only after a

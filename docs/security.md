@@ -117,5 +117,7 @@ every connection, unattended, from boot. File permissions are what protect it.
 
 Release files are built by GitHub Actions from the tagged source
 ([release.yml](../.github/workflows/release.yml)), and their SHA-256 hashes are
-published beside them in `SHA256SUMS`. The Windows installer is not
-code-signed yet.
+published beside them in `SHA256SUMS`. The bootloader at the front of the
+Windows program (PyInstaller's) is compiled from source in that same run. The
+Windows installer is not code-signed yet: signing is applied for
+([code signing policy](../README.md#code-signing-policy)).

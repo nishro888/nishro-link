@@ -36,6 +36,24 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   waits for the whole process tree. **Works:** start it, poll `HasExited`.
 - **PyInstaller does find imports inside functions** (`from . import clip_win`
   was bundled). It was suspected once; it was not the cause.
+- **PyInstaller's source archive carries the prebuilt bootloaders too.**
+  `PYINSTALLER_COMPILE_BOOTLOADER` compiles over them, and a compile that
+  writes something else leaves them in place unnoticed. **Works:** delete
+  them before compiling, and compare the installed ones with them after
+  (`pyinstaller-from-source.ps1`).
+- **waf takes any C compiler it finds**: with no Microsoft compiler on the
+  laptop, it set up a 32-bit build with an old MinGW gcc. GitHub's runners
+  have MinGW too. **Works:** `--check-c-compiler=msvc` - it fails instead.
+- **Windows' `tar` gave up on PyInstaller's source**: three entries are
+  symbolic links (notes, tests), which an ordinary account cannot create.
+  **Works:** Python's `tarfile`, which copies what a link points to.
+- **Inno Setup pads the setup's version strings with spaces** ("Nishro Link",
+  "1.1.0", then spaces, in Properties). The program's are exact. A check that
+  compares them exactly - SignPath's? - may refuse the setup.
+- **`download-artifact` with `merge-multiple` takes every artifact of the
+  run**: once the unsigned copies handed to SignPath were artifacts too, the
+  unsigned setup (same file name) could have replaced the signed one in the
+  release. **Works:** download each finished set by name.
 
 ## Testing
 
@@ -160,7 +178,13 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   `finally` that cannot raise - or test against a fake clipboard.
 - **Inline Python in a shell heredoc lost backslashes** on the way, and a
   Windows path like `"...\NishroLink"` is a syntax error (`\N`). Write scripts to
-  a file; use raw strings for paths.
+  a file; use raw strings for paths. (It happened again with a patch whose
+  strings held `\n`: make such edits with the editor's own tools, not a
+  heredoc or `sed`.)
+- **A PowerShell wildcard that matches nothing is no error**: `Get-Item
+  dist\NoSuch-*.exe` returns nothing, so a signature check looping over it
+  passed with nothing checked. **Works:** count what was found, and fail on
+  none.
 - **`clip.py` defines its own `set`**, shadowing the built-in: inside it, use
   `frozenset`.
 - **The assistant's PowerShell tool refused a command** with `Remove-Item` when

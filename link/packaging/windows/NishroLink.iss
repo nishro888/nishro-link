@@ -24,6 +24,10 @@ AppSupportURL=https://github.com/nishro888/nishro-link/issues
 AppUpdatesURL=https://github.com/nishro888/nishro-link/releases
 AppCopyright=Copyright (c) 2026 nishro888
 VersionInfoVersion={#AppVersion}
+; The same name and version, as text, as NishroLink.exe's: SignPath checks
+; both before it signs (..\signpath\README.md).
+VersionInfoTextVersion={#AppVersion}
+VersionInfoProductTextVersion={#AppVersion}
 VersionInfoProductName=Nishro Link
 VersionInfoDescription=Nishro Link Setup
 DefaultDirName={autopf}\Nishro Link
@@ -45,7 +49,7 @@ UsedUserAreasWarning=no
 MinVersion=10.0
 
 [Messages]
-WelcomeLabel2=This will install Nishro Link {#AppVersion} - one mouse and keyboard across your computers.%n%nIt runs in the background from the moment Windows starts, so another computer's mouse and keyboard also work on the lock and sign-in screens.
+WelcomeLabel2=This will install Nishro Link {#AppVersion} - one mouse and keyboard across your computers.%n%nIt runs in the background from the moment Windows starts, so another computer's mouse and keyboard also work on the lock and sign-in screens.%n%nIt also adds a Windows Firewall rule, so that your other computers can reach it on home and work networks - not on public ones.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked

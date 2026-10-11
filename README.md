@@ -105,8 +105,9 @@ Every computer needs Nishro Link **1.x** (any 1.x works with any other), on the
 | **Other Linux** | Source code | Python 3.8+, Tk, evdev, cryptography 2.5+ - [instructions](docs/install-linux.md#other-distributions) |
 
 **Windows:** run the setup and approve the one permission prompt. The
-installer is not code-signed yet: if SmartScreen warns, choose **More info →
-Run anyway**. [Details](docs/install-windows.md).
+installer is not code-signed yet ([code signing policy](#code-signing-policy)):
+if SmartScreen warns, choose **More info → Run anyway**.
+[Details](docs/install-windows.md).
 
 **Ubuntu and Debian:** open the `.deb` (the App Center installs it), or
 
@@ -197,6 +198,28 @@ python -m pytest                   # the tests - no network, no real input
 The tests never touch the real network or input: discovery is confined to
 loopback, and multi-machine tests run real nodes over local sockets with the
 mouse, keyboard and screen faked.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io),
+certificate by [SignPath Foundation](https://signpath.org) - **applied for**.
+Until it is granted, the Windows setup is not signed.
+
+- Only what GitHub Actions builds from this repository is signed
+  ([release.yml](.github/workflows/release.yml)): the Windows program and its
+  setup, with PyInstaller's bootloader compiled from source in the same run.
+  Nothing built on a personal computer is signed.
+- Every signing request is approved by hand.
+- Committers and reviewers: [nishro888](https://github.com/nishro888)
+- Approvers: [nishro888](https://github.com/nishro888)
+
+**Privacy.** This program will not transfer any information to other
+networked systems unless specifically requested by the user or the person
+installing or operating it. On your local network it asks which computers run
+Nishro Link, and answers that question with its name; it connects only to the
+computers you pair it with, and what you type, point at and copy goes to them
+alone, encrypted. It makes no connection to the internet - no update check, no
+telemetry, no account ([security](docs/security.md#what-it-does-not-do)).
 
 ## License
 

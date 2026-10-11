@@ -25,6 +25,9 @@ Every 1.x must work with every other 1.x
 
 - **Windows:** `link/packaging/build-windows.ps1` → `dist/NishroLink-Setup-<v>.exe`
   (or the *Release* workflow run by hand, which builds and publishes nothing).
+  A build on a computer has PyInstaller's prebuilt bootloader and no
+  signature, and Defender may flag it; the workflow's build is what is
+  published.
 - **Linux:** `python link/packaging/build-deb.py` → `dist/nishro-link_<v>_all.deb`.
 
 ## 3. Check on both computers
@@ -90,8 +93,14 @@ The *Release* workflow builds everything from the tag, attaches the setup, the
 `.deb` and `SHA256SUMS`, and publishes. A tag with a `-` (`v1.3.0-rc1`) is a
 pre-release.
 
+Once signing is set up ([signpath/README.md](link/packaging/signpath/README.md)),
+the run stops twice: approve **Sign the program**, then **Sign the setup**, on
+SignPath. It waits up to an hour for each.
+
 Then:
 
 - [ ] The release page has the three files, and the notes match the changelog.
+- [ ] Once signing is set up: the setup's **Properties → Digital Signatures**
+      shows SignPath Foundation, and so does the installed `NishroLink.exe`'s.
 - [ ] Install the published builds on both computers (not the local ones), and
       repeat **Open from the app menu** and the tray.
