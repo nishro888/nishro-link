@@ -63,7 +63,15 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   trusting it; join the thread, never sleep.
 - **A pacing test on one machine may never fill the queue**: loopback drains
   faster than the sender fills it, so removing the pacing passed. Make the
-  receiver slower than the sender, then the break shows.
+  receiver slower than the sender, then the break shows. And no tiny sleep at
+  every step: before Python 3.11 a sleep on Windows lasts at least a timer
+  tick (up to 15.6 ms) - 3,072 of them timed out on CI. Pause less often.
+- **To tell which commit made a test flaky, alternate the runs.** Forty runs
+  of one commit, then forty of the other, read 0 vs 3 failures - as if the
+  later one brought the race; other work on the computer comes and goes.
+  Alternating them in one loop showed it in both (1 vs 4): an older race
+  that the change made likelier. Then force the window open (a sleep in the
+  right place) for a test that fails every time.
 - **A CI job stuck or failed at `apt-get` never ran a test.** Ubuntu's package
   servers once stopped answering plain HTTP (HTTPS still worked): the
   container jobs failed, the others hung - for up to GitHub's 6 hours.

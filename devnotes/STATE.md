@@ -58,9 +58,10 @@
    (`check-signature.ps1`); publish takes the finished files by name. The
    README has the code signing policy ("applied for") and the privacy
    statement; the setup's first page names the firewall rule.
-   `link/packaging/signpath/README.md` has the setup steps. Next:
-   - a Release run by hand (builds only): the bootloader has never been
-     compiled yet - this laptop has no Microsoft compiler;
+   `link/packaging/signpath/README.md` has the setup steps. Pushed
+   (`1aa2322`); the Release run by hand is green - the bootloader compiled
+   by Microsoft's compiler on GitHub, and its setup scans clean with
+   Defender (TESTLOG). Next:
    - the maintainer applies to SignPath; once accepted: the SignPath
      project, the secret `SIGNPATH_API_TOKEN`, the variable
      `SIGNPATH_ORGANIZATION_ID`; then the "not code-signed yet" lines;
@@ -96,6 +97,25 @@
    start a drag only from a press on its own window).
 
 ## Open questions and loose ends
+
+- **CI on `main` is red** (`1aa2322`, 13/15), waiting on the maintainer
+  ("not now", 2026-10-11): the big-copy test's fix for Windows' coarse sleep
+  before Python 3.11 is committed (`6b81041`), not pushed; and the race
+  below fails `test_the_laptop_drives_across_both_aios_in_turn` about one
+  run in 13.
+- **The hub's join race** (TESTLOG 2026-10-11). Two members joining at the
+  same moment - as when all redial after the hub restarts - each find
+  nobody else registered yet in `_greet` (`others` is read under `_lock`,
+  but `_register` comes later), so each takes a fresh epoch
+  (`arbiter.resume()`); the member welcomed first keeps the older epoch and
+  drops every input message from the hub as stale (`is_stale`: `e !=
+  epoch`) until control changes hands. Groups of three or more only.
+  Proposed fix: one lock around "who else is here?" through `_register`, so
+  the second join sees the first and joins the epoch in force. Re-sending
+  the current grant to everyone is no fix: `Baton.apply` takes an equal
+  epoch again, which can snap a driver's cursor. Test that forces it: wrap
+  the hub's `_register` with a 0.3 s sleep (monkeypatch), start the trio,
+  wait for one epoch on all three - fails 5/5 today.
 
 - GNOME's Locate Pointer ripple (find the pointer on Linux) has never been
   seen working on the AIO.

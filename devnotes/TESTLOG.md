@@ -36,6 +36,28 @@ the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
   live test, the hub hangs up once the copy is dealt with: 15/15 runs; all 5
   breaks of the files connection caught.
 - Full suite: **1,442 passed**, 2 skipped. ruff clean.
+- Pushed (`1aa2322`). **Release run by hand** (38130664282, builds only):
+  green. The bootloader compiled by Microsoft's compiler (Visual Studio 18,
+  MSVC 14.51), none of the four the prebuilt ones (`runw.exe`
+  `F7667A64...`); the program started before and after the signing slot;
+  the setup 13.2 MB, sha256 `F16B216C...`: **Defender found no threats**
+  (`MpCmdRun -Scan -ScanType 3`), nor on download.
+- **CI on `1aa2322`: 13/15** -
+  - Windows, Python 3.8: the big-copy test timed out - its 0.4 ms pause at
+    each of 3,072 pieces, and before Python 3.11 a Windows sleep lasts at
+    least a timer tick. Fixed (`6b81041`): 4 ms every 16th piece; 1.2 s
+    here, 3.9 s with full-tick pauses, still caught without pacing.
+  - Debian 11: `test_the_laptop_drives_across_both_aios_in_turn` - aio1
+    stayed at epoch 2 while the hub and aio2 went to 3, so aio1 dropped all
+    the hub's input as stale. **A real race in the hub**: two members joining
+    at once each find nobody else registered yet, and each starts a fresh
+    epoch; the first keeps the older one. Here, 40 runs each: 0 failures
+    before the push (`2fab8cb`), 0 at `6906f09`, 3 at `5c9be8b` and at
+    `1aa2322`; alternating 50 each: 1 at `6906f09`, 4 at `5c9be8b` - older
+    than the files work, which makes it more likely. A test with the hub
+    slow to register makes it fail every time (5/5). The maintainer: not
+    now - the fix and the test wait (STATE, loose ends); `6b81041` is not
+    pushed either, so CI on `main` stays red until then.
 
 ## 2026-10-10 - dead links, and files over the clipboard (local, not pushed)
 
