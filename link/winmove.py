@@ -14,8 +14,11 @@ first, so a picture pays no base64 and no 128 KB line cap.
 from __future__ import annotations
 
 import json
+import queue
 import socket
 import struct
+import threading
+import time
 
 from .secure import SecureError
 
@@ -33,11 +36,33 @@ AHEAD = 2                       # pictures sent and not yet shown, at most
 TILE = 64                       # pictures are compared in squares this big
 CODECS = ("jpeg", "png", "raw")
 
+MAX_FPS = 25.0                  # pictures a second, at most
+IDLE_S = 0.2                    # how often to look again while nothing changes
+KEYFRAME_S = 10.0               # the whole picture again this often, regardless
+READY_S = 20.0                  # how long home waits for the frame to appear
+
+# Why a moved window stopped being away - what the node logs and the tray says.
+HOME = "home"                   # asked for, by either side
+GONE = "gone"                   # the program's window ended
+DROPPED = "dropped"             # the channel or the link broke
+STOPPED = "stopped"             # Nishro Link is shutting down, or the switch went off
+FAILED = "failed"               # something went wrong; the window comes home
+
 
 class ChannelError(Exception):
     """The window channel broke: a bad length, a frame that would not
     decrypt, or the far end hung up. Always ends the channel (and with it the
     moved window, which comes home)."""
+
+
+class BadMessage(ChannelError):
+    """The far end sent something impossible - a region longer than the bytes
+    that came, a header that is not an object, a picture before the size.
+
+    Kept apart from a channel that merely broke, because the two mean
+    different things to whoever reads the log: this is a peer that is newer,
+    or has a bug, not a network that went away. Both bring the window home.
+    """
 
 
 # ------------------------------------------------------------------ messages
@@ -65,18 +90,18 @@ def unpack(frame: bytes):
     newer or buggier version, and a short frame must not raise IndexError
     deep inside a session."""
     if len(frame) < _HDR.size:
-        raise ChannelError("a window message with no header length")
+        raise BadMessage("a window message with no header length")
     (n,) = _HDR.unpack(frame[:_HDR.size])
     end = _HDR.size + n
     if len(frame) < end:
-        raise ChannelError(f"a window message says its header is {n}B, "
+        raise BadMessage(f"a window message says its header is {n}B, "
                            f"but only {len(frame) - _HDR.size}B followed")
     try:
         header = json.loads(frame[_HDR.size:end].decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as e:
-        raise ChannelError(f"a window message header that will not read: {e}") from None
+        raise BadMessage(f"a window message header that will not read: {e}") from None
     if not isinstance(header, dict):
-        raise ChannelError("a window message header that is not an object")
+        raise BadMessage("a window message header that is not an object")
     return header, frame[end:]
 
 
@@ -103,30 +128,30 @@ def regions(header: dict, payload: bytes):
     window, is refused rather than trusted."""
     rows = header.get("r")
     if not isinstance(rows, list):
-        raise ChannelError("a picture with no regions")
+        raise BadMessage("a picture with no regions")
     if len(rows) > MAX_REGIONS:
-        raise ChannelError(f"a picture with {len(rows)} regions, over {MAX_REGIONS}")
+        raise BadMessage(f"a picture with {len(rows)} regions, over {MAX_REGIONS}")
     out, at = [], 0
     for row in rows:
         if not isinstance(row, (list, tuple)) or len(row) < 6:
-            raise ChannelError("a picture region that is not x, y, w, h, codec, length")
+            raise BadMessage("a picture region that is not x, y, w, h, codec, length")
         x, y, w, h, codec, length = row[:6]
         try:
             x, y, w, h, length = int(x), int(y), int(w), int(h), int(length)
         except (TypeError, ValueError):
-            raise ChannelError("a picture region with numbers that are not numbers") \
+            raise BadMessage("a picture region with numbers that are not numbers") \
                 from None
         if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > MAX_SIDE or y + h > MAX_SIDE:
-            raise ChannelError(f"a picture region outside any real window: "
+            raise BadMessage(f"a picture region outside any real window: "
                                f"{w}x{h} at {x},{y}")
         if codec not in CODECS:
-            raise ChannelError(f"a picture region in an unknown codec {codec!r}")
+            raise BadMessage(f"a picture region in an unknown codec {codec!r}")
         if length < 0 or at + length > len(payload):
-            raise ChannelError("a picture region longer than the bytes that arrived")
+            raise BadMessage("a picture region longer than the bytes that arrived")
         out.append((x, y, w, h, codec, payload[at:at + length]))
         at += length
     if at != len(payload):
-        raise ChannelError(f"a picture with {len(payload) - at}B more than its "
+        raise BadMessage(f"a picture with {len(payload) - at}B more than its "
                            f"regions account for")
     return out
 
@@ -238,6 +263,356 @@ class Pacer:
     @property
     def waiting(self) -> int:
         return self.sent - self.shown
+
+
+class HomeSession:
+    """Home's end of one moved window: send what it looks like, play back what
+    the person does to it away.
+
+    The system-specific half comes in as `window`, which must offer:
+
+        alive()                 is the program's window still there?
+        title()                 its title now (it can change: a browser tab)
+        size()                  (width, height) of what capture() returns
+        capture()               the picture, BGRA, top row first - or None if
+                                the window has gone
+        resize(w, h)            the frame was resized; match it
+        close()                 ask the program's window to close (the frame's
+                                close button does this - the maintainer's
+                                choice; the program may ask to save first)
+        move(x, y)              play a pointer move, in window coordinates
+        button(name, down)      play a button
+        wheel(dx, dy)           play the wheel
+        key(code, down)         play a key, as an evdev code
+
+    and `encode(raw, w, h)` must return (codec, bytes) for one rectangle's
+    worth of BGRA. Nothing here touches a screen or a socket directly, so the
+    whole session can be driven by fakes.
+    """
+
+    def __init__(self, ch, window, encode, log=None, pacer=None, clock=time.monotonic):
+        self.ch = ch
+        self.window = window
+        self.encode = encode
+        self.log = log or (lambda *_: None)
+        self.pacer = pacer or Pacer()
+        self.clock = clock
+        self.ended = None             # one of HOME/GONE/DROPPED/STOPPED/FAILED
+        self._stop = False
+        self._ready = threading.Event()
+        self._last = b""              # the picture last sent
+        self._last_wh = None          # the size it was captured at
+        self._keyed = 0.0             # when the whole picture last went
+        self._title = None
+
+    # ----------------------------------------------------------------- public
+    def stop(self, why=STOPPED) -> None:
+        """Bring the window home. Safe from any thread, and from a tray
+        click; never waits for the network."""
+        if self.ended is None:
+            self.ended = why
+        self._stop = True
+        self._ready.set()
+
+    def run(self) -> str:
+        """Hold the window away until it comes home. Returns why it ended.
+
+        The window is NOT hidden here: the caller hides it once this says the
+        frame is up (`wait_ready`), and shows it again when this returns - so
+        a session that never gets a frame cannot leave an invisible window.
+        """
+        reader = threading.Thread(target=self._read, daemon=True,
+                                  name="window-home-read")
+        reader.start()
+        try:
+            self._send_meta()
+            if not self._ready.wait(READY_S):
+                self.stop(FAILED)
+                self.log("the other computer never showed the window's frame")
+            self._capture_loop()
+        except BadMessage as e:
+            self.stop(FAILED)
+            self.log(f"the other computer sent something we cannot read: {e}")
+        except ChannelError as e:
+            self.stop(DROPPED)
+            self.log(f"the window channel ended: {e}")
+        except Exception as e:                       # never leave a window away
+            self.stop(FAILED)
+            self.log(f"moving the window failed: {e!r}")
+        finally:
+            self._farewell()
+        return self.ended or HOME
+
+    def wait_ready(self, timeout=READY_S) -> bool:
+        """True once away has the frame up (or the session has ended)."""
+        self._ready.wait(timeout)
+        return self.ended is None and self._ready.is_set()
+
+    # ---------------------------------------------------------------- sending
+    def _send_meta(self) -> None:
+        self._title = self.window.title()
+        w, h = self.window.size()
+        self.ch.send(pack({"t": "meta", "title": self._title, "w": int(w),
+                           "h": int(h)}))
+
+    def _farewell(self) -> None:
+        """Tell away why, if the channel still lives. Best effort: the window
+        is coming home either way."""
+        try:
+            self.ch.send(pack({"t": "gone", "why": self.ended or HOME}))
+        except ChannelError:
+            pass
+
+    def _capture_loop(self) -> None:
+        while not self._stop:
+            if not self.window.alive():
+                self.stop(GONE)
+                break
+            if not self.pacer.may_send():
+                # Away has not caught up. Wait for an acknowledgement rather
+                # than building a queue of pictures nobody will ever see.
+                time.sleep(0.01)
+                continue
+            started = self.clock()
+            if not self._send_picture():
+                break
+            self._retitle()
+            spent = self.clock() - started
+            time.sleep(max(1.0 / MAX_FPS - spent, 0.0))
+
+    def _send_picture(self) -> bool:
+        """One picture, or False if the window has gone."""
+        w, h = self.window.size()
+        raw = self.window.capture()
+        if raw is None:
+            self.stop(GONE)
+            return False
+        now = self.clock()
+        if now - self._keyed >= KEYFRAME_S:
+            # The whole picture now and then, so a region lost to a bug
+            # cannot leave a stale patch on the frame for ever.
+            self._last, self._last_wh = b"", None
+            self._keyed = now
+        rects = changed(self._last, raw, w, h, was=self._last_wh)
+        self._last, self._last_wh = raw, (w, h)
+        if not rects:
+            time.sleep(IDLE_S)        # nothing moved: look again soon, not at once
+            return True
+        stride = w * 4
+        out = []
+        for x, y, rw, rh in rects:
+            cut = b"".join(raw[(y + row) * stride + x * 4:
+                               (y + row) * stride + (x + rw) * 4]
+                           for row in range(rh))
+            codec, data = self.encode(cut, rw, rh)
+            out.append((x, y, rw, rh, codec, data))
+        self.ch.send(pic(self.pacer.next_number(), out))
+        return True
+
+    def _retitle(self) -> None:
+        title = self.window.title()
+        if title != self._title:
+            self._title = title
+            self.ch.send(pack({"t": "meta", "title": title}))
+
+    # --------------------------------------------------------------- receiving
+    def _read(self) -> None:
+        try:
+            while not self._stop:
+                self._on(*unpack(self.ch.recv()))
+        except BadMessage as e:
+            self.stop(FAILED)
+            self.log(f"the other computer sent something we cannot read: {e}")
+        except ChannelError as e:
+            if not self._stop:
+                self.stop(DROPPED)
+                self.log(f"the window channel dropped: {e}")
+        except Exception as e:
+            self.stop(FAILED)
+            self.log(f"the window channel went wrong: {e!r}")
+        finally:
+            self._ready.set()         # never leave run() waiting on a dead channel
+
+    def _on(self, header: dict, _payload: bytes) -> None:
+        t = header.get("t")
+        if t == "ready":
+            self._ready.set()
+        elif t == "ack":
+            self.pacer.acked(header.get("n"))
+        elif t == "in":
+            self._input(header)
+        elif t == "size":
+            w, h = _side(header.get("w")), _side(header.get("h"))
+            if w and h:
+                # The next capture is a different size from the one kept, and
+                # changed() is told the size the kept one was taken at, so it
+                # sends the whole window by itself - nothing to reset here.
+                self.window.resize(w, h)
+        elif t == "close":
+            # The frame's close button closes the program's window, as the
+            # same button at home would. The program may refuse, or ask to
+            # save; if it does close, alive() goes false and we send "gone".
+            self.window.close()
+        elif t == "home":
+            self.stop(HOME)
+        # anything else: a newer peer talking about something we do not know
+
+    def _input(self, header: dict) -> None:
+        """One thing the person did in the frame, played into the window.
+
+        Every number is checked: this comes from the other computer, and a
+        coordinate far outside the window would otherwise be played at some
+        unrelated place on this screen (P6 still applies - what we inject is
+        never read back as the person's own input)."""
+        how = header.get("how")
+        if how == "move":
+            w, h = self.window.size()
+            x, y = _within(header.get("x"), w), _within(header.get("y"), h)
+            if x is not None and y is not None:
+                self.window.move(x, y)
+        elif how == "btn":
+            name, down = header.get("name"), bool(header.get("down"))
+            if name in ("left", "right", "middle"):
+                self.window.button(name, down)
+        elif how == "wheel":
+            dx, dy = _step(header.get("dx")), _step(header.get("dy"))
+            if dx or dy:
+                self.window.wheel(dx, dy)
+        elif how == "key":
+            code = header.get("code")
+            if isinstance(code, int) and 0 <= code < 1024:
+                self.window.key(code, bool(header.get("down")))
+
+
+def _side(v):
+    """A window side from a peer: an int within reason, else None."""
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return None
+    return v if 0 < v <= MAX_SIDE else None
+
+
+def _within(v, limit):
+    """A coordinate inside a window of this size, else None."""
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return None
+    return v if 0 <= v < max(int(limit), 1) else None
+
+
+def _step(v):
+    """A wheel step, clamped - a peer cannot ask for a thousand notches."""
+    try:
+        v = int(v)
+    except (TypeError, ValueError):
+        return 0
+    return max(-20, min(20, v))
+
+
+class AwaySession:
+    """Away's end of one moved window: show it, and send on what the person
+    does to it.
+
+    The system-specific half comes in as `frame`, which must offer:
+
+        open(title, w, h)       put the frame on this screen
+        draw(regions)           (x, y, w, h, codec, bytes) rectangles
+        retitle(title)
+        close(why)              take the frame away
+
+    and `frame.events` is a queue the frame puts the person's doings on, as
+    the same dicts that cross the channel ({"t": "in", "how": "move", ...},
+    {"t": "size", ...}, {"t": "close"}, {"t": "home"}). The frame belongs to
+    whatever draws windows on this system, so it is never touched from this
+    thread beyond those calls.
+    """
+
+    def __init__(self, ch, frame, log=None):
+        self.ch = ch
+        self.frame = frame
+        self.log = log or (lambda *_: None)
+        self.ended = None
+        self.title = None
+        self.size = None
+        self._stop = False
+        self._open = False
+
+    def stop(self, why=STOPPED) -> None:
+        if self.ended is None:
+            self.ended = why
+        self._stop = True
+
+    def run(self) -> str:
+        """Show the window until it goes home. Returns why it ended."""
+        sender = threading.Thread(target=self._send_events, daemon=True,
+                                  name="window-away-send")
+        sender.start()
+        try:
+            while not self._stop:
+                self._on(*unpack(self.ch.recv()))
+        except BadMessage as e:
+            self.stop(FAILED)
+            self.log(f"the other computer sent something we cannot read: {e}")
+        except ChannelError as e:
+            self.stop(DROPPED)
+            self.log(f"the window channel ended: {e}")
+        except Exception as e:
+            self.stop(FAILED)
+            self.log(f"showing the window failed: {e!r}")
+        finally:
+            self._stop = True
+            if self._open:
+                self.frame.close(self.ended or HOME)
+        return self.ended or HOME
+
+    def _on(self, header: dict, payload: bytes) -> None:
+        t = header.get("t")
+        if t == "meta":
+            self._meta(header)
+        elif t == "pic":
+            if not self._open:
+                raise BadMessage("a picture before the window's size was known")
+            self.frame.draw(regions(header, payload))
+            # Acknowledged only once it is actually shown: that is what paces
+            # home, so a slow frame gets a slower but current window.
+            self.ch.send(pack({"t": "ack", "n": int(header.get("n") or 0)}))
+        elif t == "gone":
+            self.stop(str(header.get("why") or GONE)[:32])
+
+    def _meta(self, header: dict) -> None:
+        title = header.get("title")
+        if isinstance(title, str):
+            self.title = title[:256]
+        w, h = _side(header.get("w")), _side(header.get("h"))
+        if w and h:
+            self.size = (w, h)
+        if not self._open:
+            if not self.size:
+                raise BadMessage("the window's size never came")
+            self.frame.open(self.title or "", *self.size)
+            self._open = True
+            self.ch.send(pack({"t": "ready"}))
+        else:
+            self.frame.retitle(self.title or "")
+
+    def _send_events(self) -> None:
+        """What the person does in the frame, on to home."""
+        try:
+            while not self._stop:
+                try:
+                    event = self.frame.events.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+                if event is None:
+                    break
+                self.ch.send(pack(event))
+        except ChannelError:
+            self.stop(DROPPED)
+        except Exception as e:
+            self.stop(FAILED)
+            self.log(f"sending what you did to the window failed: {e!r}")
 
 
 class BinChannel:
