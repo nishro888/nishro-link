@@ -383,6 +383,22 @@ def plain_channel(sock) -> "BinChannel":
     return BinChannel(sock, _Plain(), _Plain())
 
 
+# A frame from the part in the session that is a line for the log, not
+# something to pass on. Recognised by its first bytes rather than by
+# unpacking every frame: pictures go this way too, and their headers are the
+# biggest thing on the channel. pack() writes "t" first, so this is exactly
+# what one of these frames begins with.
+LOG_FRAME = b'{"t":"host_log"'
+
+
+def host_log(message: str) -> bytes:
+    """A line for the service's log, from the part of Nishro Link that has a
+    screen. It runs in the person's session, where its own output goes to the
+    system log at best and nowhere at all from a windowed build - which left
+    two real failures findable only with journalctl."""
+    return pack({"t": "host_log", "msg": str(message)[:400]})
+
+
 def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
     """Pass frames between two window channels until either ends.
 
@@ -398,7 +414,15 @@ def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
     def pump(src, dst, which):
         try:
             while True:
-                dst.send(src.recv())
+                frame = src.recv()
+                if which == "out" and frame[_HDR.size:_HDR.size + len(LOG_FRAME)]                         == LOG_FRAME:
+                    try:
+                        log(f"the window's own part: "
+                            f"{unpack(frame)[0].get('msg', '')}")
+                    except ChannelError:
+                        pass
+                    continue
+                dst.send(frame)
         except ChannelError:
             pass
         except Exception as e:

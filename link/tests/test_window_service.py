@@ -352,3 +352,32 @@ def test_a_helper_that_says_nothing_still_gets_a_plain_reason(monkeypatch):
     assert "is anyone signed in" in why
     far.close()
     near.close()
+
+
+def test_whatever_the_helper_printed_reaches_our_log():
+    """It runs in the person's session, so its own output goes to the system
+    log at best and nowhere at all from a windowed build - which is why the
+    first two real failures could only be found with journalctl."""
+    import io
+
+    class Chatty(FakeHelper):
+        def launch(self, port, token, kind, which, whose, log):
+            proc = super().launch(port, token, kind, which, whose, log)
+            proc.stdout = io.BytesIO(b"no window could be opened here: "
+                                     b"no display name and no $DISPLAY\n")
+            return proc
+
+    far, near = net_pair()
+    helper = Chatty()
+    said = []
+    threading.Thread(target=lambda: window_service.attach(
+        near, "show", "1", "laptop", log=said.append,
+        launch=helper.launch), daemon=True).start()
+    assert helper.ready.wait(10)
+    far.close()
+    near.close()
+    end = time.monotonic() + 8
+    while time.monotonic() < end and not any("the window's own part" in m
+                                             for m in said):
+        time.sleep(0.05)
+    assert any("no $DISPLAY" in m for m in said), f"said: {said}"

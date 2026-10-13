@@ -193,6 +193,17 @@ def one_window(port: int, token: str, kind: str, which: str, whose: str,
         # Whether this can be done at all is decided here, where the windows
         # are, and sent back so the person is told why rather than left with
         # a window that never appears.
+        # From here its log goes to the service, which can see it - this
+        # process cannot: in the session its output reaches the system log at
+        # best, and nothing at all from a windowed build.
+        said = log
+
+        def log(message):
+            said(message)
+            try:
+                ch.send(winmove.host_log(message))
+            except Exception:
+                pass
         why = can_lend_this(which) if kind == "lend" else ""
         ch.send(winmove.pack({"t": "host_ready", "ok": not why, "why": why}))
         if why:

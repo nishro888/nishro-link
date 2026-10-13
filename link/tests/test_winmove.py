@@ -5,6 +5,7 @@ The full feature is designed in docs/moving-windows.md; this is stage 2's
 foundation - no real window yet, just the pipe and that it is safe."""
 import socket
 import struct
+import time
 import threading
 
 import pytest
@@ -514,3 +515,57 @@ def test_the_record_makes_its_folder_if_it_has_to(tmp_path):
     r = winmove.Rescue(tmp_path / "deeper" / "still" / "moved.json")
     r.remember(1, {"a": 1})
     assert set(r.pending()) == {"1"}
+
+
+# ------------------------------- the part with a screen can reach our log
+def test_a_log_line_from_the_session_is_logged_not_passed_on():
+    """The part of Nishro Link that shows a window runs where its own output
+    goes nowhere the service can read, so it sends lines back on the channel.
+    Those must reach the log and NOT be passed to the other computer."""
+    import threading
+    hub, away = _pair()                      # "hub" = the network side here
+    net_a, net_b = _pair()
+    said = []
+    threading.Thread(target=lambda: winmove.relay(net_a, away, log=said.append),
+                     daemon=True).start()
+    try:
+        hub.send(winmove.host_log("no window could be opened here"))
+        end = time.monotonic() + 8
+        while time.monotonic() < end and not said:
+            time.sleep(0.02)
+        assert any("no window could be opened here" in m for m in said), said
+        # and nothing was forwarded to the other computer
+        net_b.sock.settimeout(0.5)
+        with pytest.raises(ChannelError):
+            net_b.recv()
+    finally:
+        for ch in (hub, away, net_a, net_b):
+            ch.close()
+
+
+def test_everything_else_is_passed_on_untouched():
+    import threading
+    hub, away = _pair()
+    net_a, net_b = _pair()
+    threading.Thread(target=lambda: winmove.relay(net_a, away, log=lambda *_: None),
+                     daemon=True).start()
+    try:
+        hub.send(winmove.pack({"t": "ack", "n": 3}))
+        got, _ = winmove.unpack(net_b.recv())
+        assert got == {"t": "ack", "n": 3}
+    finally:
+        for ch in (hub, away, net_a, net_b):
+            ch.close()
+
+
+def test_a_log_frame_says_what_it_is_in_its_first_bytes():
+    """Recognised without unpacking, because pictures come this way too and
+    their headers are the biggest thing on the channel."""
+    frame = winmove.host_log("hello")
+    assert frame[2:2 + len(winmove.LOG_FRAME)] == winmove.LOG_FRAME
+    assert winmove.unpack(frame)[0]["msg"] == "hello"
+
+
+def test_a_very_long_log_line_is_cut_rather_than_refused():
+    frame = winmove.host_log("x" * 5000)
+    assert len(winmove.unpack(frame)[0]["msg"]) <= 400

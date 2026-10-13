@@ -84,6 +84,7 @@ def attach(net, kind: str, which: str, whose: str, log=None,
         return ""
     finally:
         _end(proc, log)
+        _say_what_it_said(proc, log)
 
 
 def self_command():
@@ -137,7 +138,8 @@ def _launch_windows(args, log):
             f"starting it here instead")
     # Not the service - run from source, or in the window: this process is
     # already in the session, so just start it.
-    return subprocess.Popen(args, creationflags=_NO_WINDOW)
+    return subprocess.Popen(args, creationflags=_NO_WINDOW,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
 
 def _launch_linux(args, log):
@@ -154,7 +156,8 @@ def _launch_linux(args, log):
             return None
         args = session.command(args, who,
                                extra_env={"PYTHONPATH": str(_package_parent())})
-    return subprocess.Popen(args, stderr=subprocess.PIPE)
+    return subprocess.Popen(args, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
 
 
 # How long the helper is given to put the window back by itself before it is
@@ -162,6 +165,26 @@ def _launch_linux(args, log):
 # while it holds one leaves that window invisible until Nishro Link next
 # starts - which is exactly what happened before this wait existed.
 GOODBYE_S = 8.0
+
+
+def _say_what_it_said(proc, log) -> None:
+    """Put whatever the helper printed into Nishro Link's own log.
+
+    It runs in the person's session, so its output goes to the system log at
+    best and nowhere at all from a windowed build - which meant the first two
+    real failures could only be found with journalctl. Read once it has
+    finished, so nothing blocks on a pipe.
+    """
+    stream = getattr(proc, "stdout", None) or getattr(proc, "stderr", None)
+    if stream is None:
+        return
+    try:
+        said = (stream.read() or b"").decode("utf-8", "replace")
+    except Exception:
+        return
+    for line in said.splitlines():
+        if line.strip():
+            log(f"the window's own part: {line.strip()[:300]}")
 
 
 def _never_came(proc, log) -> str:
@@ -173,7 +196,8 @@ def _never_came(proc, log) -> str:
     """
     said = ""
     try:
-        if getattr(proc, "stderr", None) is not None:
+        stream = getattr(proc, "stdout", None) or getattr(proc, "stderr", None)
+        if stream is not None:
             if not _gone(proc):
                 for step in ("terminate", "kill"):
                     try:
@@ -181,7 +205,7 @@ def _never_came(proc, log) -> str:
                         break
                     except Exception:
                         continue
-            said = (proc.stderr.read() or b"").decode("utf-8", "replace").strip()
+            said = (stream.read() or b"").decode("utf-8", "replace").strip()
     except Exception:
         said = ""
     if said:
