@@ -7,6 +7,7 @@ the state in the icon, notifications, and the Linux dock's right-click menu.
 What is decided is pure data (tray.state/menu/changes), so it is tested here
 on any system; the Windows menu builder is tested on Windows.
 """
+import time
 import sys
 
 import pytest
@@ -482,9 +483,9 @@ def test_nothing_about_windows_where_this_computer_cannot_do_it():
 def test_one_other_computer_gets_a_plain_entry():
     st = with_windows()
     items = tray.window_items(st)
-    assert any(i.get("label") == "Move a window to aio…"
+    assert any(i.get("label") == "Move the window in front to aio"
                and i.get("action") == "window:aio" for i in items)
-    assert "Move a window to aio…" in labels(st)
+    assert "Move the window in front to aio" in labels(st)
 
 
 def test_several_computers_get_a_submenu():
@@ -493,7 +494,7 @@ def test_several_computers_get_a_submenu():
         {"name": "aio", "me": False, "hub": False, "online": True},
         {"name": "desktop-1", "me": False, "hub": False, "online": True}])
     sub = [i for i in tray.window_items(st) if i.get("kind") == "sub"]
-    assert sub and sub[0]["label"] == "Move a window to"
+    assert sub and sub[0]["label"] == "Move the window in front to"
     assert [i["action"] for i in sub[0]["items"]] == ["window:aio",
                                                       "window:desktop-1"]
 
@@ -535,3 +536,98 @@ def test_a_status_from_an_older_service_says_nothing_about_windows():
                      "devices": []})
     assert st["move_windows"] is False
     assert tray.window_items(st) == []
+
+
+# ------------------------- the window entries actually do something when clicked
+class WindowAPI(FakeAPI):
+    """Answers the window commands, and remembers what it was asked."""
+
+    def __init__(self, s, windows=None, error=None):
+        super().__init__(s)
+        self.windows = windows if windows is not None else [
+            {"which": "111", "title": "Notepad"},
+            {"which": "222", "title": "A browser"}]
+        self.error = error
+        self.asked = []
+
+    def command(self, path, body):
+        self.asked.append((path, body))
+        if path == "/api/windows":
+            return {"windows": self.windows}
+        if path == "/api/window/move":
+            return {"error": self.error} if self.error else {"ok": True}
+        if path == "/api/window/home":
+            return {"ok": True, "brought_home": 2}
+        return super().command(path, body)
+
+
+def window_status():
+    return {"enabled": True, "connected": True, "role": "hub",
+            "move_windows": True, "windows_here": ["home", "away"],
+            "devices": [{"name": "laptop", "me": True, "hub": True, "online": True},
+                        {"name": "aio", "me": False, "hub": False, "online": True}]}
+
+
+def test_clicking_move_sends_the_window_in_front():
+    """The entry used to be drawn and do nothing at all - the action was
+    never wired up."""
+    api = WindowAPI(window_status())
+    t, ui = make(api)
+    t.poll_once()
+    t._move_a_window("aio")
+    assert ("/api/windows", {}) in api.asked
+    assert ("/api/window/move", {"which": "111", "device": "aio"}) in api.asked, \
+        f"asked: {api.asked}"
+    assert ui.notes, "the person was not told it happened"
+
+
+def test_the_window_in_front_is_the_first_one_offered():
+    """The list comes back frontmost first, and that is the one meant by
+    "the window in front"."""
+    api = WindowAPI(window_status(), windows=[{"which": "999", "title": "On top"},
+                                              {"which": "111", "title": "Behind"}])
+    t, ui = make(api)
+    t.poll_once()
+    t._move_a_window("aio")
+    moved = [b for p, b in api.asked if p == "/api/window/move"]
+    assert moved == [{"which": "999", "device": "aio"}]
+
+
+def test_with_no_window_to_move_the_person_is_told_not_left_wondering():
+    api = WindowAPI(window_status(), windows=[])
+    t, ui = make(api)
+    t.poll_once()
+    t._move_a_window("aio")
+    assert not [p for p, _b in api.asked if p == "/api/window/move"]
+    assert ui.notes, "nothing was said"
+
+
+def test_a_refusal_is_shown_to_the_person():
+    api = WindowAPI(window_status(), error="aio is not connected")
+    t, ui = make(api)
+    t.poll_once()
+    t._move_a_window("aio")
+    assert ui.notes, "the reason was not shown"
+
+
+def test_clicking_bring_windows_home_asks_for_them_back():
+    api = WindowAPI(window_status())
+    t, ui = make(api)
+    t.poll_once()
+    t.act("windows-home")
+    assert ("/api/window/home", {}) in api.asked
+    assert ui.notes, "the person was not told"
+
+
+def test_the_move_action_is_recognised_from_the_menu_item():
+    """The menu puts the device's name in the action; act() must take it."""
+    api = WindowAPI(window_status())
+    t, ui = make(api)
+    t.poll_once()
+    items = tray.window_items(tray.state(window_status()))
+    action = next(i["action"] for i in items if (i.get("action") or "").startswith("window:"))
+    assert action == "window:aio"
+    t.act(action)
+    time.sleep(0.5)                     # act() does the moving on a thread
+    assert any(p == "/api/window/move" for p, _b in api.asked), \
+        f"the action did nothing: {api.asked}"

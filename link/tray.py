@@ -112,10 +112,11 @@ def window_items(st: dict) -> list:
     if "home" in st["windows_here"] and others:
         if len(others) == 1:
             out.append({"kind": "item",
-                        "label": f"Move a window to {others[0]['name']}…",
+                        "label": f"Move the window in front to {others[0]['name']}",
                         "action": f"window:{others[0]['name']}", "enabled": live})
         else:
-            out.append({"kind": "sub", "label": "Move a window to", "enabled": live,
+            out.append({"kind": "sub", "label": "Move the window in front to",
+                    "enabled": live,
                         "items": [{"kind": "item", "label": d["name"],
                                    "action": f"window:{d['name']}",
                                    "enabled": live} for d in others]})
@@ -221,9 +222,52 @@ class Tray:
             elif action == "quit":
                 threading.Thread(target=self._quit, daemon=True).start()
                 return
+            elif action == "windows-home":
+                if api is None:
+                    return
+                got = api.command("/api/window/home", {}) or {}
+                how_many = got.get("brought_home") or 0
+                if how_many:
+                    self.ui.notify("Nishro Link",
+                                   f"{how_many} window(s) are back on this "
+                                   f"computer.")
+            elif str(action).startswith("window:"):
+                if api is None:
+                    return
+                threading.Thread(target=self._move_a_window,
+                                 args=(str(action)[len("window:"):],),
+                                 daemon=True).start()
+                return
         except Exception as e:
             self.ui.notify("Nishro Link", f"That didn't work: {e}")
         threading.Thread(target=self.poll_once, daemon=True).start()
+
+    def _move_a_window(self, device: str) -> None:
+        """Send the window in front to `device`.
+
+        The one in front, not one picked from a list: a tray menu cannot ask
+        - on Linux it is rebuilt as things change and would close under the
+        person reading it - and "the window I am looking at" is what anyone
+        means by this. The windows come back frontmost first.
+        """
+        try:
+            windows = (self.api.command("/api/windows", {}) or {}).get("windows") or []
+        except Exception as e:
+            self.ui.notify("Nishro Link", f"Could not look for windows: {e}")
+            return
+        if not windows:
+            self.ui.notify("Nishro Link",
+                           "No window on this computer can be moved just now.")
+            return
+        window = windows[0]
+        got = self.api.command("/api/window/move",
+                               {"which": window.get("which"),
+                                "device": device}) or {}
+        if got.get("error"):
+            self.ui.notify("Nishro Link", got["error"])
+        else:
+            title = (window.get("title") or "The window")[:60]
+            self.ui.notify("Nishro Link", f"{title} is now on {device}.")
 
     def _quit(self) -> None:
         """Quit Nishro Link: the service stops, then this tray goes - and this

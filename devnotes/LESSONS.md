@@ -55,6 +55,26 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   unsigned setup (same file name) could have replaced the signed one in the
   release. **Works:** download each finished set by name.
 
+- **An elevated process starts in system32.** `Start-Process -Verb RunAs`
+  with a relative script path runs nothing at all and exits 0xFFFD0000, with
+  no log because the script never began. Pass an absolute path, and
+  `-WorkingDirectory`.
+- **A windowed build has no console**, so `--flag` output looks empty when
+  run from one and works perfectly down a pipe. Judge such a thing by
+  redirecting it to a file, never by eye in a terminal.
+- **The service cannot see a desktop.** Anything that looks at windows has to
+  be asked of the session - and on Windows it must be *started* there
+  (`winsvc.launch_in_console`), where its output goes nowhere the service can
+  read. Hand the answer back over loopback with a one-use token, as a moved
+  window is handed over.
+- **Never kill a helper that holds something of the person's.** The process
+  that hides a window was killed as soon as its connection broke, so it never
+  restored the window. Close its channel, let it finish, and only insist
+  after that.
+- **A menu item with no handler is drawn and does nothing.** Two tray entries
+  shipped that way until they were clicked in a test. A new menu entry needs
+  a test that calls `act()` with its action.
+
 ## Testing
 
 - **A socket round-trip of more than a buffer's worth deadlocks in one

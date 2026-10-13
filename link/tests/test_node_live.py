@@ -599,17 +599,30 @@ def wiretap():
     return seen, lambda: setattr(proto, "encode", real)
 
 
-def test_the_password_is_never_sent(pair):
+# A password no hex digest or base64 blob can contain by chance: every word
+# has letters outside a-f, and it is long. The first version of the test
+# below looked for "5813" in the traffic while the pair had NO password set,
+# so it proved nothing at all - and the one way it could fail was those four
+# digits turning up inside a nonce, which is exactly what eventually
+# happened. A password that cannot collide is the whole point.
+SECRET = "zebra-quilt-vortex-jigsaw"
+
+
+def test_the_password_is_never_sent():
     """A passive listener on the LAN must learn nothing they can reuse. The old
     handshake put the PIN in hello in the clear."""
+    p = Pair(pin=SECRET)
     seen, restore = wiretap()
     try:
-        pair.start().connected()
+        p.start().connected()
         time.sleep(0.3)
     finally:
         restore()
+        p.stop()
     blob = json.dumps(seen)
-    assert "5813" not in blob, "the password appeared on the wire"
+    assert SECRET not in blob, "the password appeared on the wire"
+    for word in SECRET.split("-"):
+        assert word not in blob, f"part of the password ({word}) was on the wire"
     assert any(m.get("t") == "auth" for m in seen), "nobody was challenged"
     assert any(m.get("t") == "hello" and m.get("proof") for m in seen)
     assert any(m.get("t") == "welcome" and m.get("proof") for m in seen)

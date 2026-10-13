@@ -192,6 +192,10 @@ def test_bringing_windows_home_closes_the_frame(moving):
     wait(lambda: ("aio", "w4") in moving.frames, "the frame")
     frame = moving.frames[("aio", "w4")]
     wait(lambda: frame.drawn, "a picture")
+    # The hub registers the window when the member's connection reaches it,
+    # which is its own moment - wait for it rather than assume it has
+    # happened, or a busy machine fails this for no good reason.
+    wait(lambda: moving.hub.windows_away, "the hub to have it on its list")
     assert moving.hub.bring_windows_home() == 1
     wait(lambda: frame.closed, "the frame to be taken away")
 

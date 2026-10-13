@@ -11,6 +11,8 @@ import socket
 import threading
 import time
 
+import pytest
+
 
 from link import winmove, window_service
 
@@ -210,20 +212,24 @@ def test_listing_the_windows_never_raises(monkeypatch):
     """It is for a tray menu: an empty list is fine, an exception is not."""
     monkeypatch.setattr(window_service, "IN_SERVICE", True)
 
-    def broken(*a, **k):
+    def broken(log):
         raise OSError("the session said no")
-    said = []
-    assert window_service.windows_in_session(said.append, run=broken) == []
-    assert any("could not list" in m for m in said)
+    assert window_service.windows_in_session(ask=broken) == []
 
 
-def test_listing_the_windows_reads_what_the_session_printed(monkeypatch):
+def test_listing_the_windows_asks_the_session_when_it_is_the_service(monkeypatch):
+    """The service has no desktop, so it must ask - and the answer comes
+    back over loopback, not on standard output, which on Windows goes
+    nowhere the service could read."""
     monkeypatch.setattr(window_service, "IN_SERVICE", True)
+    assert window_service.windows_in_session(
+        ask=lambda log: [("12", "Notepad")]) == [("12", "Notepad")]
 
-    class Out:
-        stdout = 'something harmless first\n[["12", "Notepad"]]\n'
-    assert window_service.windows_in_session(run=lambda *a, **k: Out()) == \
-        [("12", "Notepad")]
+
+def test_listing_the_windows_looks_here_when_it_is_not_the_service(monkeypatch):
+    """Run from source, or in the window, this process IS the session."""
+    monkeypatch.setattr(window_service, "IN_SERVICE", False)
+    assert isinstance(window_service.windows_in_session(), list)
 
 
 def test_a_window_the_session_says_cannot_move_is_reported():
@@ -236,5 +242,113 @@ def test_a_window_the_session_says_cannot_move_is_reported():
     # and the other computer is told, so no frame is left waiting
     got, _ = winmove.unpack(far.recv())
     assert got["t"] == "gone"
+    far.close()
+    near.close()
+
+
+# ------------------------------- a helper is let finish, whatever shape it is
+class Popenish:
+    """What subprocess.Popen looks like: poll() and terminate()/kill()."""
+
+    def __init__(self, finishes_after=0.0):
+        self.started = time.monotonic()
+        self.after = finishes_after
+        self.killed = False
+
+    def poll(self):
+        return 0 if time.monotonic() - self.started >= self.after else None
+
+    def terminate(self):
+        self.killed = True
+
+    def kill(self):
+        self.killed = True
+
+
+class Winsvcish:
+    """What the Windows service's own launcher gives back (winsvc.Proc):
+    alive() and kill(), and NO wait() or terminate() at all."""
+
+    def __init__(self, finishes_after=0.0):
+        self.started = time.monotonic()
+        self.after = finishes_after
+        self.killed = False
+
+    def alive(self):
+        return time.monotonic() - self.started < self.after
+
+    def kill(self):
+        self.killed = True
+
+
+@pytest.mark.parametrize("shape", [Popenish, Winsvcish])
+def test_a_helper_that_finishes_by_itself_is_not_killed(shape):
+    """It may be holding a hidden window of someone else's: killing it before
+    it has put that window back leaves the window invisible."""
+    proc = shape(finishes_after=0.2)
+    window_service._end(proc, log=lambda *_: None)
+    assert proc.killed is False, "it was killed although it was finishing"
+
+
+@pytest.mark.parametrize("shape", [Popenish, Winsvcish])
+def test_a_helper_that_overstays_is_stopped(shape, monkeypatch):
+    monkeypatch.setattr(window_service, "GOODBYE_S", 0.3)
+    proc = shape(finishes_after=60)
+    said = []
+    window_service._end(proc, log=said.append)
+    assert proc.killed is True
+    assert any("has not finished" in m for m in said)
+
+
+def test_a_process_shape_we_do_not_know_is_not_waited_on_for_ever():
+    """Better to go on than to hang: nothing is left holding a window,
+    because its channel is already closed by this point."""
+
+    class Odd:
+        killed = False
+    window_service._end(Odd(), log=lambda *_: None)
+
+
+def test_no_helper_at_all_is_fine():
+    window_service._end(None)
+
+
+def test_a_helper_that_cannot_even_start_says_what_went_wrong(monkeypatch):
+    """Guessing "is anyone signed in?" hid the first real failure, which was
+    a module the helper could not import - only the system log knew."""
+    monkeypatch.setattr(window_service, "ACCEPT_TIMEOUT", 0.5)
+    far, near = net_pair()
+
+    class Broke:
+        """A helper that printed an error and died."""
+        def __init__(self):
+            import io
+            self.stderr = io.BytesIO(
+                b"Traceback...\nModuleNotFoundError: No module named 'link'\n")
+
+        def poll(self):
+            return 1
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    said = []
+    why = window_service.attach(near, "lend", "1", "aio", log=said.append,
+                                launch=lambda *a, **k: Broke())
+    assert "No module named 'link'" in why, why
+    assert any("failed to start" in m for m in said)
+    far.close()
+    near.close()
+
+
+def test_a_helper_that_says_nothing_still_gets_a_plain_reason(monkeypatch):
+    monkeypatch.setattr(window_service, "ACCEPT_TIMEOUT", 0.5)
+    far, near = net_pair()
+    helper = FakeHelper(speak=False)
+    why = window_service.attach(near, "lend", "1", "aio", launch=helper.launch)
+    assert "is anyone signed in" in why
     far.close()
     near.close()

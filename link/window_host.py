@@ -156,6 +156,29 @@ def show(which: str, whose: str, ch, log) -> str:
     return ""
 
 
+def send_list(port: int, token: str) -> str:
+    """Send the windows that could move to the service, over loopback.
+
+    Not printed: the service runs outside the session, so it cannot simply
+    start this and read what it wrote - on Windows it has to be started on
+    the person's desktop, where its output goes nowhere the service can see.
+    The same loopback-and-token way a moved window is handed over works for
+    a list too.
+    """
+    sock = socket.create_connection(("127.0.0.1", int(port)),
+                                    timeout=CONNECT_TIMEOUT)
+    ch = winmove.plain_channel(sock)
+    try:
+        ch.send(winmove.pack({"t": "host", "token": token, "kind": "list"}))
+        answer, _ = winmove.unpack(ch.recv())
+        if answer.get("t") != "host_ok":
+            return answer.get("msg") or "the service would not have us"
+        ch.send(winmove.pack({"t": "windows", "windows": movable()}))
+        return ""
+    finally:
+        ch.close()
+
+
 def one_window(port: int, token: str, kind: str, which: str, whose: str,
                log=print) -> str:
     """Connect to the service and see one moved window through."""

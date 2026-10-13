@@ -4,6 +4,47 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-14 - moving windows: built, and on both machines
+
+- **The whole Windows path, with the real helper, against a real window**
+  (test_window_host.py, 6 tests): offered, hidden only once the frame is up,
+  still drawing while hidden, driven, and home again - including home after
+  the connection breaks. Three real bugs came out of it, each of which would
+  have mattered:
+  - the helper was **killed** the instant the connection broke, so it never
+    put the window back: a dropped network would have left someone's window
+    invisible. It is now given 8 s to finish first;
+  - the undo record was written to the service's folder, which is locked to
+    SYSTEM and Administrators, so the helper (running as the person) failed -
+    **silently, inside the thread that hides the window**, leaving the window
+    unhidden with nothing in the log. It goes in the person's own folder now;
+  - whether a window can move can only be decided where the windows are, so
+    the helper says, and the person gets the reason.
+- **The frozen build was checked for the new paths** (all imported lazily, so
+  PyInstaller could have dropped them): the exe lists movable windows and
+  puts hidden ones back. A windowed build writes nothing to a console, so a
+  console test of it looks empty and means nothing - down a pipe it works,
+  which is how the service asks.
+- **Two things were dead on arrival and only found by using them:**
+  - the service, in session 0, listed **0 windows** - it has no desktop. It
+    now asks the session over loopback with a one-use token, the same way a
+    moved window is handed over; printing does not work because on Windows
+    the helper must be started on the person's desktop.
+  - the tray's window entries were drawn but **their actions were never
+    wired**, so clicking them did nothing at all. Wired, and tested (6 tests).
+    The entry moves the window in front, as first specified, rather than
+    opening a chooser a tray cannot show.
+- **Installed on both machines**, 1.2.0~dev:
+  - the laptop: `dev-install-windows.ps1` (elevated). An elevated process
+    starts in system32, so the first attempt ran nothing at all with a
+    relative script path - absolute paths for anything run elevated.
+    Service running, the AIO reconnected 5 s later, the switch on.
+  - the AIO: the `.deb` (c62a2aba4fb6f53c), service restarted, tray back as
+    the same user, reconnected within a second, and the switch on - set
+    through the control API, which logged "settings changed from the control
+    UI: move_windows".
+- Full suite 1,652 before the last two fixes; ruff clean throughout.
+
 ## 2026-10-13 (later) - moving windows: pictures and input, both measured
 
 - **Pictures need no library at all.** PNG written here with `zlib`

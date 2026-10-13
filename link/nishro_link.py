@@ -184,7 +184,8 @@ def build_parser():
     ap.add_argument("--window-host", nargs=5,
                     metavar=("PORT", "TOKEN", "KIND", "WHICH", "WHOSE"),
                     help=argparse.SUPPRESS)
-    ap.add_argument("--list-windows", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--list-windows", nargs="*", default=None,
+                    metavar=("PORT", "TOKEN"), help=argparse.SUPPRESS)
     ap.add_argument("--windows-back", action="store_true", help=argparse.SUPPRESS)
     # Run by the Windows setup wizard, elevated (wininstall.py).
     ap.add_argument("--install-service", action="store_true", help=argparse.SUPPRESS)
@@ -487,10 +488,16 @@ def main() -> int:
             return 2
         return 0
 
-    if args.list_windows:
-        # Asked of the session by the service, for the tray's menu.
-        import json
+    if args.list_windows is not None:
+        # Asked of the session by the service, for the tray's menu. With a
+        # port and a token it answers down a loopback channel, because the
+        # service cannot read what a program on someone's desktop prints.
         from . import window_host
+        if len(args.list_windows) >= 2:
+            why = window_host.send_list(int(args.list_windows[0]),
+                                        args.list_windows[1])
+            return 2 if why else 0
+        import json
         print(json.dumps(window_host.movable()))
         return 0
 
