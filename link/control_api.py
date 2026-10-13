@@ -260,10 +260,7 @@ class ControlAPI:
             "move_windows": bool(self.node.move_windows),
             # What this computer can actually do with windows, so the
             # settings page can say why the switch will not help here.
-            "windows_here": sorted(
-                [w for w, can in (("home", self.node.open_window is not None),
-                                  ("away", self.node.show_window is not None))
-                 if can]),
+            "windows_here": sorted(self.node.window_sides),
             "windows_away": [
                 {"which": key, "device": s.get("who"), "ours": bool(s.get("mine"))}
                 for key, s in sorted(self.node.windows_away.items())],
@@ -1022,7 +1019,7 @@ class ControlAPI:
     def _movable_windows(self) -> list:
         """The windows on this computer that could be shown on another, as
         [{"which", "title"}]. Empty where this system cannot move windows."""
-        if self.node.open_window is None or not self.node.move_windows:
+        if not self.node.move_windows or "home" not in self.node.window_sides:
             return []
         lister = getattr(self.node, "list_windows", None)
         if lister is None:

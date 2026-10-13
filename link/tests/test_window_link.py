@@ -29,33 +29,33 @@ class Moving:
         for node, can in ((self.hub, hub_can), (self.aio, member_can)):
             node.move_windows = can
             if can:
-                node.open_window = self._lender(node)
-                node.show_window = self._shower(node)
+                node.window_sides = ("home", "away")
+                node.serve_window = self._server(node)
 
     def _log_for(self, node):
         which = "hub" if node is self.hub else "aio"
         return self.pair.logs[which].append
 
-    def _lender(self, node):
-        def open_window(which, for_whom):
-            win = self.windows.get(which)
-            if win is None:
-                return None
-            s = winmove.HomeSession(None, win, raw_encode,
-                                    log=self._log_for(node))
-            self.sessions.append(s)
-            return s
-        return open_window
-
-    def _shower(self, node):
-        def show_window(which, from_whom):
+    def _server(self, node):
+        """Stands in for the part of Nishro Link that has a screen: it runs
+        the real sessions, against a fake window and a fake frame."""
+        def serve(ch, kind, which, whose):
+            if kind == "lend":
+                win = self.windows.get(which)
+                if win is None:
+                    return f"no window called {which}"
+                s = winmove.HomeSession(ch, win, raw_encode,
+                                        log=self._log_for(node))
+                self.sessions.append(s)
+                s.run()
+                return ""
             frame = FakeFrame()
             self.frames[(node.core.node, which)] = frame
-            s = winmove.AwaySession(None, frame,
-                                    log=self._log_for(node))
+            s = winmove.AwaySession(ch, frame, log=self._log_for(node))
             self.sessions.append(s)
-            return s
-        return show_window
+            s.run()
+            return ""
+        return serve
 
     def start(self):
         self.pair.start().connected()

@@ -840,9 +840,9 @@ def test_switching_it_off_brings_every_window_home(api):
 def test_the_status_says_what_this_computer_can_do_with_windows(api):
     """So the settings page can say why the switch will not help here."""
     assert api.status()["windows_here"] == []
-    api.node.open_window = lambda which, who: None
+    api.node.window_sides = ("home",)
     assert api.status()["windows_here"] == ["home"]
-    api.node.show_window = lambda which, who: None
+    api.node.window_sides = ("home", "away")
     assert api.status()["windows_here"] == ["away", "home"]
 
 
@@ -876,7 +876,7 @@ def test_bringing_windows_home_says_how_many_there_were(api):
 def test_the_windows_that_could_move_are_listed_for_the_tray(api):
     assert api.command("/api/windows", {}) == {"windows": []}
     api.command("/api/config", {"move_windows": True})
-    api.node.open_window = lambda which, who: None
+    api.node.window_sides = ("home",)
     api.node.list_windows = lambda: [(123, "Notepad"), (456, "A browser")]
     assert api.command("/api/windows", {}) == {"windows": [
         {"which": "123", "title": "Notepad"},
@@ -885,7 +885,7 @@ def test_the_windows_that_could_move_are_listed_for_the_tray(api):
 
 def test_a_lister_that_breaks_does_not_break_the_tray(api):
     api.command("/api/config", {"move_windows": True})
-    api.node.open_window = lambda which, who: None
+    api.node.window_sides = ("home",)
     api.node.list_windows = lambda: 1 / 0
     assert api.command("/api/windows", {}) == {"windows": []}
 

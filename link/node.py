@@ -977,10 +977,14 @@ class Node:
         # both sides switch it on; the program fills these in, and a machine
         # that cannot do either side simply leaves them unset.
         self.move_windows = False     # the switch (R1)
-        self.open_window = None       # (which, for_whom) -> a HomeSession, at home
-        self.show_window = None       # (which, from_whom) -> an AwaySession, away
+        # (channel, "lend"|"show", which, whose) -> "" or why it could not.
+        # In the real program this relays to the part of Nishro Link that sits
+        # in the signed-in session, where windows and frames exist
+        # (window_service.attach); the tests put a pair of sessions here.
+        self.serve_window = None
+        self.window_sides = ()        # "home", "away", or both
         self.list_windows = None      # () -> [(which, title)] that could move
-        self.windows_away = {}        # id -> what we are showing or lending out
+        self.windows_away = {}        # key -> {"who", "mine"}
         self.window_peers = {}        # name -> will that computer move windows?
         self.on_invited = None        # (hub, hub_id, addr, port, secret, by) -> bool
         self.on_removed = None        # (by) - this device was removed from its group
@@ -1337,15 +1341,15 @@ class Node:
 
     def window_can_move(self) -> bool:
         """Is this computer willing and able to move windows either way?"""
-        return bool(self.move_windows and (self.open_window or self.show_window))
+        return bool(self.move_windows and self.serve_window and self.window_sides)
 
     def move_window_to(self, who: str, which) -> str:
         """Start showing one of OUR windows on `who`'s screen. "" if it is on
         its way, else why not."""
         if not self.move_windows:
             return "moving windows is switched off on this computer"
-        if self.open_window is None:
-            return "this computer cannot move its windows"
+        if not self.serve_window or "home" not in self.window_sides:
+            return "this computer cannot move its own windows"
         with self._links_lock:
             there = who in self.links
         if not there and who != self.trusted_peer:
@@ -1362,69 +1366,78 @@ class Node:
             self._send({"t": "wopen", "id": which_id, "to": who,
                         "from": self.core.node})
             return ""
-        return self._window_dial_out(which_id)
+        threading.Thread(target=self._window_out, args=(which_id, True),
+                         daemon=True, name="window-lend").start()
+        return ""
 
     def _peer_moves_windows(self, who: str) -> bool:
         return bool(self.window_peers.get(who))
 
     def bring_windows_home(self, who: str = None) -> int:
         """Bring every moved window back (R5, R6). How many there were."""
-        sessions = [(key, s) for key, s in list(self.windows_away.items())
-                    if who is None or s.get("who") == who]
-        for key, s in sessions:
-            session = s.get("session")
-            if session is not None:
-                session.stop(winmove.HOME)
+        keys = [k for k, s in list(self.windows_away.items())
+                if who is None or s.get("who") == who]
+        for key in keys:
+            ch = self.windows_away.get(key, {}).get("ch")
+            if ch is not None:
+                try:
+                    ch.close()        # the session on the other side ends, and
+                except Exception:     # the window comes home at both ends
+                    pass
             self.windows_away.pop(key, None)
         if who is None or self._peer_moves_windows(who):
             self._send({"t": "whome", "to": who} if who else {"t": "whome"})
-        return len(sessions)
+        return len(keys)
 
     def _window_serve(self, ch, who: str, want: dict) -> None:
-        """The hub's end of a window connection: either show a window the
-        member is lending us, or lend it one of ours."""
+        """Our end of a window connection, whichever way the window is going.
+
+        `mine` in the ask means the window belongs to whoever dialled, so we
+        are the one showing it; without it, they want to be shown one of ours.
+        """
         which = str(want.get("id") or "")
-        mine = bool(want.get("mine"))
+        theirs = bool(want.get("mine"))
+        kind = "show" if theirs else "lend"
+        whose = who if theirs else self.core.node
+        self._window_run(ch, kind, which, whose, who)
+
+    def _window_run(self, ch, kind: str, which: str, whose: str,
+                    with_whom: str) -> None:
+        """Hand one window to the part of Nishro Link that has a screen, and
+        keep it in the list while it is away."""
+        key = f"{whose}:{which}"
+        self.windows_away[key] = {"who": with_whom, "mine": kind == "lend",
+                                  "ch": ch}
         try:
-            if mine and self.show_window:
-                # The member's window, shown here.
-                self._window_show(ch, which, who)
-            elif not mine and self.open_window:
-                self._window_lend(ch, which, who)
-            else:
+            if not self.serve_window:
                 ch.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))
+                return
+            why = self.serve_window(ch, kind, which, whose)
+            if why:
+                self._log(f"the window could not be shown: {why}")
+            else:
+                self._log(f"the window is back on its own screen ({whose})")
         except (winmove.ChannelError, OSError) as e:
-            self._log(f"the window from {who} ended: {e}")
-
-    def _window_show(self, ch, which: str, who: str) -> None:
-        """Show a window that lives on `who`'s computer."""
-        session = self.show_window(which, who)
-        if session is None:
-            ch.send(winmove.pack({"t": "home"}))
-            return
-        self.windows_away[f"{who}:{which}"] = {"session": session, "who": who,
-                                               "mine": False}
-        try:
-            session.ch = ch
-            why = session.run()
-            self._log(f"the window from {who} is back on its own screen ({why})")
+            self._log(f"the window shared with {with_whom} ended: {e}")
+        except Exception as e:
+            self._log(f"the window shared with {with_whom} went wrong: {e!r}")
         finally:
-            self.windows_away.pop(f"{who}:{which}", None)
+            self.windows_away.pop(key, None)
+            try:
+                ch.close()
+            except Exception:
+                pass
 
-    def _window_lend(self, ch, which: str, who: str) -> None:
-        """Let `who` show one of our windows."""
-        session = self.open_window(which, who)
-        if session is None:
-            ch.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))
-            return
-        self.windows_away[f"us:{which}"] = {"session": session, "who": who,
-                                            "mine": True}
+    def _window_out(self, which: str, mine: bool, whose: str = None) -> None:
+        """A member dialling the hub for one window."""
         try:
-            session.ch = ch
-            why = session.run()
-            self._log(f"our window is back from {who} ({why})")
-        finally:
-            self.windows_away.pop(f"us:{which}", None)
+            ch, hub = self._window_channel(which, mine=mine)
+        except (winmove.ChannelError, OSError) as e:
+            self._log(f"could not move a window with {self.trusted_peer}: {e}")
+            return
+        kind = "lend" if mine else "show"
+        self._window_run(ch, kind, which, whose or (self.core.node if mine else hub),
+                         hub)
 
     def _window_channel(self, which: str, mine: bool):
         """A member's connection to the hub for one window, proved both ways
@@ -2934,10 +2947,11 @@ class Node:
                                      args=(msg.get("seq"),), daemon=True).start()
                     continue
                 if not hub and t == "wopen":
-                    # The hub is lending us a window: dial in for it.
+                    # The hub is lending us a window: dial in to be shown it.
                     threading.Thread(
-                        target=self._window_show_quietly,
-                        args=(str(msg.get("id") or ""), msg.get("from") or name),
+                        target=self._window_out,
+                        args=(str(msg.get("id") or ""), False,
+                              msg.get("from") or name),
                         daemon=True, name="window-show").start()
                     continue
                 if t == "whome":

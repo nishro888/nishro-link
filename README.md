@@ -139,6 +139,7 @@ by step with pictures.
 - **Windows and Linux only.** No macOS.
 - **Local network only** - not across the internet.
 - **Clipboard: text and images**; files don't cross yet.
+- **Moving a window** to the other computer is new and off by default; from a Linux computer it is not finished (the window shows there as well). Not for games or smooth video.
 - **Linux:** after a monitor is plugged in or out, restart Nishro Link on that
   computer for the pointer to use the new size (the arrangement updates on its
   own). *Find the pointer* works on GNOME only, for now.
@@ -156,6 +157,7 @@ by step with pictures.
 Ideas, in no fixed order - not promises:
 
 - files over the clipboard
+- moving a window from a Linux computer, and dragging one across the edge
 - monitor changes on Linux picked up without a restart
 - *Find the pointer* on KDE Plasma and other desktops
 - a code-signed Windows installer, and winget

@@ -357,6 +357,63 @@ class Rescue:
             pass
 
 
+class _Plain:
+    """Sealing that does not seal, for a channel that needs none.
+
+    Only ever used on a loopback connection between Nishro Link's own
+    processes on one computer - the service, which holds the network
+    connection and the password, and the part of it that sits in the
+    signed-in session, where the screen is. The network side of a moved
+    window is sealed as everything else is; adding a second layer between
+    two processes of the same program, on the same machine, would only cost
+    time. The loopback connection is protected the way the rest of that
+    channel is: nothing but this computer can reach it, and the other end
+    proves a token (agent.py).
+    """
+
+    def seal_bytes(self, plain: bytes) -> bytes:
+        return bytes(plain)
+
+    def open_bytes(self, raw: bytes) -> bytes:
+        return bytes(raw)
+
+
+def plain_channel(sock) -> "BinChannel":
+    """A window channel between two of this computer's own processes."""
+    return BinChannel(sock, _Plain(), _Plain())
+
+
+def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
+    """Pass frames between two window channels until either ends.
+
+    This is how a moved window reaches the screen on Windows, and will on
+    Linux: the service owns the network connection, because it holds the
+    password and the group, but it runs in a session with no desktop at all.
+    The part in the signed-in session owns the window and the frame. So the
+    service does the proving and the sealing and then simply passes frames
+    along, which on loopback costs a copy and nothing else.
+    """
+    log = log or (lambda *_: None)
+
+    def pump(src, dst, which):
+        try:
+            while True:
+                dst.send(src.recv())
+        except ChannelError:
+            pass
+        except Exception as e:
+            log(f"passing a window's frames {which} stopped: {e!r}")
+        finally:
+            for ch in (a, b):
+                ch.close()
+
+    there = threading.Thread(target=pump, args=(a, b, "in"), daemon=True,
+                             name="window-relay-in")
+    there.start()
+    pump(b, a, "out")
+    there.join(2)
+
+
 class HomeSession:
     """Home's end of one moved window: send what it looks like, play back what
     the person does to it away.

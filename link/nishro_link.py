@@ -178,6 +178,14 @@ def build_parser():
                     help="run without the application window (headless/service)")
     ap.add_argument("--agent", nargs=2, metavar=("PORT", "TOKEN"),
                     help=argparse.SUPPRESS)       # started by the Windows service
+    # One moved window, in the signed-in session: started by the service for
+    # each window, because a window and a frame only exist in a session
+    # (docs/moving-windows.md, window_host.py).
+    ap.add_argument("--window-host", nargs=5,
+                    metavar=("PORT", "TOKEN", "KIND", "WHICH", "WHOSE"),
+                    help=argparse.SUPPRESS)
+    ap.add_argument("--list-windows", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--windows-back", action="store_true", help=argparse.SUPPRESS)
     # Run by the Windows setup wizard, elevated (wininstall.py).
     ap.add_argument("--install-service", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--uninstall-service", action="store_true",
@@ -464,6 +472,34 @@ def main() -> int:
     if args.sharing or args.find_pointer or args.release_input:
         return one_shot(args)
 
+    # Moving windows: whether this process is the service decides where the
+    # part that shows a window has to be started (window_service.py).
+    from . import window_host, window_service
+    window_service.in_service(bool(args.service))
+
+    if args.window_host:
+        from . import window_host
+        port, token, kind, which, whose = args.window_host
+        why = window_host.one_window(int(port), token, kind, which, whose,
+                                     log=lambda m: print(m, flush=True))
+        if why:
+            print(why, flush=True)
+            return 2
+        return 0
+
+    if args.list_windows:
+        # Asked of the session by the service, for the tray's menu.
+        import json
+        from . import window_host
+        print(json.dumps(window_host.movable()))
+        return 0
+
+    if args.windows_back:
+        # R6: put back anything left hidden when we last stopped.
+        from . import window_host
+        print(window_host.put_windows_back(lambda m: print(m, flush=True)))
+        return 0
+
     if args.agent:
         # The Windows service's hands on the desktop that is showing (agent.py).
         from . import agent, winsvc
@@ -643,6 +679,17 @@ def _engine(args, cfg, stop=None) -> int:
              peer_id=None if cfg["hub"] else cfg.get("peer_id"))
     n.detect_desktop = desktop.detect          # notice monitors plugged in or out
     n.desktop_now = here
+
+    # Moving windows between computers (docs/moving-windows.md). The window
+    # itself and the frame live in the signed-in session, so the node hands
+    # each one to a helper started there and only passes frames along.
+    from . import window_host, window_service
+    n.move_windows = bool(cfg.get("move_windows", False))
+    n.serve_window = lambda ch, kind, which, whose: window_service.attach(
+        ch, kind, which, whose, log=log)
+    n.window_sides = (("home", "away") if window_host.can_lend() else ("away",))
+    n.list_windows = lambda: window_service.windows_in_session(log)
+    window_service.put_windows_back(log)       # R6, before anything hides one
     if hub is not None:
         from .clip import ClipboardSync
         n.detect_desktop = hub.desktop

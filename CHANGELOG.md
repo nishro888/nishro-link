@@ -8,6 +8,42 @@ release may add things, but never anything an older 1.x cannot speak. A change
 that breaks that would be 2.0. Before 1.0, in the betas, a minor version could
 change the protocol, and a group had to run the same minor version.
 
+## [Unreleased]
+
+Works with every 1.x.
+
+### Added
+- **Move a window to the other computer.** A program keeps running where it
+  is; its window appears on the other computer, live, and the mouse and
+  keyboard used over there drive it. It is the window that moves, not the
+  program, which is why a Windows program's window can appear on a Linux
+  screen. **Off until you switch it on**, on both computers
+  (Settings -> *Move windows between computers*), because a moved window's
+  pictures and what you type into it travel to the other computer - sealed
+  like everything else on the link, with keys of their own, on a connection
+  of their own so a window never holds up the pointer.
+  - From the tray: *Move a window to <computer>...*, or Win+Shift+Left/Right,
+    the keys that throw a window at the next monitor - carried on past the
+    last one. The same keys bring it back, as does *Bring windows home*.
+  - Away it is an ordinary window, saying where it came from
+    ("Notepad - from laptop"): move it, resize it, maximize it, type in it.
+    Its close button closes the program's window, as that button would at
+    home, so the program can still ask whether to save.
+  - **A window is never left invisible.** It comes home if the network drops,
+    if either computer's Nishro Link stops, restarts or is killed outright,
+    if the other computer locks, or if the switch goes off. What is needed to
+    put it back is written down before it is hidden, and anything still
+    hidden is restored the next time Nishro Link starts.
+  - Up to four windows at once. Typing and clicking feel immediate; the
+    picture updates fifteen to twenty-five times a second, so smooth video it
+    is not. Browsers and editors work; a game, or anything reading the mouse
+    and keyboard straight from the hardware, will not respond. Windows that
+    cannot move say which and why.
+  - Moving a window **from** Ubuntu is not finished: GNOME does not let one
+    program hide another's window, so for now such a window shows on the
+    other computer and stays on its own screen too. Moving one **to** Ubuntu
+    works fully.
+
 ## [1.1.0] - 2026-09-30
 
 Works with every 1.x.

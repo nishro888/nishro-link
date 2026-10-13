@@ -26,15 +26,16 @@ in the pictures match the numbered notes under them.
 9. [Everyday use](#9-everyday-use)
 10. [The tray icon and the dock](#10-the-tray-icon-and-the-dock)
 11. [Finding the pointer](#11-finding-the-pointer)
-12. [Getting your computer back](#12-getting-your-computer-back)
-13. [Managing devices](#13-managing-devices)
-14. [Settings](#14-settings)
-15. [Activity and logs](#15-activity-and-logs)
-16. [Help and About](#16-help-and-about)
-17. [Keyboard shortcuts](#17-keyboard-shortcuts)
-18. [Updating and uninstalling](#18-updating-and-uninstalling)
-19. [When something is wrong](#19-when-something-is-wrong)
-20. [Glossary](#20-glossary)
+12. [Moving a window to the other computer](#12-moving-a-window-to-the-other-computer)
+13. [Getting your computer back](#13-getting-your-computer-back)
+14. [Managing devices](#14-managing-devices)
+15. [Settings](#15-settings)
+16. [Activity and logs](#16-activity-and-logs)
+17. [Help and About](#17-help-and-about)
+18. [Keyboard shortcuts](#18-keyboard-shortcuts)
+19. [Updating and uninstalling](#19-updating-and-uninstalling)
+20. [When something is wrong](#20-when-something-is-wrong)
+21. [Glossary](#21-glossary)
 
 ---
 
@@ -523,7 +524,70 @@ except a circle round the pointer, **on whichever computer it is**:
 
 ---
 
-## 12. Getting your computer back
+## 12. Moving a window to the other computer
+
+**New, and off until you switch it on.** A program keeps running on its own
+computer; its window appears on the other one, live, and the mouse and
+keyboard you use over there drive it. It is the window that moves, not the
+program - which is why a Windows program can appear on a Linux screen at all.
+
+### Switching it on
+
+**Settings → Move windows between computers**, on *both* computers. Until both
+have it on, nothing moves. It is off to begin with because a moved window's
+pictures, and everything you type into it, travel to the other computer -
+encrypted, like everything else on the link, but it should still be your
+choice.
+
+### Moving one
+
+- **The tray icon → Move a window to <computer>…**, and pick the window.
+- Or **Win+Shift+Left/Right**, the same keys Windows uses to throw a window
+  at the next monitor - carried on past the last one, onto the next computer.
+
+The window disappears from the computer it belongs to and appears on the
+other, with that computer's own title bar, saying where it came from:
+**"Notepad - from laptop"**. Move it, resize it, maximize it, type in it, as
+you would any window there.
+
+### Bringing it back
+
+- **Win+Shift+** the arrow back towards its own computer.
+- Or **the tray icon → Bring windows home**.
+- It also comes back by itself if anything goes wrong: the network drops,
+  either computer's Nishro Link stops or restarts, the other computer locks,
+  or you switch the feature off. **A window is never left invisible** - even
+  if Nishro Link is killed outright, it puts the window back the next time it
+  starts.
+
+**The window's close button (×) closes the program's window**, exactly as that
+button would on its own computer - so the program may ask whether to save
+first. To get the window *back* without closing anything, use one of the ways
+above.
+
+### What to expect
+
+- **Up to four windows** away at once.
+- **Typing and clicking feel immediate.** Smooth video does not: the window
+  updates about fifteen to twenty-five times a second, less for a very large
+  window on a slower computer.
+- **Most programs work**, browsers and editors included. A **game**, or
+  anything that reads the mouse and keyboard straight from the hardware, will
+  not respond in a moved window.
+- **Some windows cannot move**, and Nishro Link says which and why: a
+  minimized one (it stops drawing altogether), a toolbar or panel, anything
+  belonging to Windows itself, and Nishro Link's own windows.
+
+### From a Linux computer
+
+Moving windows **from** Ubuntu is not finished yet. GNOME does not let one
+program hide or take over another's window, so for now a window shared from
+Linux appears on the other computer **and stays on its own screen as well**.
+Moving windows **to** Linux works fully.
+
+---
+
+## 13. Getting your computer back
 
 Nishro Link gives every computer back its own mouse and keyboard whenever
 anything is in doubt: when a connection drops, a device leaves, or the program
@@ -534,7 +598,7 @@ stops. You can also do it yourself at any time:
 
 ---
 
-## 13. Managing devices
+## 14. Managing devices
 
 Everything about the group is on **Devices**:
 
@@ -600,7 +664,7 @@ it and type the group's new password.
 
 ---
 
-## 14. Settings
+## 15. Settings
 
 ![Settings, top](manual/settings-top.png)
 
@@ -631,7 +695,7 @@ it and type the group's new password.
 
 ---
 
-## 15. Activity and logs
+## 16. Activity and logs
 
 ![The Activity page](manual/activity.png)
 
@@ -651,7 +715,7 @@ or what you type.
 
 ---
 
-## 16. Help and About
+## 17. Help and About
 
 ![Help](manual/help.png)
 
@@ -671,7 +735,7 @@ or what you type.
 
 ---
 
-## 17. Keyboard shortcuts
+## 18. Keyboard shortcuts
 
 | Keys | Does |
 |---|---|
@@ -699,7 +763,7 @@ settings.
 
 ---
 
-## 18. Updating and uninstalling
+## 19. Updating and uninstalling
 
 **Updating.** Install the new version the same way as the first time: run the new
 setup on Windows, install the new `.deb` on Linux. Your devices and arrangement
@@ -719,7 +783,7 @@ sudo apt purge nishro-link      # removes the settings and the log too
 
 ---
 
-## 19. When something is wrong
+## 20. When something is wrong
 
 **The window shows a red banner: "Windows Firewall is blocking Nishro Link".**
 Windows added a rule blocking it, usually after its own "allow access" question
@@ -774,7 +838,7 @@ with **Help → Copy details** from each computer.
 
 ---
 
-## 20. Glossary
+## 21. Glossary
 
 | Word | Meaning |
 |---|---|
