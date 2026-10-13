@@ -35,6 +35,7 @@ _HDR = struct.Struct(">H")              # the header's length inside a frame
 MAX_SIDE = 8192                 # pixels; no real window is wider or taller
 MAX_REGIONS = 256               # changed rectangles in one picture, at most
 AHEAD = 2                       # pictures sent and not yet shown, at most
+MOST_AWAY = 4                   # windows on another screen at once (R8)
 TILE = 64                       # pictures are compared in squares this big
 CODECS = ("jpeg", "png", "raw")
 

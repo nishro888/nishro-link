@@ -450,3 +450,88 @@ def test_a_second_tray_exits_at_once(desktop):
 def test_a_desktop_without_a_tray_is_not_an_error(desktop, monkeypatch):
     desktop.ui = None
     assert tray.run(log=lambda *a: None) == 0
+
+
+# ---------------------------------------- moving windows between computers
+def with_windows(**extra):
+    """A status with the feature switched on and a device online."""
+    s = {"enabled": True, "connected": True, "role": "hub",
+         "devices": [{"name": "laptop", "me": True, "hub": True, "online": True},
+                     {"name": "aio", "me": False, "hub": False, "online": True}],
+         "move_windows": True, "windows_here": ["home", "away"]}
+    s.update(extra)
+    return tray.state(s)
+
+
+def labels(st):
+    return [i.get("label") for i in tray.menu(st)]
+
+
+def test_nothing_about_windows_until_the_switch_is_on():
+    """Someone who has not turned it on should not be asked to wonder about
+    it - nothing shown, rather than something greyed out."""
+    st = with_windows(move_windows=False)
+    assert tray.window_items(st) == []
+    assert not any("window" in (lbl or "").lower() for lbl in labels(st))
+
+
+def test_nothing_about_windows_where_this_computer_cannot_do_it():
+    assert tray.window_items(with_windows(windows_here=[])) == []
+
+
+def test_one_other_computer_gets_a_plain_entry():
+    st = with_windows()
+    items = tray.window_items(st)
+    assert any(i.get("label") == "Move a window to aio…"
+               and i.get("action") == "window:aio" for i in items)
+    assert "Move a window to aio…" in labels(st)
+
+
+def test_several_computers_get_a_submenu():
+    st = with_windows(devices=[
+        {"name": "laptop", "me": True, "hub": True, "online": True},
+        {"name": "aio", "me": False, "hub": False, "online": True},
+        {"name": "desktop-1", "me": False, "hub": False, "online": True}])
+    sub = [i for i in tray.window_items(st) if i.get("kind") == "sub"]
+    assert sub and sub[0]["label"] == "Move a window to"
+    assert [i["action"] for i in sub[0]["items"]] == ["window:aio",
+                                                      "window:desktop-1"]
+
+
+def test_a_computer_that_is_offline_is_not_offered():
+    st = with_windows(devices=[
+        {"name": "laptop", "me": True, "hub": True, "online": True},
+        {"name": "aio", "me": False, "hub": False, "online": False}])
+    assert not any("aio" in (i.get("label") or "") for i in tray.window_items(st))
+
+
+def test_windows_already_away_can_be_brought_home():
+    st = with_windows(windows_away=[{"which": "us:1", "device": "aio",
+                                     "ours": True}])
+    items = tray.window_items(st)
+    assert any(i.get("label") == "1 window is on another screen" for i in items)
+    assert any(i.get("action") == "windows-home" for i in items)
+
+
+def test_the_count_of_windows_away_reads_properly():
+    st = with_windows(windows_away=[{"which": "us:1"}, {"which": "us:2"}])
+    assert any(i.get("label") == "2 windows are on another screen"
+               for i in tray.window_items(st))
+
+
+def test_bringing_home_is_offered_even_with_nowhere_left_to_send_one():
+    """A window is away and the other computer has since gone offline: the
+    person must still be able to ask for it back."""
+    st = with_windows(
+        devices=[{"name": "laptop", "me": True, "hub": True, "online": True},
+                 {"name": "aio", "me": False, "hub": False, "online": False}],
+        windows_away=[{"which": "us:1", "device": "aio", "ours": True}])
+    assert any(i.get("action") == "windows-home" for i in tray.window_items(st))
+
+
+def test_a_status_from_an_older_service_says_nothing_about_windows():
+    """N6: the tray must not assume the service knows about any of this."""
+    st = tray.state({"enabled": True, "connected": True, "role": "hub",
+                     "devices": []})
+    assert st["move_windows"] is False
+    assert tray.window_items(st) == []

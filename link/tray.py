@@ -49,7 +49,11 @@ def state(s) -> dict:
                 "me": bool(d.get("me")), "hub": bool(d.get("hub"))} for d in devs]
     return {"icon": icon, "header": header, "tooltip": f"Nishro Link - {header}",
             "sharing": bool(s.get("enabled")), "devices": devices,
-            "notify": bool(s.get("notify", True)), "reachable": True}
+            "notify": bool(s.get("notify", True)), "reachable": True,
+            # Moving windows between computers (docs/moving-windows.md).
+            "move_windows": bool(s.get("move_windows")),
+            "windows_here": list(s.get("windows_here") or []),
+            "windows_away": list(s.get("windows_away") or [])}
 
 
 def device_label(d: dict) -> str:
@@ -82,12 +86,47 @@ def menu(st: dict) -> list:
         {"kind": "item", "label": "Release input", "action": "release", "enabled": live},
         {"kind": "sep"},
         {"kind": "sub", "label": "Devices", "items": devices, "enabled": True},
+    ] + window_items(st) + [
         {"kind": "sep"},
         {"kind": "item", "label": "Open Nishro Link", "action": "open", "enabled": True,
          "default": True},
         {"kind": "item", "label": "Hide this icon", "action": "hide", "enabled": True},
         {"kind": "item", "label": "Quit Nishro Link", "action": "quit", "enabled": True},
     ]
+
+
+def window_items(st: dict) -> list:
+    """The menu's part for moving windows between computers, or nothing at
+    all where the switch is off or this computer cannot do it.
+
+    Nothing is shown rather than something greyed out: a person who has not
+    turned the feature on should not be asked to wonder about it. The
+    settings page is where it is switched on.
+    """
+    if not st.get("move_windows") or not st.get("windows_here"):
+        return []
+    live = st["reachable"]
+    others = [d for d in st["devices"] if not d["me"] and d["online"]]
+    away = st.get("windows_away") or []
+    out = [{"kind": "sep"}]
+    if "home" in st["windows_here"] and others:
+        if len(others) == 1:
+            out.append({"kind": "item",
+                        "label": f"Move a window to {others[0]['name']}…",
+                        "action": f"window:{others[0]['name']}", "enabled": live})
+        else:
+            out.append({"kind": "sub", "label": "Move a window to", "enabled": live,
+                        "items": [{"kind": "item", "label": d["name"],
+                                   "action": f"window:{d['name']}",
+                                   "enabled": live} for d in others]})
+    if away:
+        what = ("1 window is on another screen" if len(away) == 1
+                else f"{len(away)} windows are on another screen")
+        out.append({"kind": "item", "label": what, "action": None,
+                    "enabled": False})
+        out.append({"kind": "item", "label": "Bring windows home",
+                    "action": "windows-home", "enabled": live})
+    return out if len(out) > 1 else []
 
 
 def changes(before: dict, after: dict) -> list:

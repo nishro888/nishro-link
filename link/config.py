@@ -41,6 +41,10 @@ DEFAULTS = {
     "pin": "",
     "find_on_shake": True,   # shaking the mouse shows where the pointer is
     "notify": True,          # the tray says when a device connects or drops out
+    # Moving windows between computers (docs/moving-windows.md). Off by
+    # default (R1): a moved window's pictures and what is typed into it
+    # travel to the other computer, so it is the person's choice to make.
+    "move_windows": False,
     "policy": {
         "may_drive": True,       # may this machine take control?
         "may_be_driven": True,   # may others inject here?

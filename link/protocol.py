@@ -204,7 +204,8 @@ def hello(node: str, screens, policy: dict = None, pin: str = "",
           resume: str = None, proof: str = None, chal: str = None,
           dev_id: str = None, join: bool = False, invite: bool = False,
           probe: bool = False, version: str = None, dh: str = None,
-          files: dict = None) -> dict:
+          files: dict = None, window: dict = None,
+          windows: bool = False) -> dict:
     """Both peers send this; neither is 'the client'.
 
     `proof` answers the listener's challenge; `chal` is our own challenge for it
@@ -241,15 +242,23 @@ def hello(node: str, screens, policy: dict = None, pin: str = "",
         ev["dh"] = dh
     if files:
         ev["files"] = dict(files)       # {"want": "pull"|"push", "seq": n}
+    if window:
+        ev["window"] = dict(window)     # {"id": n} - a moved window's channel
+    if windows:
+        ev["windows"] = True            # this computer will move windows (R1)
     return ev
 
 
 def welcome(node: str, epoch: int, holder: str, layout: dict, screen: str,
             x: int = 0, y: int = 0, resumed: bool = False,
-            session: str = None, proof: str = None) -> dict:
+            session: str = None, proof: str = None, windows: bool = False) -> dict:
     ev = {"t": "welcome", "v": VERSION, "node": node, "epoch": int(epoch),
           "holder": holder, "layout": layout, "screen": screen,
           "x": int(x), "y": int(y), "resumed": bool(resumed)}
+    if windows:
+        # This computer will move windows to and from the other (R1). Absent
+        # on an older peer, which is how it says it cannot (N6).
+        ev["windows"] = True
     if session:
         ev["session"] = session
     if proof:
