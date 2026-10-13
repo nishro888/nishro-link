@@ -423,8 +423,12 @@ def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
                         pass
                     continue
                 dst.send(frame)
-        except ChannelError:
-            pass
+        except ChannelError as e:
+            # Said, not swallowed: which way stopped first, and why, is the
+            # only thing that distinguishes "the other computer let go" from
+            # "the part with the screen did", and both look the same from
+            # the far end once both channels are closed.
+            log(f"the window's frames stopped going {which}: {e}")
         except Exception as e:
             log(f"passing a window's frames {which} stopped: {e!r}")
         finally:

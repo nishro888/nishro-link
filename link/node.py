@@ -1448,6 +1448,14 @@ class Node:
         if link is None or not isinstance(link.addr, tuple):
             raise winmove.ChannelError("not connected")
         sock = socket.create_connection(link.addr, timeout=5)
+        # The five seconds were for CONNECTING. Left on the socket they
+        # become a read timeout, and a moved window that nobody is touching
+        # sends nothing for far longer than that - so every window came home
+        # after exactly five seconds, looking for all the world as though
+        # the other computer had let go. A window channel waits as long as
+        # it takes; that the other end is still there is the link's business,
+        # and the end of this one is seen as the end of the connection.
+        sock.settimeout(None)
         ch = protocol.LineChannel(sock)
         try:
             greet = ch.recv()

@@ -73,7 +73,17 @@ def attach(net, kind: str, which: str, whose: str, log=None,
             host.send(winmove.pack({"t": "host_ok"}))
             # It looks at the window - which only it can do - and says
             # whether this is possible at all before anything else happens.
-            ready, _ = winmove.unpack(host.recv())
+            # Lines for the log may come first and must not be mistaken for
+            # the answer: they were, and every move then failed with "that
+            # window cannot be moved" because a log frame has no "ok" in it.
+            ready = {}
+            for _ in range(20):
+                ready, _payload = winmove.unpack(host.recv())
+                if ready.get("t") != "host_log":
+                    break
+                log(f"the window's own part: {ready.get('msg', '')}")
+            if ready.get("t") != "host_ready":
+                return "the part that shows windows did not say whether it could"
             if not ready.get("ok"):
                 why = str(ready.get("why") or "that window cannot be moved")
                 net.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))

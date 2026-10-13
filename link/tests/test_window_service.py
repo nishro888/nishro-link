@@ -381,3 +381,72 @@ def test_whatever_the_helper_printed_reaches_our_log():
                                              for m in said):
         time.sleep(0.05)
     assert any("no $DISPLAY" in m for m in said), f"said: {said}"
+
+
+def test_log_lines_before_the_answer_are_not_mistaken_for_it():
+    """The helper says what it is starting before it has looked at the
+    window. Read as the answer, a log frame has no "ok" in it, and every
+    move failed with "that window cannot be moved"."""
+    far, near = net_pair()
+
+    class Chatterbox(FakeHelper):
+        def _run(self, port, token):
+            import socket as s
+            sock = s.create_connection(("127.0.0.1", port), timeout=10)
+            self.ch = winmove.plain_channel(sock)
+            self.ch.send(winmove.pack({"t": "host", "token": token}))
+            self.heard.append(winmove.unpack(self.ch.recv())[0])
+            # two lines of log BEFORE the answer
+            self.ch.send(winmove.host_log("starting: lend window 42"))
+            self.ch.send(winmove.host_log("and another thing"))
+            self.ch.send(winmove.pack({"t": "host_ready", "ok": True, "why": ""}))
+            self.ready.set()
+            try:
+                while True:
+                    self.heard.append(winmove.unpack(self.ch.recv())[0])
+            except winmove.ChannelError:
+                pass
+
+    helper = Chatterbox()
+    said = []
+    threading.Thread(target=lambda: window_service.attach(
+        near, "lend", "42", "aio", log=said.append, launch=helper.launch),
+        daemon=True).start()
+    assert helper.ready.wait(10)
+    # the relay is running: a frame gets through
+    far.send(winmove.pack({"t": "ready"}))
+    end = time.monotonic() + 8
+    while time.monotonic() < end and not any(
+            h.get("t") == "ready" for h in helper.heard):
+        time.sleep(0.05)
+    assert any(h.get("t") == "ready" for h in helper.heard), \
+        f"the relay never started; heard {helper.heard}"
+    assert any("starting: lend window 42" in m for m in said)
+    far.close()
+    near.close()
+
+
+def test_a_helper_that_never_answers_is_not_waited_on_for_ever():
+    far, near = net_pair()
+
+    class OnlyTalks(FakeHelper):
+        def _run(self, port, token):
+            import socket as s
+            sock = s.create_connection(("127.0.0.1", port), timeout=10)
+            self.ch = winmove.plain_channel(sock)
+            self.ch.send(winmove.pack({"t": "host", "token": token}))
+            winmove.unpack(self.ch.recv())
+            for i in range(40):
+                self.ch.send(winmove.host_log(f"line {i}"))
+            self.ready.set()
+            try:
+                while True:
+                    winmove.unpack(self.ch.recv())
+            except winmove.ChannelError:
+                pass
+
+    why = window_service.attach(near, "lend", "1", "aio",
+                                launch=OnlyTalks().launch)
+    assert "did not say whether it could" in why
+    far.close()
+    near.close()

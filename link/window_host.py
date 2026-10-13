@@ -31,6 +31,7 @@ import pathlib
 import socket
 import sys
 import threading
+import time
 
 from . import picture, winmove
 
@@ -85,6 +86,41 @@ def rescue_path():
 
 def rescue_record(log=None):
     return winmove.Rescue(rescue_path(), log=log)
+
+
+def log_path():
+    """Where this helper writes what it did, as well as saying it over the
+    channel.
+
+    The channel is not enough by itself: when a moved window ends because
+    the channel broke, the last and most interesting lines cannot be sent on
+    it. A file survives that. On Windows it goes beside the service's handle
+    in ProgramData, which this helper (SYSTEM, started by the service) can
+    write and any local account can read; elsewhere, beside the record of
+    hidden windows.
+    """
+    told = os.environ.get("NISHRO_LINK_WINDOW_LOG")
+    if told:
+        return pathlib.Path(told)
+    if sys.platform == "win32":
+        try:
+            from . import service
+            return service.BASE / "window-host.log"
+        except Exception:
+            pass
+    return rescue_path().parent / "window-host.log"
+
+
+def write_log(message: str) -> None:
+    """Best effort, always: a helper must never fail over its own log."""
+    try:
+        path = log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            when = time.strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"{when} [{os.getpid()}] {message}\n")
+    except Exception:
+        pass
 
 
 def put_windows_back(log=None) -> int:
@@ -200,10 +236,12 @@ def one_window(port: int, token: str, kind: str, which: str, whose: str,
 
         def log(message):
             said(message)
+            write_log(message)
             try:
                 ch.send(winmove.host_log(message))
             except Exception:
                 pass
+        log(f"starting: {kind} window {which} with {whose}")
         why = can_lend_this(which) if kind == "lend" else ""
         ch.send(winmove.pack({"t": "host_ready", "ok": not why, "why": why}))
         if why:

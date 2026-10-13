@@ -299,3 +299,39 @@ def test_a_window_moving_does_not_stop_the_pointer_crossing(moving):
     moving.pair.hub_cap.sink.on_pointer(0, 384, -5, 0)
     moving.pair.wait(lambda: moving.pair.aio_cap.suppress[0] is True,
                      what="the pointer to cross while a window is away")
+
+
+def test_a_moved_window_is_not_given_up_on_while_nothing_happens(moving):
+    """A window nobody is touching sends nothing for a long time. The five
+    seconds passed to create_connection are for CONNECTING; left on the
+    socket they became a read timeout, and every window came home after
+    exactly five seconds as though the other computer had let go."""
+    win = moving.windows.setdefault("quiet", FakeWindow())
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+    moving.hub.move_window_to("aio", "quiet")
+    wait(lambda: ("aio", "quiet") in moving.frames, "the frame")
+    frame = moving.frames[("aio", "quiet")]
+    wait(lambda: frame.drawn, "the first picture")
+    # Nothing at all for longer than that timeout, then check it is still away
+    time.sleep(7)
+    assert frame.closed is None, \
+        f"the window came home by itself after a quiet spell ({frame.closed})"
+    assert moving.hub.windows_away, "the hub no longer thinks it is away"
+    # and it still works afterwards
+    frame.did({"t": "in", "how": "btn", "name": "left", "down": True})
+    wait(lambda: ("btn", "left", True) in win.played,
+         "input after the quiet spell")
+
+
+def test_the_dialled_window_channel_has_no_read_timeout(moving):
+    """Directly: the socket must not be left with the connect timeout on it."""
+    moving.windows["sock"] = FakeWindow()
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+    ch, hub = moving.aio._window_channel("sock", mine=False)
+    try:
+        assert ch.sock.gettimeout() is None, \
+            f"the window channel would give up after {ch.sock.gettimeout()}s"
+    finally:
+        ch.close()
