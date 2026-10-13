@@ -4,6 +4,34 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-13 - moving windows: feasibility, and the channel transport
+
+- **Laptop (section 3):** `tools/win-window-spike.py`, test windows of its
+  own (animated Tk, Notepad, Edge). A window made layered at alpha 1 and
+  click-through is gone from the screen (Edge: 98% of the screen matched the
+  window shown, 15% - chance - hidden) yet still draws (6 distinct captures of
+  6), and a hidden Notepad took every typed character through SendInput.
+  Off-screen and minimized windows freeze (1 of 6). `PrintWindow`
+  (PW_RENDERFULLCONTENT) 15-35 ms; GDI+ JPEG of 800x480 ~5 ms, 18 KB.
+- **AIO** (GNOME Shell 50.1, Wayland, through the bridge): the frame side
+  works - JPEG decode ~7 ms (GdkPixbuf), Tk shows 800x480 in ~20 ms, 1600x960
+  in ~75 ms (Tk is the limit for a big window; ~13 pictures a second). The
+  ScreenCast/RemoteDesktop portal **could not open its dialog**: `Start`
+  returned nothing, journald logged "Failed to associate portal window with
+  parent window", no dialog ever rendered. GNOME 50.1 needs a `parent_window`
+  the terminal script had no toplevel to give - a stage-5 note (the helper
+  there is a real window); stage 3 shows only the frame on the AIO. A Tk
+  window landed ~37 px below where it asked (XWayland decoration).
+- **The channel transport** (`041e2cb`): `winmove.BinChannel`, 12 tests. Five
+  deliberate breaks of its guards each caught - a length over the cap (caught
+  as the hang it would be, which is the DoS the cap stops), a too-short frame,
+  a tampered or reordered frame (the seal), the payload length ignored, frames
+  sent unsealed. A 2 MB frame deadlocked a single-threaded send test (the
+  socket buffer is far smaller) - fixed by sending from a thread, which is how
+  the sessions will always work; a lesson in LESSONS.
+- Full winmove suite 12 pass; secure, protocol, files-live and node-live
+  suites still pass with the shared-code changes. ruff clean.
+
 ## 2026-10-11 - Windows builds antivirus programs trust (local, not pushed)
 
 - `test_release_build.py`, 10 tests on the release build as written: the

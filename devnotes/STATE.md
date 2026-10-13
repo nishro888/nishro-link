@@ -92,9 +92,29 @@
       on Linux.
    5. Progress notifications; then both machines, both ways: one file,
       several, a folder tree, a big file, odd names.
-5. **After 1.2 - drag and drop across the edge**, with the system's own drag
-   icon: first a feasibility test on the AIO (GNOME on Wayland lets a program
-   start a drag only from a press on its own window).
+5. **Moving windows between computers - being built now** (the maintainer
+   asked for it, 2026-10-13; `docs/moving-windows.md` is the full design and
+   requirements). A window's program stays home; its window is shown and
+   driven on the other computer, behind a switch, off by default. The
+   maintainer's choices: the frame's close button closes the program;
+   Win+Shift+Left/Right; from the AIO the window shows on both for now (the
+   GNOME Shell extension later); this before the rest of file copy.
+   Feasibility proven on both machines (section 3 and 4.2; TESTLOG
+   2026-10-13): on Windows a layered alpha-1 click-through window is gone from
+   the screen yet keeps drawing and takes input; on the AIO the frame (Tk)
+   works, and GNOME-home via the portal (stage 5) will need the helper to be
+   a real window. Stages are in the design; done so far:
+   - **Stage 2 (the channel transport): done** (`041e2cb`). `winmove.py`
+     BinChannel - sealed binary length-first frames on a channel of their
+     own; `secure.seal_bytes/open_bytes`; `protocol.LineChannel.detach`. 12
+     tests, every guard mutation caught. Still in stage 2: the messages
+     (meta/pic/ack/in/size/close/home), the pacing (<=2 pictures ahead), the
+     moved-window states, HomeSession/AwaySession with fakes and live tests.
+   - Then stage 3 (laptop->AIO: Windows home, Linux away, the switch, the
+     tray, the shortcut), stage 4 (drag across the edge), stage 5 (AIO->
+     laptop), stage 6 (optional GNOME extension), stage 7 (docs, release).
+6. **After moving windows - the rest of 1.2, files over the clipboard**
+   (step 4 below), then drag and drop across the edge.
 
 ## Open questions and loose ends
 

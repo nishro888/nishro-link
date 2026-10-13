@@ -57,6 +57,11 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
 
 ## Testing
 
+- **A socket round-trip of more than a buffer's worth deadlocks in one
+  thread.** A 2 MB frame sent with `sendall` blocks once the send buffer
+  (tens of KB) fills and nothing is draining the other end - the test just
+  hangs. Send from a thread while the test reads, which is also how the real
+  sessions work (one thread each way). (winmove's big-frame test.)
 - **A test that reads what a background thread saw must join it first.** The
   impostor-hub test failed 9 times in 15: it checked before the fake hub's
   thread had noted the member hanging up. Run a new test 15-20 times before
