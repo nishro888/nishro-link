@@ -496,3 +496,35 @@ def test_a_closed_channel_makes_send_raise_not_hang():
     with pytest.raises(ChannelError):
         for _ in range(50):
             p.home.ch.send(winmove.pack({"t": "meta", "title": "x", "w": 8, "h": 8}))
+
+
+# -------------------------------------- pointer moves do not pile up (collapse)
+def test_only_the_newest_pointer_position_is_sent(pair):
+    """A position is absolute, so when several are waiting only the newest can
+    matter - sending the older ones would make home act on where the pointer
+    used to be. The link itself collapses positions the same way."""
+    pair.start()
+    pair.wait(lambda: pair.frame.opened, "the frame to open")
+    for x in range(1, 60):
+        pair.frame.did({"t": "in", "how": "move", "x": x, "y": x})
+    pair.frame.did({"t": "in", "how": "btn", "name": "left", "down": True})
+    pair.wait(lambda: any(e[0] == "btn" for e in pair.window.played),
+              "the button after all those moves")
+    moves = [e for e in pair.window.played if e[0] == "move"]
+    assert len(moves) < 59, f"all {len(moves)} moves were sent, none collapsed"
+    # and the button must land where the pointer actually ended up
+    before_btn = [e for e in pair.window.played
+                  if e[0] == "move" and pair.window.played.index(e)
+                  < [i for i, e2 in enumerate(pair.window.played)
+                     if e2[0] == "btn"][0]]
+    assert before_btn and before_btn[-1] == ("move", 59, 59), \
+        f"the button landed after {before_btn[-1] if before_btn else None}"
+
+
+def test_a_lone_pointer_move_still_arrives(pair):
+    """Collapsing must not swallow the only move there is."""
+    pair.start()
+    pair.wait(lambda: pair.frame.opened, "the frame to open")
+    pair.frame.did({"t": "in", "how": "move", "x": 12, "y": 34})
+    pair.wait(lambda: pair.window.played, "the move")
+    assert pair.window.played[0] == ("move", 12, 34)

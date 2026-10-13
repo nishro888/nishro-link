@@ -575,6 +575,11 @@ class HomeSession:
                 self.window.key(code, bool(header.get("down")))
 
 
+def _is_move(event) -> bool:
+    return (isinstance(event, dict) and event.get("t") == "in"
+            and event.get("how") == "move")
+
+
 def _side(v):
     """A window side from a peer: an int within reason, else None."""
     try:
@@ -689,7 +694,15 @@ class AwaySession:
             self.frame.retitle(self.title or "")
 
     def _send_events(self) -> None:
-        """What the person does in the frame, on to home."""
+        """What the person does in the frame, on to home.
+
+        Pointer moves are collapsed as the link itself collapses them: a
+        position is absolute, so when several are waiting only the newest can
+        matter, and sending the older ones would just make home act on where
+        the pointer used to be. Everything else goes in order, and a move is
+        always kept if anything else follows it, because home plays a button
+        wherever the pointer last was.
+        """
         try:
             while not self._stop:
                 try:
@@ -698,6 +711,17 @@ class AwaySession:
                     continue
                 if event is None:
                     break
+                while _is_move(event):
+                    try:
+                        nxt = self.frame.events.get_nowait()
+                    except queue.Empty:
+                        break
+                    if nxt is None:
+                        self.ch.send(pack(event))
+                        return
+                    if not _is_move(nxt):
+                        self.ch.send(pack(event))   # the one the button needs
+                    event = nxt
                 self.ch.send(pack(event))
         except ChannelError:
             self.stop(DROPPED)
