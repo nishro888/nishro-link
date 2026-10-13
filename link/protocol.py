@@ -583,6 +583,28 @@ class LineChannel:
         self._opener = opener
         self._q.put(_Seal(sealer))
 
+    def detach(self, flush: float = 2.0):
+        """Hand the connection over to a channel that frames its own way from
+        here on - the window channel's binary frames (winmove.BinChannel).
+
+        What is queued goes out first (the handshake's last answer, the switch
+        to sealing) and the sending thread stops. Bytes already read past the
+        last line are handed over too: recv() splits each read at every
+        newline, and binary bytes hold newlines, so they are put back exactly
+        as they came. Returns (socket, those bytes)."""
+        try:
+            self._q.put(None, timeout=flush)
+        except queue.Full:
+            raise ProtocolError("could not hand the connection over: "
+                                "its queue stayed full") from None
+        self._sender.join(flush)
+        if self._sender.is_alive():
+            raise ProtocolError("could not hand the connection over: still sending")
+        rest = b"".join(line + b"\n" for line in self._lines) + self._buf
+        self._lines.clear()
+        self._buf = b""
+        return self.sock, rest
+
     def _send_loop(self) -> None:
         """Drain the queue into the socket.
 

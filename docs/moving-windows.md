@@ -139,8 +139,21 @@ profile), each captured six times with `PrintWindow(PW_RENDERFULLCONTENT)`;
 - Capture: 15-35 ms a picture. GDI+ JPEG (quality 75) of an 800x480 picture:
   5 ms, 18 KB; PNG 7 ms, 9 KB.
 
-The AIO (Ubuntu, GNOME on Wayland) is being asked the same through the
-portals - section 4.2 is written from what GNOME documents, to be confirmed.
+The AIO (Ubuntu, GNOME on Wayland, GNOME Shell 50.1) was asked the same:
+
+- **The frame (away) works.** A JPEG picture decodes in about 7 ms (GdkPixbuf),
+  and Tk shows an 800x480 picture in about 20 ms, a 1600x960 one in about
+  75 ms - so Tk is the limit for a large window on the AIO (a full screen
+  would be ~13 pictures a second), and the picture rate (N1) is set per window
+  by what the frame can show, not a fixed number.
+- **The portal (GNOME home, section 4.2, stage 5) needs a real window to
+  parent its dialog.** A terminal-run script's ScreenCast/RemoteDesktop
+  `Start` returned nothing and no dialog appeared ("Failed to associate portal
+  window with parent window"). So the session helper there must be a real GTK
+  toplevel and pass its handle (xdg-foreign) as `parent_window`. This does not
+  affect stage 3 (the AIO only shows the frame then); it is a stage-5 note.
+- **A Tk window lands about 37 px below where it asks**, under XWayland
+  (window-manager decoration) - the frame's placement must allow for it.
 
 ## 4. How it works
 
