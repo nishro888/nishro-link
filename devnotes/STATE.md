@@ -104,15 +104,30 @@
    the screen yet keeps drawing and takes input; on the AIO the frame (Tk)
    works, and GNOME-home via the portal (stage 5) will need the helper to be
    a real window. Stages are in the design; done so far:
-   - **Stage 2 (the channel transport): done** (`041e2cb`). `winmove.py`
-     BinChannel - sealed binary length-first frames on a channel of their
-     own; `secure.seal_bytes/open_bytes`; `protocol.LineChannel.detach`. 12
-     tests, every guard mutation caught. Still in stage 2: the messages
-     (meta/pic/ack/in/size/close/home), the pacing (<=2 pictures ahead), the
-     moved-window states, HomeSession/AwaySession with fakes and live tests.
-   - Then stage 3 (laptop->AIO: Windows home, Linux away, the switch, the
-     tray, the shortcut), stage 4 (drag across the edge), stage 5 (AIO->
-     laptop), stage 6 (optional GNOME extension), stage 7 (docs, release).
+   - **Stage 2: done** - everything that is the same on every system, in
+     `link/winmove.py`, 87 tests (53 + 34 live), full suite 1,529.
+     - the transport (`041e2cb`): BinChannel, sealed binary length-first
+       frames on a channel of its own; `secure.seal_bytes/open_bytes`;
+       `protocol.LineChannel.detach`.
+     - the messages, the diff and the pacing (`6b13ee3`): a 2-byte header
+       length + JSON header + the payload as it is; `changed()` in 64-pixel
+       squares, joined across and down, whole picture on a resize (the size
+       the kept picture was taken at is passed - length cannot tell 64x16
+       from 32x32); `Pacer`, at most two pictures unshown.
+     - the sessions (`6078734`): HomeSession and AwaySession, with the
+       window and the frame as objects, so the OS halves can be faked. All
+       input from the other computer is checked before it is played. The
+       window is hidden only once `wait_ready()` says the frame is up.
+       `BadMessage` apart from `ChannelError`, so a peer sending nonsense
+       reads as "failed", not "dropped".
+   - **Next, stage 3 (laptop -> AIO)**, the first stage with a real window
+     on screen: Windows home in the desk agent (choose the window, hide it
+     as layered/alpha 1/click-through, PrintWindow capture, GDI+ encode,
+     SendInput into it, and its menus and dialogs with it - R11); Linux
+     away in a session helper (the frame, a Tk window, drawing the
+     regions); the settings switch; the tray entries; Win+Shift+arrows.
+     Then stage 4 (drag across the edge), stage 5 (AIO -> laptop), stage 6
+     (optional GNOME extension), stage 7 (docs, release).
 6. **After moving windows - the rest of 1.2, files over the clipboard**
    (step 4 below), then drag and drop across the edge.
 
