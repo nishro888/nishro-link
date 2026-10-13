@@ -39,7 +39,7 @@ Words used below:
   home.
 - **R2 - Move a window away from Windows:**
   - drag it by its title bar across the edge where the other computer is,
-    and it carries on there, dropped where the pointer lets go (stage 3);
+    and it carries on there, dropped where the pointer lets go (stage 4);
   - or a shortcut, the same gesture that moves a window to the next monitor
     (Win+Shift+Left/Right), carried on to the computer beyond the last
     monitor;
@@ -48,16 +48,23 @@ Words used below:
   laptop...*, then GNOME's own dialog to pick it. On Wayland no program may
   hide, move or even see another program's window, so there the window also
   stays where it is at home (section 4.2), unless the optional GNOME Shell
-  extension is installed (stage 5).
+  extension is installed (stage 6).
 - **R4 - Away, it is a normal window:** shown live in a frame with the away
   system's own title bar ("Notepad - from laptop"), which can be moved,
   resized (the program at home is resized to match) and maximized there.
   Whatever mouse and keyboard drive the away computer - its own, or another
-  computer's through Nishro Link - drive the program.
-- **R5 - Bringing it home:** the frame's close button, dragging the frame back
-  across the edge, the tray's *Bring windows home*, or turning the switch off.
-  Closing the frame never closes the program; the program's own way to quit
-  still works inside it.
+  computer's through Nishro Link - drive the program. **Its close button
+  closes the program's window**, as the same button at home would - the
+  program may ask to save first (the maintainer's choice, 2026-10-13).
+- **R5 - Bringing it home:** the shortcut the other way (Win+Shift+Left/Right
+  towards home), dragging the frame back across the edge, the tray's *Bring
+  windows home*, or turning the switch off.
+- **R11 - What the window opens goes with it:** its menus, dialogs ("Save
+  changes?"), drop-down lists and tooltips appear with it, away - each a
+  window of its own at home, owned by the moved one, shown in a frame of its
+  own at the same place relative to it. Without this even Notepad's File
+  menu would open on the home screen. A new, separate window of the same
+  program (a second browser window) opens at home, as it would.
 - **R6 - Never lose a window.** A moved window comes home when: the window
   channel or the link drops; either computer's Nishro Link stops, restarts
   or crashes; the away computer locks or signs out; the switch goes off.
@@ -184,9 +191,10 @@ Link run as the person, in their session - does this:
 What GNOME cannot do without help: hide the window at home, or see it being
 dragged. So from GNOME the window **stays visible at home** and is shown on
 the other computer as well, and it must stay uncovered for clicks to land on
-it. An optional **GNOME Shell extension** (stage 5) can do both - it runs
-inside GNOME itself - at the cost of an extra part that GNOME releases can
-break and that needs one log-out to start.
+it - the maintainer's choice for now (2026-10-13). An optional **GNOME Shell
+extension** (stage 6) can do both later - it runs inside GNOME itself - at the
+cost of an extra part that GNOME releases can break and that needs one
+log-out to start.
 
 The service is root and outside every session, so the helper is started in
 the session (like the tray, at log-in) and attaches to the service the way
@@ -202,7 +210,8 @@ rest of the program), titled "Notepad - from laptop", showing the pictures
 - keys, as evdev codes, while the frame has the keyboard focus;
 - resizing the frame asks home to resize the window; maximizing fills this
   screen's work area;
-- closing it brings the window home (R5).
+- closing it closes the program's window at home (R4) - `close`, which home
+  turns into the window's own close request (`WM_CLOSE` on Windows).
 
 The frame takes its events from its own system, like any window, so it works
 whichever mouse drives the away computer - its own, or another computer's
@@ -240,6 +249,7 @@ window's pictures must never queue in front of the pointer.
 | `ack` | the last picture shown - home sends at most two ahead |
 | `in` | input: `move` x y, `btn` name down, `wheel` dx dy, `key` code down |
 | `size` | w h - the frame was resized |
+| `close` | the frame's close button: close the program's window |
 | `home` | bring it home |
 
 - **Pictures:** the whole window the first time, after a resize, and every
@@ -263,7 +273,7 @@ New, optional messages - an older peer ignores them (N6):
 - `wopen` - the hub asks a member to dial a window channel (as `fwant`).
 - `whome` - bring every window between us home (the switch went off).
 
-### 4.6 Moving by dragging (stage 3, Windows home)
+### 4.6 Moving by dragging (stage 4, Windows home)
 
 The agent watches window drags (`SetWinEventHook`, `EVENT_SYSTEM_MOVESIZESTART`
 / `END`). When the pointer meets the edge where another computer is while a
@@ -295,9 +305,10 @@ home the same way.
 - **The tray:** *Move the active window to <device>* (Windows); *Show a
   window on <device>...* (GNOME); *Bring windows home*, while any are away;
   the moved windows, each with *Bring home*.
-- **The shortcut:** Win+Shift+Left/Right - Windows' own "move to the next
-  monitor", carried on across the edge when there is a computer that way and
-  no monitor. GNOME has the same keys for monitors.
+- **The shortcut (the maintainer's choice):** Win+Shift+Left/Right - Windows'
+  own "move to the next monitor", carried on across the edge when there is a
+  computer that way and no monitor; on the away computer, the same keys
+  towards home bring a frame back. GNOME has the same keys for monitors.
 
 ## 6. Testing
 
@@ -321,8 +332,8 @@ home the same way.
 2. **The window channel:** binary sealed frames, the messages, the pacing,
    the states - with fakes at both ends and live tests. No window yet.
 3. **Laptop to AIO:** Windows home (the agent: choose, hide, capture,
-   compress, play input), Linux away (the session helper: the frame), the
-   switch, the tray, the shortcut.
+   compress, play input; the window's menus and dialogs with it - R11), Linux
+   away (the session helper: the frame), the switch, the tray, the shortcut.
 4. **Dragging across the edge** (Windows home).
 5. **AIO to laptop:** GNOME home through the portals; Windows away (the frame
    in the agent).
@@ -344,3 +355,5 @@ home the same way.
 - The AIO's 2.4 GHz Wi-Fi, with power saving: the picture rate it carries.
 - Tk's speed at showing pictures on the AIO (under XWayland).
 - Screens of different density: 1:1 at first.
+- GNOME home: whether a window's own pop-ups (menus) are in its portal
+  stream.
