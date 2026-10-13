@@ -58,7 +58,13 @@ class Moving:
         return serve
 
     def start(self):
-        self.pair.start().connected()
+        """Connected, patiently. Pair.connected() allows five seconds, which
+        is plenty on its own and not always enough with sixteen hundred other
+        tests running beside it - and a connection that takes six seconds is
+        nothing to do with what these tests are checking."""
+        self.pair.start()
+        self.pair.wait(lambda: self.hub.ch is not None and self.aio.ch is not None,
+                       timeout=PATIENCE, what="both ends to connect")
         return self
 
     def stop(self):

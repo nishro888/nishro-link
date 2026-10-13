@@ -450,3 +450,50 @@ def test_a_helper_that_never_answers_is_not_waited_on_for_ever():
     assert "did not say whether it could" in why
     far.close()
     near.close()
+
+
+def test_a_helper_line_is_logged_once_not_twice():
+    """Its words arrive two ways - over the channel while it is up, and
+    through its output pipe afterwards. Both were logged with the same
+    wording, so every line appeared twice."""
+    import io
+    far, near = net_pair()
+
+    class BothWays(FakeHelper):
+        def launch(self, port, token, kind, which, whose, log):
+            proc = super().launch(port, token, kind, which, whose, log)
+            # as the real helper does now: nothing on stdout once the
+            # channel is up
+            proc.stdout = io.BytesIO(b"")
+            return proc
+
+        def _run(self, port, token):
+            import socket as s
+            sock = s.create_connection(("127.0.0.1", port), timeout=10)
+            self.ch = winmove.plain_channel(sock)
+            self.ch.send(winmove.pack({"t": "host", "token": token}))
+            winmove.unpack(self.ch.recv())
+            self.ch.send(winmove.pack({"t": "host_ready", "ok": True, "why": ""}))
+            self.ch.send(winmove.host_log("a line worth saying once"))
+            self.ready.set()
+            try:
+                while True:
+                    winmove.unpack(self.ch.recv())
+            except winmove.ChannelError:
+                pass
+
+    helper = BothWays()
+    said = []
+    threading.Thread(target=lambda: window_service.attach(
+        near, "show", "1", "laptop", log=said.append, launch=helper.launch),
+        daemon=True).start()
+    assert helper.ready.wait(10)
+    end = time.monotonic() + 8
+    while time.monotonic() < end and not any("worth saying once" in m
+                                             for m in said):
+        time.sleep(0.05)
+    far.close()
+    near.close()
+    time.sleep(1.0)
+    hits = [m for m in said if "worth saying once" in m]
+    assert len(hits) == 1, f"logged {len(hits)} times: {hits}"

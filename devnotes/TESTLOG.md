@@ -4,7 +4,56 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
-## 2026-10-14 - moving windows: built, and on both machines
+## 2026-10-14 - a window really moves between the two machines
+
+**It works.** A window of a test script's own was moved from the laptop to
+the AIO and stayed there, on screen, for a full minute - the AIO polled
+`wmctrl -l` every half second and saw it at every sample, 53+ seconds with
+no gap, titled "NL handover check - from laptop" - then came home by itself
+the moment the program behind it ended, with the reason "gone". Four real
+faults had to be found first, and none of them could have been found by the
+tests:
+
+1. **The Linux helper never started at all.** `self_command()` used
+   `python3 -m link.nishro_link`, which needs the current directory or
+   PYTHONPATH, and `runuser -u <user> -- env <session vars>` gives neither:
+   "No module named 'link'", every few seconds, visible only in journalctl.
+   It now runs `launch.py` beside the installed program by full path - which
+   is exactly why that file exists (1.0.1, the window that would not open
+   from Ubuntu's app menu). The AIO's agent found this.
+2. **Every moved window came home after exactly five seconds.**
+   `_window_channel` copied the files channel's
+   `socket.create_connection(addr, timeout=5)` and left out the line that
+   clears the timeout afterwards. Those five seconds are also a READ
+   timeout, and a window nobody is touching sends nothing for far longer, so
+   the dialling side gave up every time - and from the far end that looks
+   exactly like the other computer letting go. Found by making the relay say
+   which direction stopped first (it was always the side the other computer
+   talks on) rather than swallowing the error.
+3. **A log line was read as the readiness answer.** The helper says what it
+   is starting before it looks at the window; `attach` read one frame and
+   took that log frame as the answer, which has no "ok" in it - so every
+   move failed with "that window cannot be moved". It now skips log frames.
+4. **A helper holding a hidden window was still killed at once** on the
+   service's own path: the wait added for this only understood
+   `subprocess.Popen`, and what the Windows service starts in a session
+   (`winsvc.Proc`) has `alive()` and `kill()` and no `wait()` at all, so the
+   wait raised, was swallowed, and the helper was killed - the one thing
+   that leaves a window invisible.
+
+Diagnosis needed three things that are now permanent: the helper sends its
+log over the channel (its own output goes nowhere the service can read),
+writes it to a file as well (the channel's last and most interesting lines
+cannot be sent when the channel is what broke), and the relay says which way
+stopped and why. Each helper line is logged once, not twice - the AIO's
+agent noticed it arriving both ways.
+
+Also proved on the way: the installed exe works as the helper when driven
+directly (meta, a 1848-byte picture, and home on request), and the AIO's
+showing half works under the exact `runuser` mechanism the service uses,
+with XAUTHORITY present and live pointer input reaching the frame.
+
+## 2026-10-14 (earlier) - moving windows: built, and on both machines
 
 - **The whole Windows path, with the real helper, against a real window**
   (test_window_host.py, 6 tests): offered, hidden only once the frame is up,

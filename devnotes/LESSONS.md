@@ -75,6 +75,24 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   shipped that way until they were clicked in a test. A new menu entry needs
   a test that calls `act()` with its action.
 
+- **A connect timeout left on a socket is a read timeout too.**
+  `socket.create_connection(addr, timeout=5)` keeps those five seconds for
+  every later read. A long-lived channel that is quiet when nothing is
+  happening dies on it - and from the far end that looks exactly like the
+  other computer letting go, which sent the search in the wrong direction
+  for an hour. Clear it (`settimeout(None)`) or set one that suits the
+  channel, as files.py does.
+- **When two ends both report "the other end closed it", neither is the
+  cause.** Say which direction stopped FIRST and why, rather than swallowing
+  the error; that one log line found it.
+- **A helper in the person's session cannot be heard.** Its output goes to
+  the system log at best, and nowhere from a windowed build. Have it send
+  its log back on the channel AND write a file: when the channel is what
+  broke, the lines that matter most cannot be sent on it.
+- **Reading one frame for an answer is a bug the moment anything else can
+  arrive first.** A log line sent before the answer was read as the answer,
+  and every move failed with a message about the window instead.
+
 ## Testing
 
 - **A socket round-trip of more than a buffer's worth deadlocks in one

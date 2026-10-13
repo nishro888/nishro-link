@@ -232,10 +232,12 @@ def one_window(port: int, token: str, kind: str, which: str, whose: str,
         # From here its log goes to the service, which can see it - this
         # process cannot: in the session its output reaches the system log at
         # best, and nothing at all from a windowed build.
-        said = log
-
+        # From here the log goes over the channel, where the service can see
+        # it, and to a file, which survives the channel breaking. NOT to
+        # stdout as well: the service reads that too, as a last resort for
+        # anything printed before this point, and every line was arriving in
+        # its log twice.
         def log(message):
-            said(message)
             write_log(message)
             try:
                 ch.send(winmove.host_log(message))
