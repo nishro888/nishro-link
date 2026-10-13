@@ -14,6 +14,8 @@ first, so a picture pays no base64 and no 128 KB line cap.
 from __future__ import annotations
 
 import json
+import os
+import pathlib
 import queue
 import socket
 import struct
@@ -281,6 +283,77 @@ class Pacer:
     @property
     def waiting(self) -> int:
         return self.sent - self.shown
+
+
+class Rescue:
+    """What is needed to put a hidden window back, written down before it is
+    hidden.
+
+    R6, never lose a window: hiding a window is a change to someone else's
+    program, and if Nishro Link dies between hiding and showing - crash,
+    power cut, killed - that window is invisible with nothing left running
+    that knows how to bring it back. So home writes the undo down first, and
+    at its next start puts back everything the file still lists.
+
+    A plain JSON file, written whole and renamed over the old one, so a
+    half-written one is never read. Keyed by whatever the system uses to name
+    a window (on Windows, the handle as a string), with whatever that system
+    needs to undo the hiding.
+    """
+
+    def __init__(self, path, log=None):
+        self.path = pathlib.Path(path)
+        self.log = log or (lambda *_: None)
+
+    def _read(self) -> dict:
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                was = json.load(f)
+            return was if isinstance(was, dict) else {}
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as e:
+            # Unreadable: say so and start again, rather than refuse to move
+            # any window ever again.
+            self.log(f"the record of moved windows could not be read ({e}); starting it again")
+            return {}
+
+    def _write(self, data: dict) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(self.path.suffix + ".new")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, self.path)
+
+    def remember(self, key, undo: dict) -> None:
+        """Before hiding. `undo` is whatever show() will need."""
+        data = self._read()
+        data[str(key)] = undo
+        self._write(data)
+
+    def forget(self, key) -> None:
+        """Once the window is back. Removing the last one removes the file,
+        so a computer with no moved windows has nothing lying about."""
+        data = self._read()
+        if data.pop(str(key), None) is None:
+            return
+        if data:
+            self._write(data)
+        else:
+            try:
+                os.unlink(self.path)
+            except OSError:
+                pass
+
+    def pending(self) -> dict:
+        """What was still hidden when Nishro Link last stopped."""
+        return self._read()
+
+    def clear(self) -> None:
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
 
 
 class HomeSession:

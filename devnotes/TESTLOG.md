@@ -4,6 +4,42 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-13 (later) - moving windows: pictures and input, both measured
+
+- **Pictures need no library at all.** PNG written here with `zlib`
+  (`picture.py`): a real 916x639 window of text is 12.5 ms and 63 KB at zlib
+  level 1 (22.7 ms and 36 KB at level 6); a 64x64 changed square, which is
+  what nearly every picture is made of, 0.18 ms and 895 bytes. PNG's row
+  filters were tried and **rejected**: byte-by-byte against the row above is
+  254 ms in Python for one window, 20x the cost for 10% less data. Tk reads
+  these bytes directly (checked: blue stays blue) and copies a square into
+  the frame in 0.01 ms, so the away computer decodes nothing.
+- **Working out what changed, made 4x faster by measuring, not guessing.**
+  Typing in a 916x639 window: 11.45 ms -> 2.74 ms, and a still window now
+  costs nothing. Three wins: compare the whole picture first; then a band of
+  rows at a time; and **plain `bytes` slices instead of `memoryview`** -
+  `bytes.__eq__` is a memcmp while two memoryviews go a slower way round
+  (a 234 KB band: 0.27 ms against 1.05 ms). Whole path for typing: 2.74 ms
+  diff + 0.7 ms encode, 662 bytes on the wire, ~10 KB/s at 15 pictures/s.
+- **Input into a hidden window, without taking the focus - the design
+  changed because of this.** The plan was `SetForegroundWindow` +
+  `SendInput`, which would take the focus from whatever the person is doing
+  on the laptop. Posted window messages instead, aimed at the deepest child
+  at the point (`ChildWindowFromPointEx`) and at the focused control
+  (`GetGUIThreadInfo`):
+  - a hidden Tk window: typing arrived in its entry box;
+  - hidden Notepad: text arrived in the editor;
+  - **hidden Edge**: both the typed text and a click arrived in the web page,
+    at the right coordinates - the hardest case, since Chromium draws its own
+    interface with no window per control.
+  The foreground window never changed in any of them. Not reached this way:
+  programs that read the hardware directly (games) - to be refused with a
+  reason rather than half working.
+- The rescue record (R6, never lose a hidden window): 8 tests - written
+  before hiding, forgotten after, survives a crash, a damaged file does not
+  stop windows moving for ever, no file left when nothing is hidden.
+- 61 tests in test_winmove.py, 23 in test_picture.py, 34 live. ruff clean.
+
 ## 2026-10-13 - moving windows: feasibility, and the channel transport
 
 - **Laptop (section 3):** `tools/win-window-spike.py`, test windows of its

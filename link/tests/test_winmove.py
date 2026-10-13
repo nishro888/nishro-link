@@ -441,3 +441,76 @@ def test_a_pacer_can_be_told_to_allow_just_one():
     assert not p.may_send()
     p.acked(1)
     assert p.may_send()
+
+
+# ------------------------------------------- never lose a hidden window (R6)
+def test_a_window_is_written_down_before_it_is_hidden(tmp_path):
+    r = winmove.Rescue(tmp_path / "moved.json")
+    assert r.pending() == {}
+    r.remember(12345, {"exstyle": 262144, "alpha": 255})
+    assert r.pending() == {"12345": {"exstyle": 262144, "alpha": 255}}
+
+
+def test_a_window_put_back_is_forgotten(tmp_path):
+    path = tmp_path / "moved.json"
+    r = winmove.Rescue(path)
+    r.remember(1, {"a": 1})
+    r.remember(2, {"a": 2})
+    r.forget(1)
+    assert set(r.pending()) == {"2"}
+    r.forget(2)
+    assert r.pending() == {}
+    assert not path.exists(), "with nothing hidden, no file should be left lying about"
+
+
+def test_forgetting_what_was_never_there_changes_nothing(tmp_path):
+    r = winmove.Rescue(tmp_path / "moved.json")
+    r.remember(1, {"a": 1})
+    r.forget(99)
+    assert set(r.pending()) == {"1"}
+
+
+def test_what_was_hidden_when_it_died_is_still_there_next_time(tmp_path):
+    """The whole point: a crash between hiding and showing must leave the
+    undo on disk for the next start to find."""
+    path = tmp_path / "moved.json"
+    winmove.Rescue(path).remember(7, {"exstyle": 1, "alpha": 200})
+    fresh = winmove.Rescue(path)              # a new process
+    assert fresh.pending() == {"7": {"exstyle": 1, "alpha": 200}}
+    fresh.clear()
+    assert winmove.Rescue(path).pending() == {}
+
+
+def test_a_half_written_record_is_never_read(tmp_path):
+    """Written whole and renamed over the old one, so a power cut cannot
+    leave a file that parses as something else."""
+    path = tmp_path / "moved.json"
+    r = winmove.Rescue(path)
+    r.remember(1, {"a": 1})
+    leftovers = [p.name for p in tmp_path.iterdir()]
+    assert leftovers == ["moved.json"], f"left behind: {leftovers}"
+
+
+def test_a_damaged_record_does_not_stop_windows_moving_for_ever(tmp_path):
+    """If the file is unreadable, say so and start again - refusing to move
+    any window ever again would be worse."""
+    path = tmp_path / "moved.json"
+    path.write_text("{this is not json", encoding="utf-8")
+    said = []
+    r = winmove.Rescue(path, log=said.append)
+    assert r.pending() == {}
+    assert any("could not be read" in m for m in said)
+    r.remember(3, {"a": 3})
+    assert set(winmove.Rescue(path).pending()) == {"3"}
+
+
+def test_a_record_that_is_not_an_object_is_ignored(tmp_path):
+    path = tmp_path / "moved.json"
+    path.write_text("[1, 2, 3]", encoding="utf-8")
+    assert winmove.Rescue(path).pending() == {}
+
+
+def test_the_record_makes_its_folder_if_it_has_to(tmp_path):
+    r = winmove.Rescue(tmp_path / "deeper" / "still" / "moved.json")
+    r.remember(1, {"a": 1})
+    assert set(r.pending()) == {"1"}

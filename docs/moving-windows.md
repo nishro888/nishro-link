@@ -99,10 +99,13 @@ Words used below:
   lives; nothing of the window is written to disk.
 - **N6 - Every 1.x works with every 1.x:** an older peer neither offers nor
   accepts windows; the tray says it needs a newer Nishro Link there.
-- **N7 - No new Python packages.** Windows: its own APIs through `ctypes`
-  (PrintWindow, GDI+, SendInput). Linux: GTK's GdkPixbuf (already a
-  dependency, through the tray) for pictures; for capture on GNOME, GStreamer
-  and PipeWire through the desktop portal (`gir1.2-gstreamer-1.0`,
+- **N7 - No new Python packages, and no new library for pictures at all.**
+  Encoding is `zlib` and nothing else (`picture.py`), the same code on both
+  systems; Tk, already there for the window, both shows the pictures and is
+  the frame. Windows uses its own APIs through `ctypes` (PrintWindow for the
+  capture, posted messages for the input). Only **stage 5** - showing a
+  window that lives on GNOME - needs anything more: GStreamer and PipeWire
+  through the desktop portal (`gir1.2-gstreamer-1.0`,
   `gir1.2-gst-plugins-base-1.0`, `gstreamer1.0-pipewire`, which a GNOME
   desktop normally has; the setting says what is missing).
 - **N8 - The safety rules hold** (DESIGN.md, section 4): no input hook waits
@@ -136,8 +139,18 @@ profile), each captured six times with `PrintWindow(PW_RENDERFULLCONTENT)`;
   text through `SendInput` - every character.
 - Moving a window off the screen or minimizing it stops it drawing: neither
   can be how a window leaves home.
-- Capture: 15-35 ms a picture. GDI+ JPEG (quality 75) of an 800x480 picture:
-  5 ms, 18 KB; PNG 7 ms, 9 KB.
+- Capture: 15-35 ms a picture.
+- **Typing and clicking into a hidden window, without taking the focus:**
+  posted window messages arrived in a Tk window's entry box, in Notepad's
+  editor, and in a web page in Edge (both the text and a click, at the right
+  coordinates). The foreground window never changed in any of them. This is
+  what section 4.1 now does.
+- **Pictures** (see `picture.py` for the full table): PNG written here with
+  `zlib`, no library needed - a whole 916x639 window of text in 12.5 ms and
+  63 KB, a 64x64 changed square in 0.18 ms and 895 bytes. Working out what
+  changed in such a window takes 2.74 ms, and nothing at all when the window
+  is still. Typing in a big window costs about 10 KB/s at fifteen pictures a
+  second.
 
 The AIO (Ubuntu, GNOME on Wayland, GNOME Shell 50.1) was asked the same:
 
@@ -168,19 +181,35 @@ work:
 - **Hiding:** the window becomes a layered window at alpha 1, click-through
   (`WS_EX_LAYERED | WS_EX_TRANSPARENT`). Invisible, out of the way of the
   laptop's own mouse, still drawing (section 3). Its old extended style and
-  alpha are written to `private\moved.json` first, so a crash cannot leave it
-  invisible for good (R6). A window that is already layered with its own
-  per-pixel transparency cannot be hidden this way and is refused.
+  alpha are written down first (`winmove.Rescue`, a JSON file written whole
+  and renamed over the old one), so a crash between hiding and showing
+  cannot leave someone else's window invisible for good: the next start puts
+  back everything the file still lists (R6). A window that is already
+  layered with its own per-pixel transparency cannot be hidden this way and
+  is refused.
 - **Capture:** `PrintWindow(PW_RENDERFULLCONTENT)` - works for covered and
   hidden windows, DirectComposition ones (Chrome, Edge) included; at most as
   often as the away side acknowledges (4.4).
-- **Input:** from the frame, in window coordinates. The window is made
-  clickable while input is going into it, brought to the front
-  (`SetForegroundWindow`), and played with `SendInput` at its place on the
-  screen - invisible, but still there. Keys as scan codes (`keymap.py`).
-  While this computer's own pointer is parked (its cursor is on another
-  computer), the parked position is put back after every injected move, or
-  the next nudge of the laptop's own mouse would read as a leap.
+- **Input: posted straight to the window**, in its own coordinates -
+  `WM_MOUSEMOVE`, `WM_LBUTTONDOWN`, `WM_MOUSEWHEEL`, `WM_CHAR`,
+  `WM_KEYDOWN`. Mouse messages go to the deepest child window at that point
+  (`ChildWindowFromPointEx`, then that window's own coordinates), keys to
+  whichever control holds the focus inside that program
+  (`GetGUIThreadInfo`).
+
+  This replaced the first plan - bring the window to the front and use
+  `SendInput` - because home is a computer the person is still using, and
+  taking their focus every time they typed in the window on the other screen
+  would be unusable. Measured instead (section 3): posted messages reach a
+  hidden window and **never move the focus**, in a Tk window, in Notepad,
+  and in **Edge** - the case most likely to refuse, since Chromium draws its
+  own interface with no window per control, and both the typing and a click
+  landed in the web page at the right place.
+
+  What this does not reach is a program that reads the hardware directly
+  (`GetRawInputData`, DirectInput) - games, mostly. Those are refused with a
+  reason rather than half working (R9), once there is a way to tell; until
+  then they simply will not respond, which the person sees at once.
 - **Coming home:** the old style and alpha back, a redraw, the record
   cleared.
 
@@ -267,10 +296,11 @@ window's pictures must never queue in front of the pointer.
 
 - **Pictures:** the whole window the first time, after a resize, and every
   ten seconds; otherwise only what changed, found by comparing 64x64 tiles
-  with the last picture sent and joining neighbours into rectangles. Large or
-  photographic areas as JPEG; small ones, and text, as PNG, which keeps it
-  sharp. Windows encodes with GDI+, Linux with GdkPixbuf; Tk shows PNG
-  directly and the JPEG after decoding.
+  with the last picture sent and joining neighbours into rectangles.
+  Everything is PNG, written by hand with `zlib` (`picture.py`): no GDI+, no
+  GdkPixbuf, no Pillow - the same code on both systems, text stays sharp,
+  and Tk reads the bytes as they are, so the computer showing the window
+  decodes nothing and copies a square into place in about 0.01 ms.
 - **Pace:** home captures again only when fewer than two pictures are
   unacknowledged, so the rate follows what the network and the away computer
   can take, and a slow link shows a slower but current window - never a
