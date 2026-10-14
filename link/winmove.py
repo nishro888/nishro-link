@@ -399,6 +399,16 @@ def host_log(message: str) -> bytes:
     return pack({"t": "host_log", "msg": str(message)[:400]})
 
 
+def _second_or_first(closing, which: str, why: str, odd: bool = False) -> str:
+    """What to say when one direction of a relay stops."""
+    if closing.is_set():
+        return (f"the window's frames stopped going {which} as well, the "
+                f"channel having already been closed")
+    if odd:
+        return f"passing a window's frames {which} stopped: {why}"
+    return f"the window's frames stopped going {which}: {why}"
+
+
 def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
     """Pass frames between two window channels until either ends.
 
@@ -410,6 +420,10 @@ def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
     along, which on loopback costs a copy and nothing else.
     """
     log = log or (lambda *_: None)
+    # Set by whichever direction finishes first, because its tidying closes
+    # BOTH channels - so the other one is then bound to fail, and that
+    # failure is not news.
+    closing = threading.Event()
 
     def pump(src, dst, which):
         try:
@@ -428,10 +442,18 @@ def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
             # only thing that distinguishes "the other computer let go" from
             # "the part with the screen did", and both look the same from
             # the far end once both channels are closed.
-            log(f"the window's frames stopped going {which}: {e}")
+            #
+            # But only the FIRST one is news. Seen in the log after a window
+            # came home perfectly: a tidy "the other end closed the window
+            # channel" followed at once by "[WinError 10038] An operation was
+            # attempted on something that is not a socket" - which is just
+            # this direction tripping over the socket the other one closed,
+            # dressed up as something going wrong.
+            log(_second_or_first(closing, which, str(e)))
         except Exception as e:
-            log(f"passing a window's frames {which} stopped: {e!r}")
+            log(_second_or_first(closing, which, repr(e), odd=True))
         finally:
+            closing.set()
             for ch in (a, b):
                 ch.close()
 

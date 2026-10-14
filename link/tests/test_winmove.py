@@ -660,3 +660,39 @@ def test_past_a_line_is_the_same_arithmetic_as_past_a_screen_edge():
 def test_a_line_that_is_not_a_number_throws_nothing():
     for edge in (None, "x", object()):
         assert winmove.past_line("right", (1700, 0, 400, 300), edge) == 0.0
+
+
+def test_only_the_first_direction_to_stop_is_news():
+    """Seen in the log right after a window came home perfectly:
+
+        the window's frames stopped going in: the other end closed the
+          window channel
+        the window's frames stopped going out: ... [WinError 10038] An
+          operation was attempted on something that is not a socket
+
+    The first line is the truth. The second is only this direction tripping
+    over the socket the first one closed on purpose, dressed up as something
+    going wrong - and someone reading that log would start hunting for a
+    fault that is not there.
+    """
+    import threading
+    hub, away = _pair()
+    net_a, net_b = _pair()
+    said = []
+    t = threading.Thread(
+        target=lambda: winmove.relay(net_a, away, log=said.append),
+        daemon=True)
+    t.start()
+    try:
+        hub.close()                          # the other computer lets go
+        end = time.monotonic() + 8
+        while time.monotonic() < end and len(said) < 2:
+            time.sleep(0.02)
+        assert len(said) >= 2, f"only heard {said}"
+        odd = [m for m in said if "WinError" in m or "Errno" in m
+               or "OSError" in m]
+        assert not odd, f"a system error was reported as news: {odd}"
+        assert sum(1 for m in said if "already been closed" in m) == 1, said
+    finally:
+        for ch in (hub, away, net_a, net_b):
+            ch.close()
