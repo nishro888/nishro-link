@@ -717,7 +717,14 @@ def test_a_watcher_that_will_not_start_does_not_stop_the_tray(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("no hooks here")
     import link.windrag_win as ww
+    import link.window_host as wh
     monkeypatch.setattr(ww, "Watcher", boom)
+    # Not the real one: without this the line lands in the person's own
+    # Nishro Link log, and it did - "windows dragged to another computer
+    # will not be noticed: RuntimeError('no hooks here')" sitting in the
+    # middle of the real log, looking for all the world like a fault on
+    # this machine. A test must not write into the files it is testing.
+    monkeypatch.setattr(wh, "write_log", lambda _m: None)
     t, _ui = make(None)
     assert tray._watch_drags(t, said.append) is None
     assert any("will not be noticed" in s for s in said), said
