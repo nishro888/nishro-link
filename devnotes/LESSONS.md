@@ -253,3 +253,25 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   must not fail.
 - **`git rm` refuses files that `cherry-pick -n` just staged** ("changes
   staged in the index"); `git rm -f` removes them.
+- **A program that injects input ignores injected input.** Avro Keyboard
+  swallows every key and puts Bangla characters of its own in its place, so
+  it has to ignore anything marked injected or it would read its own output
+  back - and `SendInput` cannot clear that mark. Scan codes made no
+  difference. Before trying to fix such a program, ask whether it CAN act on
+  us (see TESTLOG 2026-10-14). The way round is to send the character, not
+  the key: `KEYEVENTF_UNICODE` asks no layout and no input method, so
+  nothing can refuse it.
+- **A test that does not know the state it is testing proves nothing.** The
+  first Avro probe typed 'amar' and got 'amar', which says nothing when
+  Avro's mode is unknown and unreadable. Rebuilt to press the switch between
+  three attempts, so every mode was covered and the answer held whichever one
+  it started in.
+- **A low-level hook in a test must only swallow what the test injected.**
+  Ours swallowed every key so nothing would be typed into a window; a run
+  left hanging in the background then ate every keystroke on the machine and
+  the maintainer could not type until he restarted. Pass real keys through,
+  and unhook in the fixture rather than leaving it to the process exiting.
+- **Windows says the pointer arrow is showing when it is not.**
+  `GetCursorInfo` returned `CURSOR_SHOWING` while no arrow was being drawn,
+  so a fix that asked first never fired. Do not ask: send real mouse input
+  whenever driving begins, and put the pointer back on the exact pixel.

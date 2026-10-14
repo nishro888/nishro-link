@@ -376,6 +376,46 @@ with XAUTHORITY present and live pointer input reaching the frame.
   the AIO failed 728 dials over 5 h. Detection: `[]` on the Private network,
   0.5 s per check.
 
+## 2026-10-14 - Avro Keyboard acts on no injected key (settled)
+
+Reported twice: F12 from the AIO's keyboard does not switch Avro between
+Bangla and English, and with Bangla on, the AIO's keyboard still types
+English, while the laptop's own keyboard is fine.
+
+First suspicion was the scan code, and it was a real bug - we sent zero.
+Fixed and verified live (`test_inject_win.py` watches a real low-level hook:
+A carries 30, F12 carries 88, arrows and right Ctrl carry the extended flag).
+Confirmed on the installed build the maintainer was using: NishroLink.exe
+1.2.0, sha256 E78BBFD7990F374C, service RUNNING, Avro Keyboard.exe running
+(pid 14004). Still broken. So the scan code was not the cause here.
+
+The deciding test (`avro_probe2.py`, a Notepad of its own, nothing of the
+maintainer's touched). Avro's mode is not readable - its windows are
+`TAvroMainForm1`, `TTopBar`, `TfrmPrevW`, seven `TPUtilWindow`, `MSCTFIME UI`,
+`IME`, and no title says Bangla or English - so the test was built not to
+need it: type by injection, press F12 by injection, type, press F12, type.
+Whatever mode Avro starts in, if an injected F12 switched it at all then one
+of the three had to come out Bangla.
+
+    as Avro is now               -> 'amar'   Bangla: False
+    after one injected F12       -> 'amar'   Bangla: False
+    after a second injected F12  -> 'amar'   Bangla: False
+
+**Conclusion: Avro acts on nothing we send.** It must ignore injected input -
+it injects its own Bangla characters, so otherwise it would read its own
+output back. There is no user-mode fix: `SendInput` cannot clear the injected
+mark, and Windows offers no way to. Only a virtual-HID keyboard driver (a
+signed kernel driver) would look like real hardware. Said plainly in the
+manual (section 20) rather than left as something to retry.
+
+**A way round, measured and working:** `SendInput` with `KEYEVENTF_UNICODE`
+carries a CHARACTER, not a key, and asks no layout and no input method for
+anything - so nothing can refuse it. Injected U+0986 U+09AE U+09BE U+09B0 and
+read back exactly those four from Notepad (`unicode_probe.py`). So Nishro
+Link could do the Bangla itself - transliterate on the home side and send
+characters - which would work whatever Avro does. That is a feature of real
+size (a phonetic engine); proposed, not built.
+
 ## Before 1.1.0 (from the history)
 
 - v1.0.1 (2026-09-29): fixed the window not opening from Ubuntu's app menu

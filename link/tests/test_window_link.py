@@ -26,6 +26,7 @@ class Moving:
         self.windows = {}            # which -> the FakeWindow it stands for
         self.frames = {}             # (node name, which) -> the FakeFrame
         self.sessions = []
+        self.sides = []              # what each end was told about the edge
         for node, can in ((self.hub, hub_can), (self.aio, member_can)):
             node.move_windows = can
             if can:
@@ -39,7 +40,8 @@ class Moving:
     def _server(self, node):
         """Stands in for the part of Nishro Link that has a screen: it runs
         the real sessions, against a fake window and a fake frame."""
-        def serve(ch, kind, which, whose):
+        def serve(ch, kind, which, whose, side=""):
+            self.sides.append((node.core.node, kind, whose, side))
             if kind == "lend":
                 win = self.windows.get(which)
                 if win is None:
@@ -341,3 +343,33 @@ def test_the_dialled_window_channel_has_no_read_timeout(moving):
             f"the window channel would give up after {ch.sock.gettimeout()}s"
     finally:
         ch.close()
+
+
+# ------------------------- which way home lies, for dragging a frame back
+def test_the_computer_showing_a_window_is_told_which_edge_leads_home(moving):
+    """So the frame can be dragged back across the very edge the pointer
+    crosses to drive that computer. In this pair the aio has the laptop
+    arranged on its right (test_node_live.Pair), so from the aio the way
+    home is right - and the laptop, whose own window it is, is told nothing,
+    because a window at home is not dragged anywhere."""
+    moving.windows["w1"] = FakeWindow(title="Notepad")
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+    assert moving.hub.move_window_to("aio", "w1") == ""
+    wait(lambda: ("aio", "w1") in moving.frames, "the member's frame")
+    wait(lambda: len(moving.sides) >= 2, f"both ends ({moving.sides})")
+    told = {(who, kind): side for who, kind, _whose, side in moving.sides}
+    assert told[("aio", "show")] == "right", moving.sides
+    assert told[("laptop", "lend")] == "", moving.sides
+
+
+def test_the_side_comes_from_the_arrangement_not_a_guess(moving):
+    """Rearranged, the way home changes with it."""
+    aio = moving.aio
+    assert aio.side_toward("laptop") == "right"
+    assert moving.hub.side_toward("aio") == "left"
+    # Nothing is invented for a machine the desk has never heard of, or for
+    # this computer itself.
+    assert aio.side_toward("some-other-pc") == ""
+    assert aio.side_toward("aio") == ""
+    assert aio.side_toward("") == ""

@@ -33,7 +33,7 @@ LIST_TIMEOUT = 15.0            # and for one that is only listing windows
 
 
 def attach(net, kind: str, which: str, whose: str, log=None,
-           launch=None) -> str:
+           launch=None, home_side: str = "") -> str:
     """See one moved window through, from the service's side.
 
     `net` is the window channel to the other computer. `kind` is "lend" (one
@@ -48,7 +48,8 @@ def attach(net, kind: str, which: str, whose: str, log=None,
     srv.settimeout(ACCEPT_TIMEOUT)
     port = srv.getsockname()[1]
     try:
-        proc = (launch or launch_in_session)(port, token, kind, which, whose, log)
+        proc = (launch or launch_in_session)(port, token, kind, which,
+                                            whose, log, home_side)
     except Exception as e:
         srv.close()
         return f"could not start the part that shows windows: {e}"
@@ -127,10 +128,12 @@ def _package_parent():
 
 
 def launch_in_session(port: int, token: str, kind: str, which: str,
-                      whose: str, log):
+                      whose: str, log, home_side: str = ""):
     """Start the helper where the screen is, however this system does that."""
     args = self_command() + ["--window-host", str(port), token, kind,
                              str(which), str(whose)]
+    if home_side:
+        args += ["--window-home-side", str(home_side)]
     if sys.platform == "win32":
         return _launch_windows(args, log)
     return _launch_linux(args, log)

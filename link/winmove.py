@@ -693,6 +693,57 @@ def _step(v):
     return max(-20, min(20, v))
 
 
+# ---------------------------------- dragging a moved window back home
+# The frame showing a moved window is sent home by dragging it across the
+# edge of the screen that the window's own computer lies beyond - the same
+# edge the pointer crosses to drive that computer, so the gesture matches
+# the rest of Nishro Link. The way back by the tray and the taskbar stays.
+#
+# The frame's PLACE is what is watched, never the pointer. The pointer
+# reaching the edge of the screen is the link's own doorway: the baton
+# would go to the other computer in the middle of the drag, and the frame
+# would be left half-thrown. Dragging a window partly off the edge leaves
+# the pointer well inside the screen, so the two never meet.
+THROW_SIDES = ("left", "right", "top", "bottom")
+THROW_BACK = 0.4            # how much of the frame must be past the edge
+THROW_SETTLE_MS = 400       # quiet for this long counts as letting go
+
+
+def past_edge(side, place, screen) -> float:
+    """How much of a frame has gone past one edge of this screen.
+
+    `side` is the edge the window's own computer lies beyond - one of
+    THROW_SIDES - `place` is the frame as (x, y, w, h) in screen pixels,
+    and `screen` is (width, height). Returns the fraction of the frame
+    past that edge: 0.0 if none of it is, 1.0 if all of it is.
+
+    A fraction rather than pixels, so the same push of the hand sends a
+    window home on a small laptop screen and on a big monitor.
+
+    Nothing is trusted: these numbers are read off a window manager, which
+    answers oddly while a window is being mapped or taken away, and a frame
+    must not be thrown home on the strength of that.
+    """
+    if side not in THROW_SIDES:
+        return 0.0
+    try:
+        x, y, w, h = (int(v) for v in place)
+        sw, sh = int(screen[0]), int(screen[1])
+    except (TypeError, ValueError, IndexError):
+        return 0.0
+    if w <= 0 or h <= 0:
+        return 0.0
+    if side == "left":
+        over, span = -x, w
+    elif side == "right":
+        over, span = (x + w) - sw, w
+    elif side == "top":
+        over, span = -y, h
+    else:
+        over, span = (y + h) - sh, h
+    return max(0.0, min(1.0, over / span))
+
+
 class AwaySession:
     """Away's end of one moved window: show it, and send on what the person
     does to it.

@@ -37,9 +37,9 @@ class FakeHelper:
         self._thread = None
         self.returncode = None
 
-    def launch(self, port, token, kind, which, whose, log):
+    def launch(self, port, token, kind, which, whose, log, home_side=""):
         self.args = {"port": port, "token": token, "kind": kind,
-                     "which": which, "whose": whose}
+                     "which": which, "whose": whose, "home_side": home_side}
         self._thread = threading.Thread(target=self._run, args=(port, token),
                                         daemon=True)
         self._thread.start()
@@ -361,8 +361,9 @@ def test_whatever_the_helper_printed_reaches_our_log():
     import io
 
     class Chatty(FakeHelper):
-        def launch(self, port, token, kind, which, whose, log):
-            proc = super().launch(port, token, kind, which, whose, log)
+        def launch(self, port, token, kind, which, whose, log, home_side=""):
+            proc = super().launch(port, token, kind, which, whose, log,
+                                  home_side)
             proc.stdout = io.BytesIO(b"no window could be opened here: "
                                      b"no display name and no $DISPLAY\n")
             return proc
@@ -460,8 +461,9 @@ def test_a_helper_line_is_logged_once_not_twice():
     far, near = net_pair()
 
     class BothWays(FakeHelper):
-        def launch(self, port, token, kind, which, whose, log):
-            proc = super().launch(port, token, kind, which, whose, log)
+        def launch(self, port, token, kind, which, whose, log, home_side=""):
+            proc = super().launch(port, token, kind, which, whose, log,
+                                  home_side)
             # as the real helper does now: nothing on stdout once the
             # channel is up
             proc.stdout = io.BytesIO(b"")
@@ -497,3 +499,52 @@ def test_a_helper_line_is_logged_once_not_twice():
     time.sleep(1.0)
     hits = [m for m in said if "worth saying once" in m]
     assert len(hits) == 1, f"logged {len(hits)} times: {hits}"
+
+
+# ------------------------- which way home lies, for dragging a frame back
+def test_the_helper_is_told_which_edge_leads_home():
+    """The frame can only be dragged back across the edge if it knows which
+    edge that is, and only the node knows: it has the arrangement."""
+    far, near = net_pair()
+    helper = FakeHelper()
+    threading.Thread(target=lambda: window_service.attach(
+        near, "show", "7", "laptop", launch=helper.launch,
+        home_side="left"), daemon=True).start()
+    assert helper.ready.wait(10)
+    assert helper.args["home_side"] == "left"
+    far.close()
+    near.close()
+
+
+def test_not_knowing_which_way_is_not_an_error():
+    """An arrangement that does not say leaves the tray and the taskbar as
+    the way back - the window must still go."""
+    far, near = net_pair()
+    helper = FakeHelper()
+    threading.Thread(target=lambda: window_service.attach(
+        near, "show", "7", "laptop", launch=helper.launch), daemon=True).start()
+    assert helper.ready.wait(10)
+    assert helper.args["home_side"] == ""
+    far.close()
+    near.close()
+
+
+def test_the_side_reaches_the_helpers_command_line():
+    """And is left off it entirely when there is none, so an older build
+    started by a newer one is not handed a word it does not know."""
+    started = []
+
+    def monkey(args, log):
+        started.append(args)
+
+    import link.window_service as ws
+    real_win, real_lin = ws._launch_windows, ws._launch_linux
+    ws._launch_windows = ws._launch_linux = monkey
+    try:
+        ws.launch_in_session(9, "tok", "show", "7", "laptop", lambda *_: None,
+                             "right")
+        assert started[0][-2:] == ["--window-home-side", "right"]
+        ws.launch_in_session(9, "tok", "show", "7", "laptop", lambda *_: None)
+        assert "--window-home-side" not in started[1]
+    finally:
+        ws._launch_windows, ws._launch_linux = real_win, real_lin

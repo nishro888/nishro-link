@@ -552,7 +552,12 @@ you would any window there.
 
 ### Bringing it back
 
-- **Win+Shift+** the arrow back towards its own computer.
+- **Drag it back across the edge.** Take the window by its title bar and
+  drag it off the side of the screen the other computer is on - the same
+  edge the pointer crosses to drive that computer. Once enough of it is
+  over the edge the title says **"let go to send it back to laptop"**; let
+  go and it goes. Drag it back on screen instead and nothing happens.
+- Or **Win+Shift+** the arrow back towards its own computer.
 - Or **the tray icon → Bring windows home**.
 - It also comes back by itself if anything goes wrong: the network drops,
   either computer's Nishro Link stops or restarts, the other computer locks,
@@ -831,6 +836,29 @@ has the same controls.
 
 **A keyboard or mouse plugged in later doesn't work across (Linux).** It is
 picked up within two seconds. If not, restart Nishro Link on that computer.
+
+**A typing helper (Avro Keyboard, and others like it) does not respond to the
+other computer's keyboard.** Its switch key does nothing, and with Bangla
+switched on you still get English - while the computer's own keyboard works
+perfectly. This is **not** something Nishro Link can fix, and it is worth
+saying why rather than leaving you to retry.
+
+Such a program works by watching every key, swallowing it, and putting
+characters of its own in its place. To avoid reading back what it just put
+there, it ignores any key that did not come from real hardware - and every
+key Nishro Link sends is marked as coming from a program, because Windows
+marks it and offers no way not to. Measured on a real laptop: with Avro
+Keyboard running, letters sent by Nishro Link came out English in every mode,
+and its switch key never changed the mode. Sending the key's scan code, which
+fixed a different class of program, made no difference here.
+
+Only a keyboard driver - a virtual keyboard the system cannot tell from a real
+one - would change this. That is a signed Windows driver, not something a
+program can do.
+
+**What works today:** type Bangla on the keyboard of the computer the program
+is on. Nishro Link is looking at carrying the *characters* instead of the
+keys, which would sidestep the helper entirely; it is not built yet.
 
 Everything else: [troubleshooting](troubleshooting.md). Still stuck?
 [Report a problem](https://github.com/nishro888/nishro-link/issues/new/choose),

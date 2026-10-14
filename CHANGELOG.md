@@ -25,6 +25,11 @@ Works with every 1.x.
   - From the tray: *Move a window to <computer>...*, or Win+Shift+Left/Right,
     the keys that throw a window at the next monitor - carried on past the
     last one. The same keys bring it back, as does *Bring windows home*.
+  - **Or drag it back across the edge:** take the moved window by its title
+    bar and drag it off the side of the screen the other computer is on, the
+    same edge the pointer crosses to drive that computer. The title says
+    "let go to send it back to <computer>" once enough of it is over; let go
+    and it goes, and dragging it back on screen cancels it.
   - Away it is an ordinary window, saying where it came from
     ("Notepad - from laptop"): move it, resize it, maximize it, type in it.
     Its close button closes the program's window, as that button would at
@@ -43,6 +48,22 @@ Works with every 1.x.
     program hide another's window, so for now such a window shows on the
     other computer and stays on its own screen too. Moving one **to** Ubuntu
     works fully.
+
+### Fixed
+- **The pointer arrow is drawn as soon as the other computer's mouse moves
+  it.** After a restart the pointer moved and clicked perfectly but no arrow
+  was drawn until this computer's own mouse or touchpad was touched: Windows
+  draws the arrow only once it has seen mouse input, and moving the pointer
+  outright is not that. Nishro Link now gives the system real mouse input
+  whenever driving begins, and puts the pointer back on the exact pixel.
+- **The mouse wheel scrolls in a moved window.** It had only ever been
+  proved against a window that logs the message, not one that acts on it: a
+  hidden window is click-through, so the wheel went past it to whatever was
+  behind.
+- **Keys carry their scan code.** A program that reads the scan code to know
+  which physical key was struck got zero from Nishro Link and could not
+  tell. (Not enough for Avro Keyboard, which acts on no injected key at all
+  - see the manual.)
 
 ## [1.1.0] - 2026-09-30
 

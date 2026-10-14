@@ -292,7 +292,7 @@ window's pictures must never queue in front of the pointer.
 | `in` | input: `move` x y, `btn` name down, `wheel` dx dy, `key` code down |
 | `size` | w h - the frame was resized |
 | `close` | the frame's close button: close the program's window |
-| `home` | bring it home |
+| `home` | bring it home (the tray, or the frame dragged back across the edge) |
 
 - **Pictures:** the whole window the first time, after a resize, and every
   ten seconds; otherwise only what changed, found by comparing 64x64 tiles
@@ -316,15 +316,42 @@ New, optional messages - an older peer ignores them (N6):
 - `wopen` - the hub asks a member to dial a window channel (as `fwant`).
 - `whome` - bring every window between us home (the switch went off).
 
-### 4.6 Moving by dragging (stage 4, Windows home)
+### 4.6 Moving by dragging (stage 4)
 
-The agent watches window drags (`SetWinEventHook`, `EVENT_SYSTEM_MOVESIZESTART`
-/ `END`). When the pointer meets the edge where another computer is while a
-window is being dragged, the window goes: home ends the drag (a button-up
-where the pointer is), hides the window, and the frame appears on the other
-computer under the pointer, following it until the button is let go, the
-same grip on the window. Dragging the frame back across the edge brings it
-home the same way.
+Two halves, and they are independent. **Dragging a frame back home is
+built**; dragging a window out by its own title bar is not yet.
+
+**Back home - built.** The frame knows which edge of the screen it is on
+the window's own computer lies beyond: the node works it out from the
+arrangement (`Node.side_toward`, the desk's own doorways) and it travels to
+the frame on the helper's command line (`--window-home-side`). Drag the
+frame so that `winmove.THROW_BACK` (40%) of it is past that edge, let go,
+and it goes home - the same `home` message the tray sends. The title says
+"let go to send it back to <computer>" while it is there, so the gesture is
+not something to be found out by accident, and dragging it back on screen
+cancels it.
+
+Two things were deliberately NOT done:
+
+- **The pointer is never watched, only the frame's place.** The pointer
+  reaching the edge of the screen is the link's own doorway: the baton would
+  go to the other computer in the middle of the drag and leave the frame
+  half-thrown. A window dragged partly off an edge keeps its pointer well
+  inside the screen, so the two gestures never meet.
+- **Letting go is a short quiet (400 ms), not a button-up.** Tk never sees
+  the button come up on a drag by the title bar; that belongs to the window
+  manager. What is watched is where the frame is LEFT.
+
+Measured as a fraction of the window, not in pixels, so the same push of the
+hand works on a 1366x768 laptop screen and on a 4K monitor.
+
+**Out, by the window's own title bar - still to do.** On Windows home, watch
+drags with `SetWinEventHook` (`EVENT_SYSTEM_MOVESIZESTART` / `END`); when
+the pointer meets the edge where another computer is while a window is being
+dragged, end the drag (a button-up where the pointer is), hide the window,
+and have the frame appear on the other computer under the pointer, following
+it until the button is let go - the same grip on the window. Until then a
+window is sent across from the tray, the window list or Win+Shift+Left/Right.
 
 ### 4.7 When things go wrong
 
@@ -377,7 +404,8 @@ home the same way.
 3. **Laptop to AIO:** Windows home (the agent: choose, hide, capture,
    compress, play input; the window's menus and dialogs with it - R11), Linux
    away (the session helper: the frame), the switch, the tray, the shortcut.
-4. **Dragging across the edge** (Windows home).
+4. **Dragging across the edge.** Back home by dragging the frame: done.
+   Out by the window's own title bar (Windows home): still to do.
 5. **AIO to laptop:** GNOME home through the portals; Windows away (the frame
    in the agent).
 6. **Optional - the GNOME Shell extension:** dragging from the AIO, and

@@ -1370,6 +1370,27 @@ class Node:
                          daemon=True, name="window-lend").start()
         return ""
 
+    def side_toward(self, machine: str) -> str:
+        """Which edge of OUR screen that computer lies beyond, by the
+        arrangement on the desk - "" if the desk does not say.
+
+        A moved window is dragged back across the edge it came in by, so the
+        frame has to be told which edge that is. Where a machine has several
+        screens there may be doors on more than one side; the first found is
+        taken, which on a laptop beside a monitor is the only one there is.
+        """
+        try:
+            desk, me = self.core.layout, self.core.node
+            if not machine or machine == me:
+                return ""
+            for d in desk.doors():
+                if (desk.get(d.src).owner == me
+                        and desk.get(d.dst).owner == machine):
+                    return d.side
+        except Exception:
+            return ""
+        return ""
+
     def _peer_moves_windows(self, who: str) -> bool:
         return bool(self.window_peers.get(who))
 
@@ -1412,7 +1433,10 @@ class Node:
             if not self.serve_window:
                 ch.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))
                 return
-            why = self.serve_window(ch, kind, which, whose)
+            # Only a window from somewhere else is dragged back across an
+            # edge; one of ours is already home.
+            side = self.side_toward(whose) if kind == "show" else ""
+            why = self.serve_window(ch, kind, which, whose, side)
             if why:
                 self._log(f"the window could not be shown: {why}")
             else:
