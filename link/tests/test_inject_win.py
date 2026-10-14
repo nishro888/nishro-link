@@ -34,6 +34,7 @@ WH_KEYBOARD_LL, WH_MOUSE_LL = 13, 14
 WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN = 0x0100, 0x0101, 0x0104
 WM_MOUSEMOVE = 0x0200
 LLKHF_INJECTED, LLKHF_EXTENDED = 0x10, 0x01
+LLMHF_INJECTED = 0x01
 MAPVK_VK_TO_VSC_EX = 4
 
 
@@ -97,7 +98,9 @@ class Watcher:
             if self.which == WH_MOUSE_LL and wparam == WM_MOUSEMOVE:
                 ms = ctypes.cast(lparam,
                                  ctypes.POINTER(MSLLHOOKSTRUCT)).contents
-                self.seen.append({"x": ms.pt.x, "y": ms.pt.y})
+                self.seen.append({
+                    "x": ms.pt.x, "y": ms.pt.y,
+                    "injected": bool(ms.flags & LLMHF_INJECTED)})
         return self.user32.CallNextHookEx(None, code, wparam, lparam)
 
     def _pump(self):
@@ -127,11 +130,24 @@ class Watcher:
         self._stop.set()
         self.unhook()
 
+    def ours(self):
+        """Only what Nishro Link injected.
+
+        These hooks watch the WHOLE machine, so anything the person does
+        while the suite runs arrives here too - and did: seven of these
+        tests failed in one run because the maintainer was typing at the
+        time, one of them (`a key Windows has no name for`) simply because
+        it asserted that NO key had been seen. A test that watches the real
+        system must look only at its own input, or using the computer breaks
+        the build.
+        """
+        return [e for e in self.seen if e.get("injected")]
+
     def wait_for(self, how_many, timeout=4.0):
         end = time.monotonic() + timeout
-        while time.monotonic() < end and len(self.seen) < how_many:
+        while time.monotonic() < end and len(self.ours()) < how_many:
             time.sleep(0.02)
-        return list(self.seen)
+        return self.ours()
 
 
 @pytest.fixture
@@ -223,7 +239,27 @@ def test_injected_keys_still_say_they_are_injected(keys, injector):
 def test_a_key_windows_has_no_name_for_is_simply_dropped(keys, injector):
     injector.key(999999, True)
     time.sleep(0.4)
-    assert keys.seen == []
+    assert keys.ours() == [], (
+        f"nothing should have been injected; saw {keys.ours()}")
+
+
+def test_what_the_person_does_while_this_runs_is_ignored(keys, injector):
+    """These hooks watch the WHOLE machine, so a key the person presses
+    arrives here too. Seven of these tests failed in one run because the
+    maintainer was typing to the assistant at the time; one of them only
+    because it asserted no key had been seen at all. Using the computer must
+    not break the build.
+    """
+    keys.seen.append({"vk": 0x41, "scan": 30, "up": False,
+                      "injected": False, "extended": False})
+    injector.key(keymap.E["B"], True)
+    try:
+        seen = keys.wait_for(1)
+        assert seen, "our own key was not seen"
+        assert all(e["injected"] for e in seen), seen
+        assert seen[0]["vk"] == keymap.evdev_to_vk(keymap.E["B"])
+    finally:
+        injector.key(keymap.E["B"], False)
 
 
 # ------------------------------------------------- the arrow, after a reboot
@@ -275,7 +311,9 @@ def test_driving_on_and_on_does_not_keep_sending_it(injector, mouse):
         for i in range(60):
             injector.move_abs(500 + i - injector.ox, 400 - injector.oy)
         time.sleep(0.4)
-        assert len(mouse.seen) <= 1,             f"sent mouse input {len(mouse.seen)} times for 60 movements"
+        ours = mouse.ours()
+        assert len(ours) <= 1, (
+            f"sent mouse input {len(ours)} times for 60 movements")
     finally:
         injector.u.SetCursorPos(*home)
 
