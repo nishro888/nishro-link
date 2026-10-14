@@ -64,7 +64,10 @@ class WindowsInjector(Injector):
     MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_VIRTUALDESK = 0x8000, 0x4000
     MAPVK_VK_TO_VSC_EX = 4
     CURSOR_SHOWING = 0x0001
-    CURSOR_CHECK_S = 1.0          # how often to look, at most
+    # A gap this long means driving has stopped and started again - the
+    # pointer arrives from the other computer many times a second while it
+    # is being driven, so this costs one extra pair of calls per spell.
+    WAKE_AFTER_IDLE_S = 1.0
 
     def __init__(self, origin=(0, 0)):
         import ctypes
@@ -77,7 +80,8 @@ class WindowsInjector(Injector):
         # from the primary monitor's. See desktop.py.
         self.ox, self.oy = int(origin[0]), int(origin[1])
         self._types()
-        self._looked_at_cursor = 0.0
+        self._last_move_at = 0.0
+        self._woken = False
 
     def _types(self):
         """The structures SendInput takes. INPUT must be EXACTLY the size
@@ -157,12 +161,19 @@ class WindowsInjector(Injector):
         happens - after a boot, after a lock, at any time.
         """
         now = time.monotonic()
-        if now - self._looked_at_cursor < self.CURSOR_CHECK_S:
+        gap = now - self._last_move_at
+        self._last_move_at = now
+        # The first movement of a spell of driving, and no more often than
+        # that. GetCursorInfo is NOT asked any more: it reported the arrow as
+        # showing while it plainly was not being drawn, so the wake never
+        # happened - after the first fix the maintainer still had no arrow
+        # until a CLICK from the other computer's mouse brought it back, a
+        # click being mouse input where our movement was not. So the input
+        # goes whenever driving starts, whatever Windows claims to know.
+        if self._woken and gap < self.WAKE_AFTER_IDLE_S:
             return
-        self._looked_at_cursor = now
+        self._woken = True
         try:
-            if self._arrow_is_drawn():
-                return
             self._as_real_mouse_input(x, y)
             self.u.SetCursorPos(x, y)      # undo the grid's rounding
         except Exception:

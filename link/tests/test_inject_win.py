@@ -66,6 +66,8 @@ class Watcher:
         self.user32.CallNextHookEx.argtypes = [wt.HHOOK, ctypes.c_int,
                                                wt.WPARAM, wt.LPARAM]
         self._proc = HOOKPROC(self._on)
+        self._stop = threading.Event()
+        self._handle = None
         self._ready = threading.Event()
         self._thread = threading.Thread(target=self._pump, daemon=True)
         self._thread.start()
@@ -79,11 +81,19 @@ class Watcher:
                                                            WM_KEYUP):
                 kb = ctypes.cast(lparam,
                                  ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+                injected = bool(kb.flags & LLKHF_INJECTED)
                 self.seen.append({"vk": kb.vkCode, "scan": kb.scanCode,
                                   "up": wparam == WM_KEYUP,
-                                  "injected": bool(kb.flags & LLKHF_INJECTED),
+                                  "injected": injected,
                                   "extended": bool(kb.flags & LLKHF_EXTENDED)})
-                return 1                # swallowed: nothing is typed anywhere
+                # ONLY our own injections are swallowed. A hook swallowing
+                # everything leaves the person unable to type at all if this
+                # process ever outlives the test - which happened: a test run
+                # left hanging in the background ate every keystroke on the
+                # machine until it was restarted. A key the person actually
+                # pressed must always pass through, whatever goes wrong here.
+                return 1 if injected else self.user32.CallNextHookEx(
+                    None, code, wparam, lparam)
             if self.which == WH_MOUSE_LL and wparam == WM_MOUSEMOVE:
                 ms = ctypes.cast(lparam,
                                  ctypes.POINTER(MSLLHOOKSTRUCT)).contents
@@ -93,12 +103,29 @@ class Watcher:
     def _pump(self):
         h = self.user32.SetWindowsHookExW(self.which, self._proc, None, 0)
         self.hooked = bool(h)
+        self._handle = h
         self._ready.set()
         if not h:
             return
         msg = wt.MSG()
-        while self.user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-            pass
+        while not self._stop.is_set() and                 self.user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1) >= 0:
+            if self._stop.wait(0.02):
+                break
+        self.unhook()
+
+    def unhook(self):
+        """Taken down the moment a test is done with it, not left to the
+        process exiting."""
+        h, self._handle = getattr(self, "_handle", None), None
+        if h:
+            try:
+                self.user32.UnhookWindowsHookEx(h)
+            except Exception:
+                pass
+
+    def stop(self):
+        self._stop.set()
+        self.unhook()
 
     def wait_for(self, how_many, timeout=4.0):
         end = time.monotonic() + timeout
@@ -111,8 +138,24 @@ class Watcher:
 def keys():
     w = Watcher(WH_KEYBOARD_LL)
     if not getattr(w, "hooked", False):
+        w.stop()
         pytest.skip("could not watch the keyboard")
-    return w
+    try:
+        yield w
+    finally:
+        w.stop()
+
+
+@pytest.fixture
+def mouse():
+    w = Watcher(WH_MOUSE_LL)
+    if not getattr(w, "hooked", False):
+        w.stop()
+        pytest.skip("could not watch the mouse")
+    try:
+        yield w
+    finally:
+        w.stop()
 
 
 @pytest.fixture
@@ -200,48 +243,53 @@ def test_moving_the_pointer_puts_it_exactly_where_asked(injector):
         injector.u.SetCursorPos(*home)
 
 
-def test_the_arrow_is_only_looked_at_now_and_then(injector):
-    """The check is a system call on the path every pointer movement takes,
-    so it must not happen on every one."""
-    looks = []
-    injector._arrow_is_drawn = lambda: looks.append(1) or True
-    for i in range(50):
-        injector.move_abs(400 + i, 400)
-    assert len(looks) <= 2, f"looked {len(looks)} times for 50 movements"
+def test_the_first_movement_of_a_spell_sends_real_mouse_input(injector, mouse):
+    """The fix: whenever driving begins, the system is given movement it
+    counts as mouse input, so the arrow is drawn - and the pointer is then
+    put back on the exact pixel.
 
-
-def test_when_the_arrow_is_not_drawn_real_mouse_input_is_sent(injector):
-    """The fix itself: the system is given movement it counts as mouse
-    input, and the pointer is then put back exactly."""
-    mouse = Watcher(WH_MOUSE_LL)
-    if not getattr(mouse, "hooked", False):
-        pytest.skip("could not watch the mouse")
+    Windows is NOT asked whether the arrow is showing. It said yes while it
+    plainly was not drawing one, so the wake never happened, and after the
+    first attempt at this fix the maintainer still had no arrow until a
+    CLICK arrived from the other computer's mouse - a click being mouse
+    input where our movement was not.
+    """
     home = injector._pos()
     try:
-        injector._arrow_is_drawn = lambda: False     # as it is after a boot
-        injector._looked_at_cursor = 0.0
         mouse.seen.clear()
         injector.move_abs(700 - injector.ox, 450 - injector.oy)
-        seen = mouse.wait_for(1)
-        assert seen, "the system saw no mouse input, so the arrow stays hidden"
-        assert injector._pos() == (700, 450), \
-            f"the pointer ended up at {injector._pos()}"
+        assert mouse.wait_for(1),             "the system saw no mouse input, so the arrow stays hidden"
+        assert injector._pos() == (700, 450),             f"the pointer ended up at {injector._pos()}"
     finally:
         injector.u.SetCursorPos(*home)
 
 
-def test_nothing_is_sent_while_the_arrow_is_already_drawn(injector):
-    mouse = Watcher(WH_MOUSE_LL)
-    if not getattr(mouse, "hooked", False):
-        pytest.skip("could not watch the mouse")
+def test_driving_on_and_on_does_not_keep_sending_it(injector, mouse):
+    """It costs two extra system calls on the path every movement of the
+    pointer takes, so it happens once a spell, not once a movement."""
     home = injector._pos()
     try:
-        injector._arrow_is_drawn = lambda: True
-        injector._looked_at_cursor = 0.0
+        injector.move_abs(500 - injector.ox, 400 - injector.oy)
+        mouse.wait_for(1)
         mouse.seen.clear()
-        injector.move_abs(650 - injector.ox, 420 - injector.oy)
+        for i in range(60):
+            injector.move_abs(500 + i - injector.ox, 400 - injector.oy)
         time.sleep(0.4)
-        assert mouse.seen == [], \
-            "mouse input was sent although the arrow was already there"
+        assert len(mouse.seen) <= 1,             f"sent mouse input {len(mouse.seen)} times for 60 movements"
+    finally:
+        injector.u.SetCursorPos(*home)
+
+
+def test_it_is_sent_again_after_a_pause(injector, mouse):
+    """A pause means the pointer went back to the other computer, and the
+    arrow may well need waking when it returns - after a lock, for one."""
+    home = injector._pos()
+    try:
+        injector.move_abs(500 - injector.ox, 400 - injector.oy)
+        mouse.wait_for(1)
+        injector._last_move_at -= injector.WAKE_AFTER_IDLE_S + 0.5
+        mouse.seen.clear()
+        injector.move_abs(520 - injector.ox, 400 - injector.oy)
+        assert mouse.wait_for(1), "nothing was sent when driving began again"
     finally:
         injector.u.SetCursorPos(*home)
