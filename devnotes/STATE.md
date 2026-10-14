@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-10-11
+**Last updated:** 2026-10-14
 
 ## Versions
 
@@ -33,6 +33,50 @@
   the maintainer is to join it once from the Wi-Fi menu.
 - Checks on the AIO are made there by the maintainer, or by an assistant
   the maintainer coordinates outside this repository.
+
+
+## Moving windows (1.2.0 work, on `main`, nothing pushed)
+
+Stages 1-4 of `docs/moving-windows.md` are built and the feature works on
+both real machines. Since the last state:
+
+- **The pointer's arrow** is drawn as soon as the other computer's mouse
+  moves it. GetCursorInfo said it was showing while it was not, so it is no
+  longer asked: real mouse input is sent whenever driving begins and the
+  pointer is put back on the exact pixel.
+- **The mouse wheel** scrolls in a moved window (the click-through bit is
+  lifted for a quarter of a second round the wheel).
+- **Dragging a frame back home** (stage 4, both systems): 40% of it past the
+  edge the window's own computer lies beyond, let go, and it goes. The node
+  works the edge out from the desk and it reaches the frame on the helper's
+  command line.
+- **Throwing a window out** by its own title bar (stage 4, Windows home):
+  a WinEvent hook on the tray's thread, the window taken out of the move
+  loop with WM_CANCELMODE, and the node asked through /api/window/move.
+  Borders come from the desk's own doors, as a LINE in local pixels.
+- **Avro Keyboard cannot be made to work** and that is now settled and
+  written down (TESTLOG, manual section 20): it acts on no injected key,
+  because it injects its own Bangla characters. Carrying the CHARACTER
+  instead of the key (KEYEVENTF_UNICODE, measured working) would sidestep
+  it - proposed, not built.
+- **The refresh rate is measured** (TESTLOG): an ordinary window manages 44
+  frames a second and MAX_FPS = 25 is not the limit; a window of moving
+  colour manages 10.5, limited by the encoder and 300 KB a frame. zlib's
+  level is right as it is - the reasoning is written down. What would help:
+  overlap capture with encode, then a lossy codec.
+
+Installed on the laptop 2026-10-14: `NishroLink.exe` 1.2.0, sha256
+`CE90E293DA5BC8AF`, service Running, tray running. The live service reports
+both borders to the AIO. **The AIO still runs the older build**, so a frame
+shown there cannot yet be dragged home - it needs the new `.deb`.
+
+Still to do on this feature:
+
+1. The AIO's build, for dragging a frame home there.
+2. Roni's own checks of the arrow, the wheel, and both drag gestures.
+3. Stage 5 (a window FROM the AIO: GNOME home through the portals) and
+   stage 6 (the GNOME Shell extension).
+4. Overlapping capture with encode, if the refresh rate is to be worked on.
 
 ## Next
 
