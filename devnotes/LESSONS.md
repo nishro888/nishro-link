@@ -309,3 +309,15 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   is exactly where the border to the other computer is. Any gesture measured
   at the edge of the screen needs a pixel limit as well as a proportion - and
   a live test is what found it, after three rounds of blaming the test.
+- **A line nobody can write is a line nobody can read.** The drag watcher
+  runs in the TRAY, in the person's session, and logged beside the service's
+  own files in `ProgramData` - which the service (SYSTEM) writes and a normal
+  account can only READ. `write_log` swallowed the `PermissionError`, so when
+  the hook failed to install there was nothing anywhere saying why and the
+  gesture looked as though it simply did nothing. It now falls back to the
+  person's own `LOCALAPPDATA` folder. Check that the account a log line comes
+  from can write where it is going.
+- **A windowed build has no stdout.** The tray is started with
+  `log=print`, so every line it says is lost in the installed program.
+  Anything worth knowing from the tray has to go to a file - and "has the
+  hook been installed?" turned out to be exactly that sort of thing.
