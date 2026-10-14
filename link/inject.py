@@ -11,6 +11,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
+import time
 
 from . import keymap
 
@@ -55,7 +56,15 @@ class WindowsInjector(Injector):
     RDOWN, RUP = 0x0008, 0x0010
     MDOWN, MUP = 0x0020, 0x0040
     WHEEL, HWHEEL = 0x0800, 0x1000
-    KEYUP, EXTENDED = 0x0002, 0x0001
+
+    # SendInput's own numbers, used for keys (so they carry a scan code) and
+    # to wake a cursor Windows has stopped drawing.
+    INPUT_MOUSE, INPUT_KEYBOARD = 0, 1
+    KEYEVENTF_EXTENDED, KEYEVENTF_KEYUP = 0x0001, 0x0002
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_VIRTUALDESK = 0x8000, 0x4000
+    MAPVK_VK_TO_VSC_EX = 4
+    CURSOR_SHOWING = 0x0001
+    CURSOR_CHECK_S = 1.0          # how often to look, at most
 
     def __init__(self, origin=(0, 0)):
         import ctypes
@@ -67,6 +76,52 @@ class WindowsInjector(Injector):
         # Link positions count from the desktop's corner; SetCursorPos counts
         # from the primary monitor's. See desktop.py.
         self.ox, self.oy = int(origin[0]), int(origin[1])
+        self._types()
+        self._looked_at_cursor = 0.0
+
+    def _types(self):
+        """The structures SendInput takes. INPUT must be EXACTLY the size
+        Windows expects - it is a union, not a struct with padding added, and
+        sized wrongly SendInput quietly does nothing at all."""
+        ctypes, wt = self.c, self.c.wintypes
+
+        class MOUSEINPUT(ctypes.Structure):
+            _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                        ("mouseData", wt.DWORD), ("dwFlags", wt.DWORD),
+                        ("time", wt.DWORD), ("extra", ctypes.c_void_p)]
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [("wVk", wt.WORD), ("wScan", wt.WORD),
+                        ("dwFlags", wt.DWORD), ("time", wt.DWORD),
+                        ("extra", ctypes.c_void_p)]
+
+        class HARDWAREINPUT(ctypes.Structure):
+            _fields_ = [("uMsg", wt.DWORD), ("wParamL", wt.WORD),
+                        ("wParamH", wt.WORD)]
+
+        class BODY(ctypes.Union):
+            _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT),
+                        ("hi", HARDWAREINPUT)]
+
+        class INPUT(ctypes.Structure):
+            _fields_ = [("type", wt.DWORD), ("u", BODY)]
+
+        class CURSORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wt.DWORD), ("flags", wt.DWORD),
+                        ("hCursor", ctypes.c_void_p),
+                        ("ptScreenPos", wt.POINT)]
+
+        self._MOUSEINPUT, self._KEYBDINPUT = MOUSEINPUT, KEYBDINPUT
+        self._INPUT, self._CURSORINFO = INPUT, CURSORINFO
+        self.u.MapVirtualKeyW.argtypes = [wt.UINT, wt.UINT]
+        self.u.MapVirtualKeyW.restype = wt.UINT
+        self.u.SendInput.argtypes = [wt.UINT, ctypes.c_void_p, ctypes.c_int]
+        self.u.SendInput.restype = wt.UINT
+        self.u.GetCursorInfo.argtypes = [ctypes.c_void_p]
+
+    def _send(self, one) -> bool:
+        return self.u.SendInput(1, self.c.byref(one),
+                                self.c.sizeof(self._INPUT)) == 1
 
     def _pos(self):
         pt = self.c.wintypes.POINT()
@@ -76,9 +131,64 @@ class WindowsInjector(Injector):
     def move(self, dx, dy):
         x, y = self._pos()
         self.u.SetCursorPos(int(x + dx), int(y + dy))  # SetCursorPos dodges accel
+        self._keep_the_arrow_drawn(int(x + dx), int(y + dy))
 
     def move_abs(self, x, y):
-        self.u.SetCursorPos(int(x) + self.ox, int(y) + self.oy)
+        where = (int(x) + self.ox, int(y) + self.oy)
+        self.u.SetCursorPos(*where)
+        self._keep_the_arrow_drawn(*where)
+
+    # ------------------------------------------------- the arrow, after a boot
+    def _keep_the_arrow_drawn(self, x, y) -> None:
+        """Make sure Windows is actually DRAWING the pointer.
+
+        Reported: after restarting the laptop, the other computer's mouse
+        moved it and clicked perfectly but no arrow was drawn, until the
+        laptop's own touchpad was touched. Measured: SetCursorPos moves the
+        cursor without the system seeing any mouse INPUT at all (a low-level
+        mouse hook sees nothing), so whatever decides to draw the arrow is
+        never told. SendInput's absolute move IS input - but it rounds
+        through a 0-65535 grid and lands a pixel out, which will not do for
+        a pointer crossing an edge.
+
+        So: only when the arrow is not being drawn, send that input and then
+        put the pointer back exactly. Looked at once a second at most, so a
+        pointer being driven costs nothing, and it mends itself whenever this
+        happens - after a boot, after a lock, at any time.
+        """
+        now = time.monotonic()
+        if now - self._looked_at_cursor < self.CURSOR_CHECK_S:
+            return
+        self._looked_at_cursor = now
+        try:
+            if self._arrow_is_drawn():
+                return
+            self._as_real_mouse_input(x, y)
+            self.u.SetCursorPos(x, y)      # undo the grid's rounding
+        except Exception:
+            pass                            # never worth failing a move over
+
+    def _arrow_is_drawn(self) -> bool:
+        info = self._CURSORINFO()
+        info.cbSize = self.c.sizeof(self._CURSORINFO)
+        if not self.u.GetCursorInfo(self.c.byref(info)):
+            return True                     # cannot tell: leave well alone
+        return bool(info.flags & self.CURSOR_SHOWING)
+
+    def _as_real_mouse_input(self, x, y) -> None:
+        """One absolute move through SendInput: movement the system counts as
+        mouse input, wherever the pointer already is."""
+        vx = self.u.GetSystemMetrics(76)    # SM_XVIRTUALSCREEN
+        vy = self.u.GetSystemMetrics(77)
+        vw = max(self.u.GetSystemMetrics(78) - 1, 1)
+        vh = max(self.u.GetSystemMetrics(79) - 1, 1)
+        one = self._INPUT(type=self.INPUT_MOUSE)
+        one.u.mi = self._MOUSEINPUT(
+            int(round((x - vx) * 65535.0 / vw)),
+            int(round((y - vy) * 65535.0 / vh)), 0,
+            self.MOVE | self.MOUSEEVENTF_ABSOLUTE | self.MOUSEEVENTF_VIRTUALDESK,
+            0, None)
+        self._send(one)
 
     def set_origin(self, ox, oy):
         """See WinCapture.set_origin: a monitor change moved the desktop's corner."""
@@ -110,10 +220,27 @@ class WindowsInjector(Injector):
             return
         # Windows does not auto-repeat injected keys itself, so a repeat (2) has
         # to become another keydown - which is what any truthy value does here.
-        flags = 0 if down else self.KEYUP
-        if vk in keymap.MEDIA_VKS:
-            flags |= self.EXTENDED
-        self.u.keybd_event(vk, 0, flags, 0)
+        flags = 0 if down else self.KEYEVENTF_KEYUP
+        # WITH ITS SCAN CODE. keybd_event(vk, 0, ...) sends scan code zero,
+        # and a program that reads the scan code to know which physical key
+        # was struck then cannot tell. Reported: Avro Keyboard's F12 did not
+        # switch between Bangla and English from the other computer's
+        # keyboard, and with Bangla on, that keyboard still typed English,
+        # while the laptop's own keyboard was fine. Measured: our keys
+        # carried scan code 0 where the hardware sends 30 for A, 88 for F12.
+        # The virtual key goes along with it, so what each key MEANS is still
+        # ours to say and does not depend on the layout Windows has loaded.
+        scan = self.u.MapVirtualKeyW(vk, self.MAPVK_VK_TO_VSC_EX)
+        if (scan >> 8) == 0xE0 or vk in keymap.WINDOWS_EXTENDED                 or vk in keymap.MEDIA_VKS:
+            # Without this an arrow IS a number-pad key: they share a scan
+            # code, and the prefix is the only difference (keymap.py).
+            flags |= self.KEYEVENTF_EXTENDED
+        scan &= 0xFF
+        one = self._INPUT(type=self.INPUT_KEYBOARD)
+        one.u.ki = self._KEYBDINPUT(vk, scan, flags, 0, None)
+        if not self._send(one):
+            # Whatever went wrong, a key the person pressed must still land.
+            self.u.keybd_event(vk, scan, flags, 0)
 
     def _brightness(self, step):
         """Windows has no brightness key a program can send: a laptop's are

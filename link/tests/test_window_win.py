@@ -317,3 +317,71 @@ def test_closing_asks_the_program_to_close_its_window(subject):
             break
         time.sleep(0.1)
     assert not win.alive(), "the window did not close"
+
+
+# ------------------------------------------- the wheel, in a hidden window (R2)
+def test_the_wheel_makes_the_window_hit_testable_for_a_moment(subject, hidden):
+    """Reported: scrolling did not work in a moved window. Of everything
+    about the way a window is hidden, WS_EX_TRANSPARENT alone stops the
+    wheel - a program asked to scroll looks at what is under the pointer,
+    and a click-through window is not there to be found."""
+    from link.window_win import WS_EX_TRANSPARENT
+    assert user32.GetWindowLongW(subject.hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT, \
+        "a hidden window should be click-through to start with"
+    hidden.move(40, 40)
+    hidden.wheel(0, -1)
+    assert not user32.GetWindowLongW(subject.hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT, \
+        "the bit was not lifted, so the wheel will not land"
+    time.sleep(hidden.WHEEL_CLICKABLE_S + 0.6)
+    assert user32.GetWindowLongW(subject.hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT, \
+        "the bit was never put back - this window would swallow real clicks"
+
+
+def test_the_wheel_still_arrives_while_the_bit_is_lifted(subject, hidden):
+    hidden.move(40, 40)
+    subject.saw()
+    hidden.wheel(0, -2)
+    time.sleep(0.4)
+    wheels = [e for e in subject.saw() if e[0] == "wheel"]
+    assert wheels, "the wheel did not arrive"
+    assert wheels[0][1] < 0
+
+
+def test_a_flick_of_the_wheel_is_not_a_flurry_of_style_changes(subject, hidden):
+    """Many turns in a row must keep it lifted, not lift and drop each time."""
+    changes = []
+    real = hidden._clickable_for_a_moment
+
+    def counted():
+        before = hidden._lifted
+        real()
+        if not before and hidden._lifted:
+            changes.append(1)
+    hidden._clickable_for_a_moment = counted
+    hidden.move(40, 40)
+    for _ in range(12):
+        hidden.wheel(0, -1)
+        time.sleep(0.02)
+    assert len(changes) == 1, f"lifted it {len(changes)} times for one flick"
+
+
+def test_a_window_that_is_not_hidden_is_left_alone(subject, rescue):
+    """Nothing to lift: the window is on its own screen and clickable."""
+    win = Window(subject.hwnd, rescue=rescue)
+    before = user32.GetWindowLongW(subject.hwnd, GWL_EXSTYLE)
+    win.move(40, 40)
+    win.wheel(0, -1)
+    assert win._lifted is False
+    assert user32.GetWindowLongW(subject.hwnd, GWL_EXSTYLE) == before
+
+
+def test_bringing_the_window_home_does_not_leave_the_bit_lifted(subject, rescue):
+    from link.window_win import WS_EX_LAYERED
+    win = Window(subject.hwnd, rescue=rescue)
+    win.hide()
+    win.move(40, 40)
+    win.wheel(0, -1)
+    win.show()
+    time.sleep(0.5)
+    ex = user32.GetWindowLongW(subject.hwnd, GWL_EXSTYLE)
+    assert not ex & WS_EX_LAYERED, "the window did not come back properly"

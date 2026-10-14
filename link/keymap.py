@@ -91,6 +91,21 @@ def linux_keys() -> list:
     return sorted(set(E.values()) | SYSTEM)
 
 
+# --- the keys Windows calls "extended" ---
+# A real keyboard sends these with an E0 prefix, which is the ONLY thing that
+# tells the arrows apart from the number pad (Left Arrow and numpad 4 share
+# scan code 75) and the right Ctrl from the left. MapVirtualKey(VSC_EX) marks
+# the right-hand modifiers, the Windows keys and the media keys for us, but
+# NOT the navigation keys - measured on Windows 10 - so those are listed.
+# It matters because inject.py now sends real scan codes: with scan code
+# zero, as before, a program had only the virtual key to go on and the
+# distinction never arose.
+_EXTENDED_NAMES = ("LEFT", "RIGHT", "UP", "DOWN", "HOME", "END", "PAGEUP",
+                   "PAGEDOWN", "INSERT", "DELETE", "NUMLOCK")
+WINDOWS_EXTENDED = frozenset(
+    vk for vk, name in _VK_NAME.items() if name in _EXTENDED_NAMES)
+
+
 # --- Tk keysym -> evdev name ---
 # What a frame showing a moved window gets from its own system (Tk reports a
 # keysym per key) turned into the evdev codes Nishro Link speaks everywhere.

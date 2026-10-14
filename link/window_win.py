@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as wt
+import threading
+import time
 
 from . import keymap
 
@@ -259,6 +261,9 @@ class Window:
         self.hidden = False
         self._held = 0                 # which mouse buttons the far side holds
         self._down = set()             # which keys, so they can be let go
+        self._wheel_lock = threading.Lock()
+        self._lifted = False           # the click-through bit is off, for a wheel
+        self._clickable_until = 0.0
 
     # --------------------------------------------------------------- looking
     def alive(self) -> bool:
@@ -331,6 +336,8 @@ class Window:
     def show(self) -> None:
         """Put it back exactly as it was, and let go of anything the other
         computer was still holding down."""
+        with self._wheel_lock:
+            self._clickable_until = 0.0     # the lifting thread stands down
         self._let_go()
         if self.alive():
             undo = (self.rescue.pending().get(str(int(self.hwnd)))
@@ -407,8 +414,61 @@ class Window:
         user32.PostMessageW(hwnd, msgs[0] if down else msgs[1],
                             self._held, _lp(cx, cy))
 
+    # How long the window stays hit-testable after a turn of the wheel.
+    # Measured: 20 ms is enough for the program to act on the message; a
+    # quarter of a second means a flick of the wheel is not a flurry of
+    # style changes.
+    WHEEL_CLICKABLE_S = 0.25
+
+    def _clickable_for_a_moment(self) -> None:
+        """Lift the click-through bit, briefly, so a wheel message lands.
+
+        Reported: scrolling did not work in a moved window. Measured: of
+        everything about the way a window is hidden, WS_EX_TRANSPARENT alone
+        is what stops it - clicks and keys arrive without it, the wheel does
+        not, because a program asked to scroll looks at what is under the
+        pointer and a click-through window is not there to be found.
+
+        So the bit comes off around a turn of the wheel and goes back a
+        quarter of a second after the last one. The window is hit-testable
+        for that moment, which means a click on THIS computer in that exact
+        place would land on a window nobody can see - and the person is
+        scrolling the window on the other computer just then, so their
+        pointer is there and not here.
+        """
+        if not self.hidden:
+            return
+        with self._wheel_lock:
+            self._clickable_until = time.monotonic() + self.WHEEL_CLICKABLE_S
+            if self._lifted:
+                return
+            ex = user32.GetWindowLongW(self.hwnd, GWL_EXSTYLE)
+            if not ex & WS_EX_TRANSPARENT:
+                return                      # not hidden that way after all
+            user32.SetWindowLongW(self.hwnd, GWL_EXSTYLE, ex & ~WS_EX_TRANSPARENT)
+            self._lifted = True
+            threading.Thread(target=self._put_the_bit_back, daemon=True,
+                             name="window-clickthrough").start()
+
+    def _put_the_bit_back(self) -> None:
+        while True:
+            with self._wheel_lock:
+                left = self._clickable_until - time.monotonic()
+                if left <= 0 or not self.hidden:
+                    try:
+                        ex = user32.GetWindowLongW(self.hwnd, GWL_EXSTYLE)
+                        if self.hidden and user32.IsWindow(self.hwnd):
+                            user32.SetWindowLongW(self.hwnd, GWL_EXSTYLE,
+                                                  ex | WS_EX_TRANSPARENT)
+                    except Exception:
+                        pass
+                    self._lifted = False
+                    return
+            time.sleep(min(left, 0.1))
+
     def wheel(self, dx, dy) -> None:
         x, y = getattr(self, "_at", (0, 0))
+        self._clickable_for_a_moment()
         hwnd, _, _ = self._aim(x, y)
         r = rect_of(self.hwnd) or (0, 0, 0, 0)
         # The wheel is the one message whose position is in SCREEN
