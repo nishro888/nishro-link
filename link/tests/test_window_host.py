@@ -7,6 +7,7 @@ them - the only fakes left are the other computer (a socket) and the frame
 
 Skipped off Windows, and where there is no desktop.
 """
+import builtins
 import socket
 import subprocess
 import sys
@@ -18,7 +19,7 @@ import pytest
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
 
 if sys.platform == "win32":
-    from link import picture, winmove, window_service
+    from link import picture, winmove, window_host, window_service
     from link.window_win import GWL_EXSTYLE, WS_EX_LAYERED, user32
 
 from test_window_win import Subject, TITLE          # noqa: E402
@@ -219,3 +220,46 @@ def test_the_helper_says_what_it_cannot_do_rather_than_failing(subject):
     finally:
         far_sock.close()
         near.close()
+
+
+def test_a_line_nobody_can_write_is_a_line_nobody_can_read(tmp_path,
+                                                           monkeypatch):
+    """The window helper runs as SYSTEM and writes beside the service's own
+    files; the tray, in the person's session, cannot write there - only read.
+    That swallowed every line the drag watcher tried to say, so when its hook
+    did not install there was nothing anywhere to say why.
+    """
+    refused = tmp_path / "no" / "window-host.log"
+    mine = tmp_path / "mine" / "moved.json"
+    monkeypatch.setattr(window_host, "log_path", lambda: refused)
+    monkeypatch.setattr(window_host, "rescue_path", lambda: mine)
+
+    real_open = builtins.open
+
+    def only_the_second(path, *a, **k):
+        if str(path) == str(refused):
+            raise PermissionError(13, "Permission denied")
+        return real_open(path, *a, **k)
+    monkeypatch.setattr(builtins, "open", only_the_second)
+
+    window_host.write_log("the hook would not install")
+    monkeypatch.setattr(builtins, "open", real_open)
+    landed = mine.parent / "window-host.log"
+    assert landed.exists(), "the line went nowhere at all"
+    assert "the hook would not install" in landed.read_text(encoding="utf-8")
+
+
+def test_it_goes_to_the_first_place_it_can(tmp_path, monkeypatch):
+    first = tmp_path / "service" / "window-host.log"
+    monkeypatch.setattr(window_host, "log_path", lambda: first)
+    monkeypatch.setattr(window_host, "rescue_path",
+                        lambda: tmp_path / "mine" / "moved.json")
+    window_host.write_log("hello")
+    assert "hello" in first.read_text(encoding="utf-8")
+    assert not (tmp_path / "mine").exists()
+
+
+def test_no_writable_place_at_all_is_still_not_a_crash(monkeypatch):
+    """A helper must never fail over its own log."""
+    monkeypatch.setattr(window_host, "_log_paths", lambda: [])
+    window_host.write_log("nowhere to put this")

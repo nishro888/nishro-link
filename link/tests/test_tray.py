@@ -721,3 +721,54 @@ def test_a_watcher_that_will_not_start_does_not_stop_the_tray(monkeypatch):
     t, _ui = make(None)
     assert tray._watch_drags(t, said.append) is None
     assert any("will not be noticed" in s for s in said), said
+
+
+def test_the_drag_watcher_says_what_it_did_where_it_can_be_read(monkeypatch):
+    """The tray's own log is stdout, and a windowed build has none - so when
+    the hook could not be installed there was no line anywhere saying why,
+    and the gesture just silently did nothing on the installed build."""
+    monkeypatch.setattr(tray.sys, "platform", "win32")
+    said, filed = [], []
+    import link.window_host as wh
+    monkeypatch.setattr(wh, "write_log", filed.append)
+
+    class Hooked:
+        def __init__(self, **kw):
+            self.log = kw["log"]
+
+        def start(self):
+            return True
+    import link.windrag_win as ww
+    monkeypatch.setattr(ww, "Watcher", Hooked)
+    t, _ui = make(None)
+    assert tray._watch_drags(t, said.append) is not None
+    assert any("watching for windows dragged" in m for m in said), said
+    assert any("drag watcher: watching" in m for m in filed), filed
+
+
+def test_a_watcher_that_will_not_start_says_so_in_the_file_too(monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", "win32")
+    filed = []
+    import link.window_host as wh
+    monkeypatch.setattr(wh, "write_log", filed.append)
+
+    def boom(**kw):
+        raise RuntimeError("no hooks here")
+    import link.windrag_win as ww
+    monkeypatch.setattr(ww, "Watcher", boom)
+    t, _ui = make(None)
+    assert tray._watch_drags(t, lambda m: None) is None
+    assert any("will not be noticed" in m for m in filed), filed
+
+
+def test_a_log_that_blows_up_does_not_take_the_tray_with_it(monkeypatch):
+    """P4, fail open: a tray that died over its own log would cost the
+    person every control it offers."""
+    monkeypatch.setattr(tray.sys, "platform", "win32")
+
+    def angry(_m):
+        raise RuntimeError("the log is gone")
+    import link.window_host as wh
+    monkeypatch.setattr(wh, "write_log", angry)
+    say = tray._drag_log(angry)
+    say("this must not raise")

@@ -111,16 +111,41 @@ def log_path():
     return rescue_path().parent / "window-host.log"
 
 
+def _log_paths():
+    """Where to try writing, best first - the second is this person's own
+    folder, which anything in their session can always write."""
+    out = []
+    for get in (log_path, lambda: rescue_path().parent / "window-host.log"):
+        try:
+            path = get()
+        except Exception:
+            continue
+        if path not in out:
+            out.append(path)
+    return out
+
+
 def write_log(message: str) -> None:
-    """Best effort, always: a helper must never fail over its own log."""
-    try:
-        path = log_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
-            when = time.strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"{when} [{os.getpid()}] {message}\n")
-    except Exception:
-        pass
+    """Best effort, always: a helper must never fail over its own log.
+
+    Two places are tried. The window helper runs as SYSTEM and writes beside
+    the service's own files; anything in the PERSON's session - the tray, and
+    the drag watcher inside it - can only READ there. That silently swallowed
+    every line the drag watcher tried to say, so when its hook did not
+    install there was nothing anywhere to say why, and the gesture looked
+    like it simply did nothing. A line nobody can write is a line nobody can
+    read.
+    """
+    when = time.strftime("%Y-%m-%d %H:%M:%S")
+    line = f"{when} [{os.getpid()}] {message}\n"
+    for path in _log_paths():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line)
+            return
+        except Exception:
+            continue
 
 
 def put_windows_back(log=None) -> int:

@@ -416,6 +416,28 @@ def run(log=print) -> int:
     return 0
 
 
+def _drag_log(log):
+    """Say it where it can actually be read.
+
+    The tray's own log is stdout or stderr, and a windowed build has
+    neither - so if the hook could not be installed, nobody ever found out.
+    That happened: the gesture did nothing on the installed build and there
+    was no line anywhere saying why. These lines also go to the moved-window
+    log beside the service's own files, which any local account can read.
+    """
+    def say(message):
+        try:
+            log(message)
+        except Exception:
+            pass
+        try:
+            from . import window_host
+            window_host.write_log(f"drag watcher: {message}")
+        except Exception:
+            pass
+    return say
+
+
 def _watch_drags(tray, log):
     """Start watching for windows dragged across a border, where we can.
 
@@ -425,13 +447,18 @@ def _watch_drags(tray, log):
     """
     if sys.platform != "win32":
         return None
+    say = _drag_log(log)
     try:
         from . import windrag_win
         w = windrag_win.Watcher(doorways=tray.doorways,
                                 ask=lambda hwnd, device: tray.throw_window(
                                     hwnd, device),
-                                log=log)
-        return w if w.start() else None
+                                log=say)
+        if w.start():
+            say("watching for windows dragged across a border to another "
+                "computer")
+            return w
+        return None
     except Exception as e:
-        log(f"windows dragged to another computer will not be noticed: {e!r}")
+        say(f"windows dragged to another computer will not be noticed: {e!r}")
         return None
