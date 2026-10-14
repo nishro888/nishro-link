@@ -326,8 +326,9 @@ windows is thrown out by its title bar (Windows home only).
 the window's own computer lies beyond: the node works it out from the
 arrangement (`Node.side_toward`, the desk's own doorways) and it travels to
 the frame on the helper's command line (`--window-home-side`). Drag the
-frame so that `winmove.THROW_BACK` (40%) of it is past that edge, let go,
-and it goes home - the same `home` message the tray sends. The title says
+frame far enough past that edge - `winmove.far_enough`: 40% of it
+(`THROW_BACK`) or 80 px (`THROW_PIXELS`), whichever comes first - let go, and
+it goes home - the same `home` message the tray sends. The title says
 "let go to send it back to <computer>" while it is there, so the gesture is
 not something to be found out by accident, and dragging it back on screen
 cancels it.
@@ -349,7 +350,7 @@ hand works on a 1366x768 laptop screen and on a 4K monitor.
 **Out, by the window's own title bar - built, Windows home.** Windows says
 when any window starts and stops being dragged (`SetWinEventHook`,
 `EVENT_SYSTEM_MOVESIZESTART` / `END`) but nothing in between, so while a drag
-lasts the window's place is read off it every 60 ms. Once 40% of it is past a
+lasts the window's place is read off it every 60 ms. Once it is far enough past a
 border that leads somewhere, the window comes out of the move loop
 (`WM_CANCELMODE`, so it goes back to where it was picked up rather than being
 left hanging off the edge) and the node is asked to send it - the same
@@ -375,6 +376,18 @@ The pieces, and why they are where they are:
   `windrag_win` subtracts the desktop's origin so the two agree.
 - **A window already hanging over a border is not sent when it is touched**
   (`windrag.START_INSIDE`): a drag has to begin inside before it can cross.
+
+**Why the threshold is pixels as well as a fraction.** Windows CUTS a drag
+once a window hangs too far off the edge of the desktop, and snaps it back to
+where it was picked up - which is exactly where the border to the other
+computer is on a single-screen machine. Measured on the laptop, stepping a
+real drag 20 px at a time: a 500-wide window followed the pointer to 180 px
+past the desktop's right edge and then jumped back to its starting place; a
+300-wide one managed 115. Both are short of 40% of themselves, so a fraction
+alone was a threshold nobody could reach and the gesture simply never fired -
+found by a live test that failed, not by reasoning. `THROW_PIXELS = 80` sits
+well under both and is still a deliberate shove, since the drag has to begin
+inside the border (`windrag.START_INSIDE`).
 
 Not on GNOME: one program may not watch another's window being dragged there,
 the same wall that stops a window being hidden (stage 6).

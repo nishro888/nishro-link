@@ -559,9 +559,9 @@ you would any window there.
 
 - **Drag it back across the edge.** Take the window by its title bar and
   drag it off the side of the screen the other computer is on - the same
-  edge the pointer crosses to drive that computer. Once enough of it is
-  over the edge the title says **"let go to send it back to laptop"**; let
-  go and it goes. Drag it back on screen instead and nothing happens.
+  edge the pointer crosses to drive that computer. A good shove past the
+  edge is enough - the title then says **"let go to send it back to
+  laptop"**; let go and it goes. Drag it back on screen instead and nothing happens.
 - Or **Win+Shift+** the arrow back towards its own computer.
 - Or **the tray icon → Bring windows home**.
 - It also comes back by itself if anything goes wrong: the network drops,

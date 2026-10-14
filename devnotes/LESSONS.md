@@ -301,3 +301,11 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
 - **When a live test fails, the message must carry the state.** "The drag was
   not noticed" cost two rounds of guessing; "the hook reported the drag and
   the window went from X to X" named the cause immediately.
+- **Windows cuts a drag once a window hangs too far off the edge of the
+  desktop**, snapping it back to where it was picked up. Measured, stepping a
+  real drag 20 px at a time: a 500-wide window reached 180 px of overhang and
+  a 300-wide one 115, then both jumped back. So a threshold set as a FRACTION
+  of the window (40%) could not be reached at the desktop's outer edge, which
+  is exactly where the border to the other computer is. Any gesture measured
+  at the edge of the screen needs a pixel limit as well as a proportion - and
+  a live test is what found it, after three rounds of blaming the test.

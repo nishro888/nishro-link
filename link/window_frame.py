@@ -366,7 +366,7 @@ class Frame:
         if seen is None or seen[0] == self._place:
             return
         self._place = seen[0]
-        thrown = winmove.past_edge(self.home_side, *seen) >= winmove.THROW_BACK
+        thrown = winmove.far_enough_from_screen(self.home_side, *seen)
         if thrown != self._thrown:
             self._thrown = thrown
             try:

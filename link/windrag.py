@@ -78,17 +78,18 @@ class Drags:
             return ""
         if not doors:
             return ""
-        how_far = [(winmove.past_line(d.get("side"), place, d.get("edge")), d)
-                   for d in doors]
         # Where it started matters: a window already hanging over a border
         # when it was picked up would otherwise go the instant it was
         # touched, which is not a gesture anyone made.
         if not self._began_inside:
-            if max((f for f, _ in how_far), default=1.0) <= START_INSIDE:
+            how_far = max((winmove.past_line(d.get("side"), place,
+                                             d.get("edge")) for d in doors),
+                          default=1.0)
+            if how_far <= START_INSIDE:
                 self._began_inside = True
             return ""
-        for fraction, door in how_far:
-            if fraction >= winmove.THROW_BACK:
+        for door in doors:
+            if winmove.far_enough(door.get("side"), place, door.get("edge")):
                 return self._across(str(door.get("side")),
                                     str(door.get("device")))
         return ""

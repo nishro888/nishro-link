@@ -27,6 +27,10 @@ if sys.platform == "win32":
 
 SM_XVIRTUAL, SM_YVIRTUAL, SM_CXVIRTUAL, SM_CYVIRTUAL = 76, 77, 78, 79
 SWP_NOZORDER = 0x0004
+# How much of a failed drag's story to keep. The first dozen places the
+# window passed through say whether it followed the pointer at all, which is
+# the whole question; the rest would just be a wall of numbers.
+STORY_MOST = 14
 
 
 class Pumped:
@@ -154,6 +158,25 @@ def watching():
             w.stop()
 
 
+KEYS_THAT_CHANGE_A_DRAG = {
+    "SHIFT": 0x10, "CTRL": 0x11, "ALT": 0x12, "LWIN": 0x5B, "RWIN": 0x5C,
+    "LBUTTON": 0x01, "RBUTTON": 0x02, "ESC": 0x1B,
+}
+
+
+def keys_held():
+    """Which of the keys that change what a drag does are down right now.
+
+    A key left down by an earlier test would change the gesture under us -
+    Alt and the Windows key both make a drag mean something else - so this
+    goes in the failure message rather than being guessed at.
+    """
+    u = ctypes.WinDLL("user32")
+    u.GetAsyncKeyState.restype = ctypes.c_short
+    return sorted(name for name, vk in KEYS_THAT_CHANGE_A_DRAG.items()
+                  if u.GetAsyncKeyState(vk) & 0x8000)
+
+
 def on_top_at(hwnd, x, y) -> bool:
     """Is `hwnd` really the window at this point on the screen?
 
@@ -174,14 +197,14 @@ def on_top_at(hwnd, x, y) -> bool:
     return int(root or at) == int(hwnd)
 
 
-def to_the_front(hwnd, tries=4) -> bool:
+def to_the_front(hwnd, tries=4, grab_at=60) -> bool:
     u = ctypes.WinDLL("user32")
     for _ in range(tries):
         u.SetForegroundWindow(hwnd)
         u.BringWindowToTop(hwnd)
         time.sleep(0.4)
-        x, y, w, _h = rect_of(hwnd)
-        if on_top_at(hwnd, x + w // 2, y + 16):
+        x, y, _w, _h = rect_of(hwnd)
+        if on_top_at(hwnd, x + grab_at, y + 16):
             return True
     return False
 
@@ -198,25 +221,34 @@ def drag_right(inj, hwnd, steps=25, stop_when=None):
     wrong. move_abs is no good here either: it sends real input only on the
     first movement of a spell (the arrow fix) and SetCursorPos for the rest.
     """
-    if not to_the_front(hwnd):
+    if not to_the_front(hwnd, grab_at=60):
         pytest.skip("another window is over the title bar, so a drag of this "
                     "one cannot be pressed - nothing to do with the code "
                     "under test")
     x, y, w, _h = rect_of(hwnd)
-    gx, gy = x + w // 2, y + 16
+    # Near the LEFT of the title bar, not the middle. The pointer stops at
+    # the edge of the desktop - there is no monitor further right - so a
+    # centre grab runs out of room: measured, the window had travelled 220 px
+    # of the 300 it needed when the pointer clamped. Held near its left edge
+    # the window can be pushed most of its own width past the border, which
+    # is also how a person throwing a window would hold it.
+    gx, gy = x + 60, y + 16
     inj._as_real_mouse_input(gx, gy)
     inj.u.SetCursorPos(gx, gy)              # the 0-65535 grid rounds
     time.sleep(0.4)
+    where = [inj._pos()]
     inj.button("left", True)
     try:
         for step in range(1, steps + 1):
             inj._as_real_mouse_input(gx + step * 20, gy)
             time.sleep(0.06)
+            where.append(inj._pos())
             if stop_when is not None and stop_when():
                 break
     finally:
         inj.button("left", False)
     time.sleep(0.3)
+    return where
 
 
 def test_a_window_dragged_across_the_border_is_offered_to_that_computer(
@@ -226,22 +258,40 @@ def test_a_window_dragged_across_the_border_is_offered_to_that_computer(
     watch = watching(lambda: [{"side": "right", "edge": dw, "device": "aio"}])
     put(notepad, ox + dw - 700, oy + 200, 500, 360)
     was = rect_of(notepad)
-    began = []
-    real_began = watch.watcher.drags.began
+    story = []
+    drags = watch.watcher.drags
+    real_began, real_ended, real_moved = drags.began, drags.ended, drags.moved
+    start = time.monotonic()
 
     def began_(hwnd):
         out = real_began(hwnd)
-        began.append((hwnd, out))
+        story.append(f"began({hwnd})={out} at {time.monotonic() - start:.2f}s")
         return out
-    watch.watcher.drags.began = began_
 
-    drag_right(pointer, notepad, stop_when=lambda: bool(watch.asked))
+    def ended_():
+        story.append(f"ENDED at {time.monotonic() - start:.2f}s")
+        return real_ended()
+
+    def moved_(place):
+        out = real_moved(place)
+        if len(story) < STORY_MOST:        # the first few say all there is
+            story.append(f"moved{place}")
+        return out
+    drags.began, drags.ended, drags.moved = began_, ended_, moved_
+
+    held = keys_held()
+    went = drag_right(pointer, notepad, stop_when=lambda: bool(watch.asked))
     asked = watch.wait_for_asking()
     # Everything worth knowing in the message: this is a real window being
-    # really dragged, so a bare "it did not happen" is no help at all.
+    # really dragged, so a bare "it did not happen" is no help at all. Where
+    # the POINTER went matters as much as where the window did: a pointer
+    # that did not move means the input was blocked or clipped, and one that
+    # moved while the window stayed means the move loop was not tracking it.
     assert asked, (
-        f"the drag was not noticed. drags the hook reported: {began}; "
+        f"the drag was not noticed. what the hook said: {story}; "
         f"the window went from {was} to {rect_of(notepad)}; "
+        f"the pointer went {went[0]} -> {went[-1]} over {len(went)} steps; "
+        f"keys held: {held or 'none'}; "
         f"the border asked for was right of {dw}; log: {watch.said}")
     assert asked[0] == (notepad, "aio")
     # Out of the move loop FIRST, so the window is not left hanging off the

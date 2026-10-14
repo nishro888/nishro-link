@@ -705,8 +705,68 @@ def _step(v):
 # would be left half-thrown. Dragging a window partly off the edge leaves
 # the pointer well inside the screen, so the two never meet.
 THROW_SIDES = ("left", "right", "top", "bottom")
-THROW_BACK = 0.4            # how much of the frame must be past the edge
+THROW_BACK = 0.4            # how much of the window must be past the border
+# ...OR this many pixels, whichever comes first. The pixels are not a nicety:
+# Windows CUTS a drag once a window hangs too far off the edge of the desktop
+# and snaps it back to where it was picked up. Measured on the laptop, where
+# the border to the other computer IS the desktop's outer edge: a 500-wide
+# window followed the pointer to 180 px past it and a 300-wide one to 115,
+# both short of 40% of themselves, and then the drag was cut. A threshold
+# nobody can reach is not a threshold. 80 px leaves room under both, and is
+# still a deliberate shove - the drag has to begin inside (START_INSIDE).
+THROW_PIXELS = 80
 THROW_SETTLE_MS = 400       # quiet for this long counts as letting go
+
+
+def _over(side, place, edge):
+    """(pixels of the window past this border, the window's size across it).
+
+    (0, 0) for anything that does not make sense - these numbers are read off
+    a window manager, which answers oddly while a window is being mapped or
+    taken away, and a window must not be thrown on the strength of that.
+    """
+    if side not in THROW_SIDES:
+        return 0, 0
+    try:
+        x, y, w, h = (int(v) for v in place)
+        edge = int(edge)
+    except (TypeError, ValueError, IndexError):
+        return 0, 0
+    if w <= 0 or h <= 0:
+        return 0, 0
+    if side == "left":
+        return max(0, edge - x), w
+    if side == "right":
+        return max(0, (x + w) - edge), w
+    if side == "top":
+        return max(0, edge - y), h
+    return max(0, (y + h) - edge), h
+
+
+def far_enough(side, place, edge) -> bool:
+    """Has the window been pushed far enough past this border to send it?
+
+    Either THROW_BACK of the window or THROW_PIXELS, whichever comes first.
+    """
+    over, span = _over(side, place, edge)
+    if not span:
+        return False
+    return over >= min(span * THROW_BACK, THROW_PIXELS)
+
+
+def far_enough_from_screen(side, place, screen) -> bool:
+    """The same, measured against the outside of this screen - which is all
+    the frame showing a moved window is told (window_frame.py)."""
+    edge = _screen_edge(side, screen)
+    return False if edge is None else far_enough(side, place, edge)
+
+
+def _screen_edge(side, screen):
+    try:
+        sw, sh = int(screen[0]), int(screen[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    return {"left": 0, "right": sw, "top": 0, "bottom": sh}.get(side)
 
 
 def past_line(side, place, edge) -> float:
@@ -728,24 +788,8 @@ def past_line(side, place, edge) -> float:
     answers oddly while a window is being mapped or taken away, and a window
     must not be thrown at another computer on the strength of that.
     """
-    if side not in THROW_SIDES:
-        return 0.0
-    try:
-        x, y, w, h = (int(v) for v in place)
-        edge = int(edge)
-    except (TypeError, ValueError, IndexError):
-        return 0.0
-    if w <= 0 or h <= 0:
-        return 0.0
-    if side == "left":
-        over, span = edge - x, w
-    elif side == "right":
-        over, span = (x + w) - edge, w
-    elif side == "top":
-        over, span = edge - y, h
-    else:
-        over, span = (y + h) - edge, h
-    return max(0.0, min(1.0, over / span))
+    over, span = _over(side, place, edge)
+    return 0.0 if not span else min(1.0, over / span)
 
 
 def past_edge(side, place, screen) -> float:
@@ -756,14 +800,8 @@ def past_edge(side, place, screen) -> float:
     one side on its command line, not the arrangement). Same arithmetic as
     past_line, with the screen's own border as the line.
     """
-    try:
-        sw, sh = int(screen[0]), int(screen[1])
-    except (TypeError, ValueError, IndexError):
-        return 0.0
-    edge = {"left": 0, "right": sw, "top": 0, "bottom": sh}.get(side)
-    if edge is None:
-        return 0.0
-    return past_line(side, place, edge)
+    edge = _screen_edge(side, screen)
+    return 0.0 if edge is None else past_line(side, place, edge)
 
 
 class AwaySession:

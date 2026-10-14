@@ -76,6 +76,25 @@ def test_a_nudge_over_the_edge_is_not_the_gesture():
     assert w.asked == []
 
 
+def test_a_window_too_wide_to_fit_is_never_thrown_by_being_touched():
+    """It hangs over the border wherever it is put, so there is no drag that
+    began inside - and START_INSIDE is what stops it going on a touch."""
+    w = Watcher()
+    wide = 3000
+    assert w.drag((300, 400, wide, 300),
+                  (100, 400, wide, 300)) == ["", ""]
+    assert w.asked == []
+
+
+def test_the_pixels_decide_for_a_window_whose_fraction_is_out_of_reach():
+    """40% of a wide window is more than Windows lets anyone drag off the
+    edge of the desktop, so the smaller of the two is what counts."""
+    assert winmove.far_enough("right", (1920 - 3000 + 100, 0, 3000, 300),
+                              1920)
+    assert not winmove.far_enough("right", (1920 - 3000 + 40, 0, 3000, 300),
+                                  1920)
+
+
 def test_it_goes_only_once_however_far_it_is_dragged_on():
     w = Watcher()
     out = w.drag(inside(), over_right(), over_right(40), over_right(10))
@@ -134,8 +153,8 @@ def test_a_border_between_two_monitors_is_measured_not_the_far_side():
     far side of everything (measured: the virtual desktop is 3286x1080 and
     starts at (-1920, -148) in Windows' own numbers)."""
     w = Watcher(doors=[{"side": "left", "edge": 1920, "device": "aio"}])
-    # at local x=1800: 120 of a 400-wide window past 1920 - a nudge
-    assert w.drag((2400, 300, 400, 300), (1800, 300, 400, 300)) == ["", ""]
+    # at local x=1870: 50 of a 400-wide window past 1920 - a nudge
+    assert w.drag((2400, 300, 400, 300), (1870, 300, 400, 300)) == ["", ""]
     # at local x=1700: 220 of it past - the gesture
     assert w.drag((2400, 300, 400, 300), (1700, 300, 400, 300))[-1] == "aio"
 
@@ -143,9 +162,23 @@ def test_a_border_between_two_monitors_is_measured_not_the_far_side():
 def test_the_same_threshold_as_dragging_a_frame_back():
     """The gesture must feel the same both ways round."""
     w = Watcher()
-    showing = round(400 * (1 - winmove.THROW_BACK))
-    assert w.drag(inside(), over_right(showing))[-1] == "aio"
-    assert w.drag(inside(), over_right(showing + 8))[-1] == ""
+    needs = min(400 * winmove.THROW_BACK, winmove.THROW_PIXELS)
+    assert w.drag(inside(), over_right(400 - needs))[-1] == "aio"
+    assert w.drag(inside(), over_right(400 - needs + 10))[-1] == ""
+
+
+def test_the_threshold_can_actually_be_REACHED_at_the_desktops_edge():
+    """Measured on the laptop, where the border to the other computer IS the
+    outer edge of the desktop: Windows CUTS a drag once a window hangs too
+    far off it and snaps the window back to where it was picked up. A
+    500-wide window got 180 px past and a 300-wide one 115 - both short of
+    40% of themselves, so a fraction alone was a threshold nobody could
+    reach, and the gesture simply never fired.
+    """
+    for width, reachable in ((300, 115), (500, 180), (1000, 180)):
+        w = Watcher()
+        place = (1920 - width + reachable, 400, width, 300)
+        assert w.drag((600, 400, width, 300), place)[-1] == "aio",             f"a {width}-wide window cannot be thrown even {reachable} px past"
 
 
 # --------------------------------------------------------- when it cannot go
