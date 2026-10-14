@@ -72,11 +72,22 @@ shown there cannot yet be dragged home - it needs the new `.deb`.
 
 Still to do on this feature:
 
-1. The AIO's build, for dragging a frame home there.
+1. **Rebuild and reinstall BOTH machines.** The builds installed on
+   2026-10-14 (`CE90E293DA5BC8AF` on the laptop, `8022c788e05e5166` on the
+   AIO) were made before `winmove.far_enough`, so they still ask for 40% of
+   the window past the border - which Windows will not allow at the
+   desktop's edge (TESTLOG 2026-10-14). The gesture cannot work on either
+   until they are rebuilt.
 2. Roni's own checks of the arrow, the wheel, and both drag gestures.
 3. Stage 5 (a window FROM the AIO: GNOME home through the portals) and
    stage 6 (the GNOME Shell extension).
 4. Overlapping capture with encode, if the refresh rate is to be worked on.
+5. **A build id in the dev version string.** The AIO already had a
+   `1.2.0~dev` with different contents, so `dpkg -l` cannot tell two dev
+   builds apart and the agent there had to take the installer's word for it.
+   A `link/_build.py` written by the build scripts (date and git short sha,
+   git-ignored) and shown in About and /api/status would fix it. Not asked
+   for; raised because it got in the way of checking an install.
 
 ## Next
 
