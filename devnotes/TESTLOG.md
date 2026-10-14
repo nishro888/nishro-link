@@ -416,6 +416,67 @@ Link could do the Bangla itself - transliterate on the home side and send
 characters - which would work whatever Avro does. That is a feature of real
 size (a phonetic engine); proposed, not built.
 
+## 2026-10-14 - where a moved window's refresh rate actually goes
+
+Asked for: "the communication should be optimized more to share window with
+a great refresh rate without laggy". Measured before changing anything, on
+the laptop, on a 1000x700 window - the size someone really moves.
+
+Per frame, the three things home does:
+
+| | a Notepad being typed in | a browser of moving colour |
+|---|---|---|
+| capture (PrintWindow) | 19.2 ms | 21.4 ms |
+| diff (which squares changed) | 2.5 ms | 2.7 ms |
+| encode (PNG) | 1.2 ms | 71.0 ms |
+| **all three** | **22.8 ms (44 fps)** | **95.2 ms (10.5 fps)** |
+| bytes a frame | 3 KB | 303 KB |
+
+So `MAX_FPS = 25` is not what holds an ordinary window back, and for the
+common case - a document, code, a terminal - only a few small squares change
+and the whole thing costs well under a millisecond to encode. **The laggy
+case is a window whose whole picture changes**, and there the cost is the
+encoder and the bytes, not our pacing.
+
+### zlib's level: measured on real frames, not guessed
+
+picture.py compresses a whole window at level 6, "worth the extra 10 ms to
+halve what goes over the air" - measured on text, where it holds. On real
+captured frames (12 of each):
+
+| | level 1 | level 6 | level 6 costs | and saves |
+|---|---|---|---|---|
+| browser, colour | 20.4 ms, 484 KB | 51.5 ms, 302 KB | +31.2 ms | 37.6% of the bytes |
+| Notepad, text | 5.2 ms, 33 KB | 12.5 ms, 16 KB | +7.3 ms | 50.0% of the bytes |
+
+A 64 KB sample compressed at level 1 tells the two apart cheaply (0.3-0.8 ms;
+text 0.020 of its size, colour 0.271 - a clean line at 0.14), so the level
+COULD be chosen per picture rather than by size.
+
+**But it should not be changed.** At level 1 a colour window would need
+484 KB x 22 fps = 85 Mbit/s, and at level 6 302 KB x 13 fps = 31 Mbit/s -
+both beyond this Wi-Fi. Compressing less only moves the queue from the
+encoder to the network, where the pacer (AHEAD = 2) throttles it anyway and
+the window gets no fresher. Level 6 stands; written down so it is not
+re-litigated.
+
+### What would actually make a busy window smoother
+
+1. **Overlap capture with encode.** They run one after the other, 21 ms then
+   71 ms; on two threads a frame costs max(21, 71) rather than 21 + 71 -
+   about a fifth off, and a third off for a text window. No new dependency,
+   no protocol change. The biggest safe win.
+2. **A lossy codec for pictures that are not text.** JPEG would turn 302 KB
+   into roughly 40 KB and encode faster - about 7x less to send, which is
+   the only thing that would make moving colour feel smooth. It needs an
+   encoder AND a decoder, and Tk cannot show JPEG, so it means either a
+   dependency (Pillow) or each system's own codecs (WIC on Windows,
+   GdkPixbuf on Linux) - a real piece of work, and `winmove.CODECS` already
+   leaves room for it.
+3. Not worth doing: raising `MAX_FPS` (nothing is waiting on it), or
+   raising `AHEAD` (it would queue older pictures, which is exactly what the
+   design refuses).
+
 ## Before 1.1.0 (from the history)
 
 - v1.0.1 (2026-09-29): fixed the window not opening from Ubuntu's app menu
