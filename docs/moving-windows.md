@@ -318,8 +318,9 @@ New, optional messages - an older peer ignores them (N6):
 
 ### 4.6 Moving by dragging (stage 4)
 
-Two halves, and they are independent. **Dragging a frame back home is
-built**; dragging a window out by its own title bar is not yet.
+Two halves, and they are independent. Both are built: a frame is dragged
+back home on whichever computer is showing it, and one of this computer's own
+windows is thrown out by its title bar (Windows home only).
 
 **Back home - built.** The frame knows which edge of the screen it is on
 the window's own computer lies beyond: the node works it out from the
@@ -345,13 +346,38 @@ Two things were deliberately NOT done:
 Measured as a fraction of the window, not in pixels, so the same push of the
 hand works on a 1366x768 laptop screen and on a 4K monitor.
 
-**Out, by the window's own title bar - still to do.** On Windows home, watch
-drags with `SetWinEventHook` (`EVENT_SYSTEM_MOVESIZESTART` / `END`); when
-the pointer meets the edge where another computer is while a window is being
-dragged, end the drag (a button-up where the pointer is), hide the window,
-and have the frame appear on the other computer under the pointer, following
-it until the button is let go - the same grip on the window. Until then a
-window is sent across from the tray, the window list or Win+Shift+Left/Right.
+**Out, by the window's own title bar - built, Windows home.** Windows says
+when any window starts and stops being dragged (`SetWinEventHook`,
+`EVENT_SYSTEM_MOVESIZESTART` / `END`) but nothing in between, so while a drag
+lasts the window's place is read off it every 60 ms. Once 40% of it is past a
+border that leads somewhere, the window comes out of the move loop
+(`WM_CANCELMODE`, so it goes back to where it was picked up rather than being
+left hanging off the edge) and the node is asked to send it - the same
+`/api/window/move` the tray menu uses.
+
+The pieces, and why they are where they are:
+
+- **`windrag.py`** decides, and knows nothing of Windows: fed a drag began,
+  where the window is, a drag ended. **`windrag_win.py`** is the hook.
+- **The hook lives on the tray's thread**, because `WINEVENT_OUTOFCONTEXT`
+  delivers through the message queue of the thread that installed it and the
+  tray is the session's long-lived process with a message loop. Installing it
+  on one thread and pumping on another means not one event arrives.
+- **The node publishes the borders**, not the session: only it has the
+  arrangement. `Node.window_doorways()` gives `{"side", "edge", "device"}`
+  from the desk's own compiled doors, in `/api/status`, and the tray hands the
+  last poll's answer to the watcher - read, never asked for, because this is
+  consulted while a hand is moving.
+- **A border is a LINE, not the far side of everything.** The laptop has a
+  monitor to its left: the desktop is 3286x1080 and starts at (-1920, -148)
+  in Windows' own numbers, so only one of the two screens' borders leads to
+  the AIO. `desk.Door.edge` is that line, in local pixels, and
+  `windrag_win` subtracts the desktop's origin so the two agree.
+- **A window already hanging over a border is not sent when it is touched**
+  (`windrag.START_INSIDE`): a drag has to begin inside before it can cross.
+
+Not on GNOME: one program may not watch another's window being dragged there,
+the same wall that stops a window being hidden (stage 6).
 
 ### 4.7 When things go wrong
 
@@ -404,8 +430,7 @@ window is sent across from the tray, the window list or Win+Shift+Left/Right.
 3. **Laptop to AIO:** Windows home (the agent: choose, hide, capture,
    compress, play input; the window's menus and dialogs with it - R11), Linux
    away (the session helper: the frame), the switch, the tray, the shortcut.
-4. **Dragging across the edge.** Back home by dragging the frame: done.
-   Out by the window's own title bar (Windows home): still to do.
+4. **Dragging across the edge** - both ways, Windows home: done.
 5. **AIO to laptop:** GNOME home through the portals; Windows away (the frame
    in the agent).
 6. **Optional - the GNOME Shell extension:** dragging from the AIO, and

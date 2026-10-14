@@ -275,3 +275,18 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   `GetCursorInfo` returned `CURSOR_SHOWING` while no arrow was being drawn,
   so a fix that asked first never fired. Do not ask: send real mouse input
   whenever driving begins, and put the pointer back on the exact pixel.
+- **A WinEvent hook and its message pump must be on the SAME thread.**
+  `WINEVENT_OUTOFCONTEXT` posts to the queue of the thread that called
+  `SetWinEventHook`; installed on one thread and pumped on another, not one
+  event arrives and it looks exactly like a hook that does not work. Cost one
+  "the drag was not noticed" before it was spotted.
+- **Windows' window coordinates are not the ones the rest of Nishro Link
+  speaks.** `GetWindowRect` counts from the PRIMARY screen's corner, so with
+  a monitor to the left every x is negative; local coordinates (the wire, the
+  desk, `inject.py`) count from the corner of the whole desktop. Subtract
+  `SM_XVIRTUALSCREEN`/`SM_YVIRTUALSCREEN`. Measured here: the desktop is
+  3286x1080 starting at (-1920, -148), so getting this wrong puts a border
+  out by the whole of a screen.
+- **`WM_CANCELMODE` ends a window-manager drag cleanly** and puts the window
+  back where it was picked up. Escape would do it too, but Escape is a key
+  the program itself would also see.

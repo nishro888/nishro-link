@@ -373,3 +373,39 @@ def test_the_side_comes_from_the_arrangement_not_a_guess(moving):
     assert aio.side_toward("some-other-pc") == ""
     assert aio.side_toward("aio") == ""
     assert aio.side_toward("") == ""
+
+
+def test_the_borders_that_lead_somewhere_are_the_desks_own(moving):
+    """The hub is the laptop with the aio on its left, so the laptop's left
+    border is the one a window can be thrown across - and the line is where
+    the desk says it is, not the far side of everything."""
+    moving.start()
+    wait(lambda: moving.hub.window_peers.get("aio"), "the capability")
+    doors = moving.hub.window_doorways()
+    assert [d["side"] for d in doors] == ["left"], doors
+    assert doors[0]["device"] == "aio"
+    assert isinstance(doors[0]["edge"], int)
+    back = moving.aio.window_doorways()
+    assert [d["side"] for d in back] == ["right"], back
+
+
+def test_a_computer_that_cannot_lend_a_window_offers_no_border(moving):
+    """Nothing to throw, so nothing to throw it across."""
+    moving.start()
+    wait(lambda: moving.hub.window_peers.get("aio"), "the capability")
+    moving.hub.window_sides = ("away",)
+    assert moving.hub.window_doorways() == []
+
+
+def test_with_the_switch_off_there_are_no_borders(moving):
+    moving.start()
+    wait(lambda: moving.hub.window_peers.get("aio"), "the capability")
+    moving.hub.move_windows = False
+    assert moving.hub.window_doorways() == []
+
+
+def test_a_peer_that_will_not_show_windows_offers_no_border(moving):
+    moving.start()
+    wait(lambda: moving.hub.window_peers.get("aio"), "the capability")
+    moving.hub.window_peers.pop("aio", None)
+    assert moving.hub.window_doorways() == []

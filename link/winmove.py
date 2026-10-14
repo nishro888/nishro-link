@@ -709,39 +709,61 @@ THROW_BACK = 0.4            # how much of the frame must be past the edge
 THROW_SETTLE_MS = 400       # quiet for this long counts as letting go
 
 
-def past_edge(side, place, screen) -> float:
-    """How much of a frame has gone past one edge of this screen.
+def past_line(side, place, edge) -> float:
+    """How much of a window has gone past a border line.
 
-    `side` is the edge the window's own computer lies beyond - one of
-    THROW_SIDES - `place` is the frame as (x, y, w, h) in screen pixels,
-    and `screen` is (width, height). Returns the fraction of the frame
-    past that edge: 0.0 if none of it is, 1.0 if all of it is.
+    `side` is which way it went - one of THROW_SIDES - `place` is the window
+    as (x, y, w, h) in LOCAL pixels (from the corner of the whole desktop,
+    which is what the wire and the system speak), and `edge` is the line
+    itself: the local x of a left or right border, the local y of a top or
+    bottom one. That is exactly what desk.Door.edge gives, so a computer
+    with two monitors measures against the border that actually leads
+    somewhere rather than the far edge of everything.
 
-    A fraction rather than pixels, so the same push of the hand sends a
-    window home on a small laptop screen and on a big monitor.
+    Returns the fraction of the window past that line: 0.0 if none of it is,
+    1.0 if all of it is. A fraction rather than pixels, so the same push of
+    the hand works on a 1366x768 laptop screen and on a 4K monitor.
 
     Nothing is trusted: these numbers are read off a window manager, which
-    answers oddly while a window is being mapped or taken away, and a frame
-    must not be thrown home on the strength of that.
+    answers oddly while a window is being mapped or taken away, and a window
+    must not be thrown at another computer on the strength of that.
     """
     if side not in THROW_SIDES:
         return 0.0
     try:
         x, y, w, h = (int(v) for v in place)
-        sw, sh = int(screen[0]), int(screen[1])
+        edge = int(edge)
     except (TypeError, ValueError, IndexError):
         return 0.0
     if w <= 0 or h <= 0:
         return 0.0
     if side == "left":
-        over, span = -x, w
+        over, span = edge - x, w
     elif side == "right":
-        over, span = (x + w) - sw, w
+        over, span = (x + w) - edge, w
     elif side == "top":
-        over, span = -y, h
+        over, span = edge - y, h
     else:
-        over, span = (y + h) - sh, h
+        over, span = (y + h) - edge, h
     return max(0.0, min(1.0, over / span))
+
+
+def past_edge(side, place, screen) -> float:
+    """How much of a frame has gone past one edge of this screen.
+
+    The frame showing a moved window measures against the outside of the
+    screen it is on, because that is all it is told (window_frame.py gets
+    one side on its command line, not the arrangement). Same arithmetic as
+    past_line, with the screen's own border as the line.
+    """
+    try:
+        sw, sh = int(screen[0]), int(screen[1])
+    except (TypeError, ValueError, IndexError):
+        return 0.0
+    edge = {"left": 0, "right": sw, "top": 0, "bottom": sh}.get(side)
+    if edge is None:
+        return 0.0
+    return past_line(side, place, edge)
 
 
 class AwaySession:

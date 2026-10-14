@@ -53,7 +53,10 @@ def state(s) -> dict:
             # Moving windows between computers (docs/moving-windows.md).
             "move_windows": bool(s.get("move_windows")),
             "windows_here": list(s.get("windows_here") or []),
-            "windows_away": list(s.get("windows_away") or [])}
+            "windows_away": list(s.get("windows_away") or []),
+            # The borders of this computer's screens that lead somewhere, for
+            # throwing a window across one by dragging it (windrag.py).
+            "window_doorways": list(s.get("window_doorways") or [])}
 
 
 def device_label(d: dict) -> str:
@@ -269,6 +272,36 @@ class Tray:
             title = (window.get("title") or "The window")[:60]
             self.ui.notify("Nishro Link", f"{title} is now on {device}.")
 
+    # -------------------------------------- a window thrown across a border
+    def doorways(self) -> list:
+        """The borders a window can be dragged across, from the last poll.
+
+        Read rather than asked for: this is called while a window is being
+        dragged, and must not wait on the service.
+        """
+        st = self.st or {}
+        if not st.get("move_windows"):
+            return []
+        return list(st.get("window_doorways") or [])
+
+    def throw_window(self, which, device: str) -> str:
+        """Send one window to `device`, by its own handle. "" or why not.
+
+        The handle comes from watching a drag, so it is not asked for from
+        the list first: the person has already said which window by dragging
+        it.
+        """
+        api = self.api
+        if api is None:
+            return "Nishro Link is not running"
+        got = api.command("/api/window/move",
+                          {"which": str(which), "device": device}) or {}
+        why = got.get("error")
+        if why:
+            return str(why)
+        self.ui.notify("Nishro Link", f"The window is now on {device}.")
+        return ""
+
     def _quit(self) -> None:
         """Quit Nishro Link: the service stops, then this tray goes - and this
         person's windows, which see the same note (service.quit_everything)."""
@@ -367,9 +400,38 @@ def run(log=print) -> int:
     ui.on_action = tray.act
     tray.poll_once()
     threading.Thread(target=tray.loop, daemon=True).start()
+    # Windows being dragged across a border to another computer. The hook has
+    # to be installed on a thread with a message loop, and ui.run() below is
+    # that thread, so it is started here and nowhere else. It is never
+    # required: if it cannot be watched, the tray menu and Win+Shift+arrow
+    # still send a window.
+    drags = _watch_drags(tray, log)
     try:
         ui.run()
     finally:
+        if drags is not None:
+            drags.stop()
         tray.stop()
     time.sleep(0.1)
     return 0
+
+
+def _watch_drags(tray, log):
+    """Start watching for windows dragged across a border, where we can.
+
+    Only Windows so far: on GNOME one program may not watch another's window
+    being dragged (the same wall that stops a window being hidden there -
+    docs/moving-windows.md). Nothing here may stop the tray starting.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        from . import windrag_win
+        w = windrag_win.Watcher(doorways=tray.doorways,
+                                ask=lambda hwnd, device: tray.throw_window(
+                                    hwnd, device),
+                                log=log)
+        return w if w.start() else None
+    except Exception as e:
+        log(f"windows dragged to another computer will not be noticed: {e!r}")
+        return None
