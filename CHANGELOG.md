@@ -65,6 +65,9 @@ Works with every 1.x.
   proved against a window that logs the message, not one that acts on it: a
   hidden window is click-through, so the wheel went past it to whatever was
   behind.
+- **A menu no longer complains if a key arrives just as it closes.** A menu
+  dismisses itself when the focus leaves it - another window appearing is
+  enough - and a key already on its way then landed on a menu that had gone.
 - **Keys carry their scan code.** A program that reads the scan code to know
   which physical key was struck got zero from Nishro Link and could not
   tell. (Not enough for Avro Keyboard, which acts on no injected key at all
