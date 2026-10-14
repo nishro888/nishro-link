@@ -290,3 +290,14 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
 - **`WM_CANCELMODE` ends a window-manager drag cleanly** and puts the window
   back where it was picked up. Escape would do it too, but Escape is a key
   the program itself would also see.
+- **A window manager's move loop follows real mouse input, not
+  `SetCursorPos`.** A test that pressed a title bar and then put the cursor
+  elsewhere saw the move loop BEGIN - the hook reported it - and the window
+  then follow by 0 pixels. It passed run on its own and failed under the
+  whole suite, the worst way for a test to be wrong. Drive a simulated drag
+  with `SendInput` absolute moves on every step. `move_abs` is not enough
+  either: since the arrow fix it sends real input only on the first movement
+  of a spell and `SetCursorPos` for the rest.
+- **When a live test fails, the message must carry the state.** "The drag was
+  not noticed" cost two rounds of guessing; "the hook reported the drag and
+  the window went from X to X" named the cause immediately.
