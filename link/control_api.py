@@ -261,10 +261,6 @@ class ControlAPI:
             # What this computer can actually do with windows, so the
             # settings page can say why the switch will not help here.
             "windows_here": sorted(self.node.window_sides),
-            # The borders of this computer's screens that lead somewhere, so
-            # the part that can see windows knows when one has been dragged
-            # across one (windrag.py).
-            "window_doorways": self.node.window_doorways(),
             "windows_away": [
                 {"which": key, "device": s.get("who"), "ours": bool(s.get("mine"))}
                 for key, s in sorted(self.node.windows_away.items())],

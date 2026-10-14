@@ -1370,66 +1370,6 @@ class Node:
                          daemon=True, name="window-lend").start()
         return ""
 
-    def side_toward(self, machine: str) -> str:
-        """Which edge of OUR screen that computer lies beyond, by the
-        arrangement on the desk - "" if the desk does not say.
-
-        A moved window is dragged back across the edge it came in by, so the
-        frame has to be told which edge that is. Where a machine has several
-        screens there may be doors on more than one side; the first found is
-        taken, which on a laptop beside a monitor is the only one there is.
-        """
-        try:
-            desk, me = self.core.layout, self.core.node
-            if not machine or machine == me:
-                return ""
-            for d in desk.doors():
-                if (desk.get(d.src).owner == me
-                        and desk.get(d.dst).owner == machine):
-                    return d.side
-        except Exception:
-            return ""
-        return ""
-
-    def window_doorways(self) -> list:
-        """The borders of this computer's own screens that lead to a computer
-        one of our windows could be thrown at.
-
-        Each as {"side", "edge", "device"}: the side of a screen of ours, the
-        border LINE in local pixels (desk.Door.edge - the local x of a left or
-        right border, the local y of a top or bottom one), and who is on the
-        other side. A line rather than the far side of everything, because
-        this computer may have two monitors and only one of their borders
-        leads anywhere.
-
-        For dragging a window out by its own title bar (windrag.py): the part
-        of Nishro Link that can see windows watches drags, and only the node
-        has the arrangement and knows who is connected and willing.
-        """
-        out = []
-        if not self.window_can_move() or "home" not in (self.window_sides or ()):
-            return out
-        with self._links_lock:
-            peers = list(self.links)
-        if self.trusted_peer and self.trusted_peer not in peers:
-            peers.append(self.trusted_peer)
-        try:
-            desk, me = self.core.layout, self.core.node
-            for d in desk.doors():
-                if desk.get(d.src).owner != me:
-                    continue
-                who = desk.get(d.dst).owner
-                if who == me or who not in peers:
-                    continue
-                if not self._peer_moves_windows(who):
-                    continue
-                door = {"side": d.side, "edge": int(d.edge), "device": who}
-                if door not in out:
-                    out.append(door)
-        except Exception as e:
-            self._log(f"could not work out which borders lead anywhere: {e!r}")
-        return out
-
     def _peer_moves_windows(self, who: str) -> bool:
         return bool(self.window_peers.get(who))
 
@@ -1472,10 +1412,7 @@ class Node:
             if not self.serve_window:
                 ch.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))
                 return
-            # Only a window from somewhere else is dragged back across an
-            # edge; one of ours is already home.
-            side = self.side_toward(whose) if kind == "show" else ""
-            why = self.serve_window(ch, kind, which, whose, side)
+            why = self.serve_window(ch, kind, which, whose)
             if why:
                 self._log(f"the window could not be shown: {why}")
             else:

@@ -541,12 +541,7 @@ choice.
 
 ### Moving one
 
-- **Drag it across the edge.** Take the window by its title bar and drag it
-  off the side of the screen the other computer is on - the same edge the
-  pointer crosses to drive it. Once enough of the window is over the edge it
-  goes, and the window drops back where you picked it up. (Windows only so
-  far; Ubuntu does not let one program watch another's window being dragged.)
-- Or **the tray icon → Move a window to <computer>…**, and pick the window.
+- **The tray icon → Move the current window to**, then the computer.
 - Or **Win+Shift+Left/Right**, the same keys Windows uses to throw a window
   at the next monitor - carried on past the last one, onto the next computer.
 

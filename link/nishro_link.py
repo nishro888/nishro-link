@@ -184,11 +184,6 @@ def build_parser():
     ap.add_argument("--window-host", nargs=5,
                     metavar=("PORT", "TOKEN", "KIND", "WHICH", "WHOSE"),
                     help=argparse.SUPPRESS)
-    # Which edge of this screen the window's own computer lies beyond, so
-    # the frame can be dragged back across it. Its own option rather than a
-    # sixth positional, so an older service and a newer helper cannot differ
-    # about how many there are.
-    ap.add_argument("--window-home-side", default="", help=argparse.SUPPRESS)
     ap.add_argument("--list-windows", nargs="*", default=None,
                     metavar=("PORT", "TOKEN"), help=argparse.SUPPRESS)
     ap.add_argument("--windows-back", action="store_true", help=argparse.SUPPRESS)
@@ -487,7 +482,6 @@ def main() -> int:
         from . import window_host
         port, token, kind, which, whose = args.window_host
         why = window_host.one_window(int(port), token, kind, which, whose,
-                                     home_side=args.window_home_side,
                                      log=lambda m: print(m, flush=True))
         if why:
             print(why, flush=True)
@@ -698,9 +692,8 @@ def _engine(args, cfg, stop=None) -> int:
     # each one to a helper started there and only passes frames along.
     from . import window_host, window_service
     n.move_windows = bool(cfg.get("move_windows", False))
-    n.serve_window = (
-        lambda ch, kind, which, whose, side="": window_service.attach(
-            ch, kind, which, whose, log=log, home_side=side))
+    n.serve_window = lambda ch, kind, which, whose: window_service.attach(
+        ch, kind, which, whose, log=log)
     n.window_sides = (("home", "away") if window_host.can_lend() else ("away",))
     n.list_windows = lambda: window_service.windows_in_session(log)
     window_service.put_windows_back(log)       # R6, before anything hides one

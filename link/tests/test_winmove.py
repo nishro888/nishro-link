@@ -571,95 +571,15 @@ def test_a_very_long_log_line_is_cut_rather_than_refused():
     assert len(winmove.unpack(frame)[0]["msg"]) <= 400
 
 
-# ----------------------------------- dragging a moved window back home
-def test_a_frame_well_inside_the_screen_has_not_been_thrown_anywhere():
-    for side in winmove.THROW_SIDES:
-        assert winmove.past_edge(side, (400, 300, 800, 600),
-                                 (1920, 1080)) == 0.0
 
 
-def test_how_much_of_a_frame_is_past_each_edge():
-    screen = (1920, 1080)
-    # a 800x600 frame with a quarter of it over the left edge
-    assert winmove.past_edge("left", (-200, 300, 800, 600), screen) == 0.25
-    # and over the right edge: 1920 - 1720 = 200 showing, 600 past
-    assert winmove.past_edge("right", (1720, 300, 800, 600), screen) == 0.75
-    assert winmove.past_edge("top", (400, -150, 800, 600), screen) == 0.25
-    assert winmove.past_edge("bottom", (400, 930, 800, 600), screen) == 0.75
 
 
-def test_it_is_a_fraction_so_the_same_drag_works_on_any_screen():
-    """Measured in pixels, a push that sends a window home on a laptop
-    screen would not on a big monitor."""
-    small = winmove.past_edge("left", (-160, 0, 400, 300), (1366, 768))
-    big = winmove.past_edge("left", (-1024, 0, 2560, 1440), (3840, 2160))
-    assert small == big == 0.4
 
 
-def test_a_frame_entirely_past_the_edge_is_all_of_it_and_no_more():
-    assert winmove.past_edge("left", (-900, 0, 800, 600), (1920, 1080)) == 1.0
-    assert winmove.past_edge("right", (3000, 0, 800, 600),
-                             (1920, 1080)) == 1.0
 
 
-def test_a_side_that_is_not_a_side_throws_nothing():
-    for side in ("", None, "sideways", 3, "LEFT"):
-        assert winmove.past_edge(side, (-900, 0, 800, 600),
-                                 (1920, 1080)) == 0.0
 
-
-def test_nonsense_measurements_throw_nothing_rather_than_raising():
-    """The frame reads these off a window manager, which can answer oddly
-    while a window is being mapped or taken away."""
-    for place in ((None, 0, 800, 600), (-900, 0, 0, 600), (-900, 0, -5, 600),
-                  ("x", 0, 800, 600), (0, 0, 800, 0)):
-        assert winmove.past_edge("left", place, (1920, 1080)) == 0.0
-    assert winmove.past_edge("left", (-900, 0, 800, 600), (None, 1080)) == 0.0
-
-
-def test_the_threshold_is_a_real_part_of_the_window_not_a_hair():
-    """A window nudged a few pixels past the edge must stay: it is a drag
-    back across the edge, not a wobble."""
-    assert 0.2 <= winmove.THROW_BACK <= 0.6
-    nudged = winmove.past_edge("left", (-8, 0, 800, 600), (1920, 1080))
-    assert nudged < winmove.THROW_BACK
-
-
-def test_how_much_of_a_window_is_past_a_border_line():
-    """A computer with two monitors: the border that leads to the other
-    computer is between them or at the far side, not at zero."""
-    # a 400-wide window at x=1700, the border at 1920: 180 of it is over
-    assert winmove.past_line("right", (1700, 0, 400, 300), 1920) == 0.45
-    assert winmove.past_line("left", (-100, 0, 400, 300), 0) == 0.25
-    # the laptop's own screen starts at 1920 on a desktop that has a monitor
-    # to its left: a window going left past 1920 is leaving that screen
-    assert winmove.past_line("left", (1800, 0, 400, 300), 1920) == 0.3
-    assert winmove.past_line("top", (0, 500, 400, 300), 600) == pytest.approx(
-        1 / 3)
-    assert winmove.past_line("bottom", (0, 800, 400, 300), 1000) == pytest.approx(
-        1 / 3)
-
-
-def test_a_window_on_the_right_side_of_a_line_is_not_past_it():
-    assert winmove.past_line("right", (100, 0, 400, 300), 1920) == 0.0
-    assert winmove.past_line("left", (100, 0, 400, 300), 0) == 0.0
-
-
-def test_past_a_line_is_the_same_arithmetic_as_past_a_screen_edge():
-    """One piece of arithmetic for both directions of the gesture."""
-    screen = (1920, 1080)
-    for side, place in (("left", (-200, 300, 800, 600)),
-                        ("right", (1500, 300, 800, 600)),
-                        ("top", (400, -150, 800, 600)),
-                        ("bottom", (400, 700, 800, 600))):
-        edge = {"left": 0, "right": 1920, "top": 0, "bottom": 1080}[side]
-        assert winmove.past_edge(side, place, screen) == \
-            winmove.past_line(side, place, edge)
-
-
-def test_a_line_that_is_not_a_number_throws_nothing():
-    for edge in (None, "x", object()):
-        assert winmove.past_line("right", (1700, 0, 400, 300), edge) == 0.0
 
 
 def test_only_the_first_direction_to_stop_is_news():

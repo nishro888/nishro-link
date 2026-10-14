@@ -27,7 +27,7 @@ from __future__ import annotations
 import queue
 import threading
 
-from . import keymap, picture, winmove
+from . import keymap, picture
 
 POLL_MS = 8                     # how often the Tk loop looks for work
 RESIZE_SETTLE_MS = 250          # a drag of the frame's corner is many events
@@ -114,13 +114,8 @@ class Frame:
     whoever started it can tidy up.
     """
 
-    def __init__(self, where: str = "", log=None, on_gone=None,
-                 home_side: str = ""):
+    def __init__(self, where: str = "", log=None, on_gone=None):
         self.where = where              # the computer the window lives on
-        # Which edge of THIS screen that computer lies beyond, so the frame
-        # can be dragged back across it ("" where the arrangement does not
-        # say - then only the tray and the taskbar bring it home).
-        self.home_side = home_side if home_side in winmove.THROW_SIDES else ""
         self.log = log or (lambda *_: None)
         self.on_gone = on_gone
         self.events: queue.Queue = queue.Queue()
@@ -135,10 +130,6 @@ class Frame:
         self._last_sent_size = None
         self._unknown_keys = set()
         self._title = ""
-        self._place = None              # where the frame is, as last seen
-        self._throw_job = None
-        self._thrown = False            # far enough past the edge to go home
-        self._asked_home = False
 
     # ------------------------------------------------- what the session calls
     def open(self, title: str, w: int, h: int) -> None:
@@ -198,14 +189,8 @@ class Frame:
         self._up.set()
 
     def _title_text(self) -> str:
-        """Always says where the window really lives (N5) - and, while it is
-        being dragged back across the edge, what letting go will do, so the
-        gesture is not something to be found out by accident."""
+        """Always says where the window really lives (N5)."""
         name = self._title or "a window"
-        if self._thrown:
-            if self.where:
-                return f"{name} - let go to send it back to {self.where}"
-            return f"{name} - let go to send it back"
         return f"{name} - from {self.where}" if self.where else name
 
     def _resize_to(self, w, h) -> None:
@@ -270,9 +255,6 @@ class Frame:
         top.bind("<KeyPress>", self._key_down)
         top.bind("<KeyRelease>", self._key_up)
         c.bind("<Configure>", self._configured)
-        # On the TOPLEVEL, which is what moves: the canvas is told about its
-        # own size and learns nothing when the window is dragged.
-        top.bind("<Configure>", self._top_configured)
 
     def _moved(self, ev) -> None:
         self.events.put({"t": "in", "how": "move", "x": int(ev.x), "y": int(ev.y)})
@@ -333,69 +315,6 @@ class Frame:
             return
         self._last_sent_size = (w, h)
         self.events.put({"t": "size", "w": int(w), "h": int(h)})
-
-    # ------------------------------------------- dragged back across the edge
-    def _where_it_is(self):
-        """The frame as (x, y, w, h) and the screen as (w, h), or None.
-
-        Asked of the window manager, which can answer oddly or not at all
-        while a window is being mapped or taken away.
-        """
-        top = self._top
-        if top is None:
-            return None
-        try:
-            return ((top.winfo_rootx(), top.winfo_rooty(),
-                     top.winfo_width(), top.winfo_height()),
-                    (top.winfo_screenwidth(), top.winfo_screenheight()))
-        except Exception:
-            return None
-
-    def _top_configured(self, _ev=None) -> None:
-        """The frame moved. Dragged far enough past the edge that its own
-        computer lies beyond, and let go, it goes home.
-
-        Many of these arrive while a window is dragged, so what is watched
-        is where it ends up: letting go is a short quiet, because Tk never
-        sees the button come up on a drag by the title bar - that belongs to
-        the window manager.
-        """
-        if self._top is None or not self.home_side or self._asked_home:
-            return
-        seen = self._where_it_is()
-        if seen is None or seen[0] == self._place:
-            return
-        self._place = seen[0]
-        thrown = winmove.far_enough_from_screen(self.home_side, *seen)
-        if thrown != self._thrown:
-            self._thrown = thrown
-            try:
-                self._top.title(self._title_text())
-            except Exception as e:
-                _complain(e)
-        self._cancel_throw()
-        if thrown:
-            self._throw_job = self._top.after(winmove.THROW_SETTLE_MS,
-                                              self._let_go)
-
-    def _cancel_throw(self) -> None:
-        job, self._throw_job = self._throw_job, None
-        if job is not None and self._top is not None:
-            try:
-                self._top.after_cancel(job)
-            except Exception:
-                pass
-
-    def _let_go(self) -> None:
-        """Still past the edge after a quiet moment: send it home."""
-        self._throw_job = None
-        if self._top is None or not self._thrown or self._asked_home:
-            return
-        self._asked_home = True
-        where = f" to {self.where}" if self.where else ""
-        self.log(f"the window was dragged back across the edge, so it is "
-                 f"going home{where}")
-        self.events.put({"t": "home"})
 
     def _asked_to_close(self) -> None:
         """The frame's own close button. The maintainer's choice: it closes

@@ -204,11 +204,10 @@ def lend(which: str, to_whom: str, ch, log) -> str:
     return ""
 
 
-def show(which: str, whose: str, ch, log, home_side: str = "") -> str:
+def show(which: str, whose: str, ch, log) -> str:
     """Show a window that lives on `whose` computer, here."""
     from . import window_frame
-    frame = window_frame.Frame(where=whose or "the other computer", log=log,
-                               home_side=home_side)
+    frame = window_frame.Frame(where=whose or "the other computer", log=log)
     session = winmove.AwaySession(ch, frame, log=log)
     try:
         why = session.run()
@@ -242,7 +241,7 @@ def send_list(port: int, token: str) -> str:
 
 
 def one_window(port: int, token: str, kind: str, which: str, whose: str,
-               log=print, home_side: str = "") -> str:
+               log=print) -> str:
     """Connect to the service and see one moved window through."""
     sock = socket.create_connection(("127.0.0.1", int(port)),
                                     timeout=CONNECT_TIMEOUT)
@@ -276,7 +275,7 @@ def one_window(port: int, token: str, kind: str, which: str, whose: str,
             return why
         if kind == "lend":
             return lend(which, whose, ch, log)
-        return show(which, whose, ch, log, home_side)
+        return show(which, whose, ch, log)
     finally:
         ch.close()
 
@@ -290,7 +289,6 @@ def main(argv=None) -> int:
     p.add_argument("--kind", choices=("lend", "show"), required=True)
     p.add_argument("--which", default="")
     p.add_argument("--whose", default="")
-    p.add_argument("--home-side", default="")
     args = p.parse_args(argv)
 
     def log(message):
@@ -298,7 +296,7 @@ def main(argv=None) -> int:
 
     try:
         why = one_window(args.port, args.token, args.kind, args.which,
-                         args.whose, log=log, home_side=args.home_side)
+                         args.whose, log=log)
     except Exception as e:
         log(f"the moved window went wrong: {e!r}")
         return 1

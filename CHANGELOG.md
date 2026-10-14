@@ -25,16 +25,6 @@ Works with every 1.x.
   - From the tray: *Move a window to <computer>...*, or Win+Shift+Left/Right,
     the keys that throw a window at the next monitor - carried on past the
     last one. The same keys bring it back, as does *Bring windows home*.
-  - **Drag a window across the edge to send it**, on Windows: take it by its
-    title bar and drag it off the side of the screen the other computer is
-    on. The window drops back where you picked it up and its picture appears
-    over there. (Not from Ubuntu: one program may not watch another's window
-    being dragged there.)
-  - **Or drag it back across the edge:** take the moved window by its title
-    bar and drag it off the side of the screen the other computer is on, the
-    same edge the pointer crosses to drive that computer. The title says
-    "let go to send it back to <computer>" once enough of it is over; let go
-    and it goes, and dragging it back on screen cancels it.
   - Away it is an ordinary window, saying where it came from
     ("Notepad - from laptop"): move it, resize it, maximize it, type in it.
     Its close button closes the program's window, as that button would at

@@ -651,131 +651,13 @@ class AskedAPI:
         return self.answer
 
 
-def test_the_borders_reach_the_tray_from_the_service():
-    st = tray.state({"enabled": True, "move_windows": True,
-                     "window_doorways": [DOOR]})
-    assert st["window_doorways"] == [DOOR]
 
 
-def test_no_borders_where_the_service_offers_none():
-    assert tray.state({"enabled": True})["window_doorways"] == []
 
 
-def test_with_the_switch_off_no_border_is_offered_to_a_drag():
-    """The watcher asks the tray, not the service, so the switch is checked
-    here: a drag must not wait on the service while a hand is moving."""
-    t, _ui = make(None)
-    t.st = tray.state({"enabled": True, "move_windows": False,
-                       "window_doorways": [DOOR]})
-    assert t.doorways() == []
-    t.st = tray.state({"enabled": True, "move_windows": True,
-                       "window_doorways": [DOOR]})
-    assert t.doorways() == [DOOR]
 
 
-def test_a_tray_that_has_not_polled_yet_offers_no_border():
-    t, _ui = make(None)
-    assert t.doorways() == []
 
 
-def test_throwing_a_window_asks_the_service_by_its_handle():
-    t, ui = make(None)
-    t.api = AskedAPI()
-    assert t.throw_window(12345, "aio") == ""
-    assert t.api.asked == [("/api/window/move",
-                            {"which": "12345", "device": "aio"})]
-    assert ui.notes == ["Nishro Link"]
 
 
-def test_a_refusal_comes_back_as_words_not_a_notification():
-    """The watcher logs it. Someone dragging a window about does not want a
-    popup for every border they happen to cross."""
-    t, ui = make(None)
-    t.api = AskedAPI({"error": "aio is not connected"})
-    assert t.throw_window(1, "aio") == "aio is not connected"
-    assert ui.notes == []
-
-
-def test_with_no_service_the_window_simply_stays():
-    t, _ui = make(None)
-    t.api = None
-    assert t.throw_window(1, "aio") == "Nishro Link is not running"
-
-
-def test_nothing_is_watched_where_windows_cannot_be_watched(monkeypatch):
-    """On GNOME one program may not watch another's window being dragged -
-    the same wall that stops a window being hidden there."""
-    monkeypatch.setattr(tray.sys, "platform", "linux")
-    t, _ui = make(None)
-    assert tray._watch_drags(t, print) is None
-
-
-def test_a_watcher_that_will_not_start_does_not_stop_the_tray(monkeypatch):
-    monkeypatch.setattr(tray.sys, "platform", "win32")
-    said = []
-
-    def boom(*a, **k):
-        raise RuntimeError("no hooks here")
-    import link.windrag_win as ww
-    import link.window_host as wh
-    monkeypatch.setattr(ww, "Watcher", boom)
-    # Not the real one: without this the line lands in the person's own
-    # Nishro Link log, and it did - "windows dragged to another computer
-    # will not be noticed: RuntimeError('no hooks here')" sitting in the
-    # middle of the real log, looking for all the world like a fault on
-    # this machine. A test must not write into the files it is testing.
-    monkeypatch.setattr(wh, "write_log", lambda _m: None)
-    t, _ui = make(None)
-    assert tray._watch_drags(t, said.append) is None
-    assert any("will not be noticed" in s for s in said), said
-
-
-def test_the_drag_watcher_says_what_it_did_where_it_can_be_read(monkeypatch):
-    """The tray's own log is stdout, and a windowed build has none - so when
-    the hook could not be installed there was no line anywhere saying why,
-    and the gesture just silently did nothing on the installed build."""
-    monkeypatch.setattr(tray.sys, "platform", "win32")
-    said, filed = [], []
-    import link.window_host as wh
-    monkeypatch.setattr(wh, "write_log", filed.append)
-
-    class Hooked:
-        def __init__(self, **kw):
-            self.log = kw["log"]
-
-        def start(self):
-            return True
-    import link.windrag_win as ww
-    monkeypatch.setattr(ww, "Watcher", Hooked)
-    t, _ui = make(None)
-    assert tray._watch_drags(t, said.append) is not None
-    assert any("watching for windows dragged" in m for m in said), said
-    assert any("drag watcher: watching" in m for m in filed), filed
-
-
-def test_a_watcher_that_will_not_start_says_so_in_the_file_too(monkeypatch):
-    monkeypatch.setattr(tray.sys, "platform", "win32")
-    filed = []
-    import link.window_host as wh
-    monkeypatch.setattr(wh, "write_log", filed.append)
-
-    def boom(**kw):
-        raise RuntimeError("no hooks here")
-    import link.windrag_win as ww
-    monkeypatch.setattr(ww, "Watcher", boom)
-    t, _ui = make(None)
-    assert tray._watch_drags(t, lambda m: None) is None
-    assert any("will not be noticed" in m for m in filed), filed
-
-
-def test_a_log_that_blows_up_does_not_take_the_tray_with_it(monkeypatch):
-    """P4, fail open: a tray that died over its own log would cost the
-    person every control it offers."""
-    monkeypatch.setattr(tray.sys, "platform", "win32")
-
-    def angry(_m):
-        raise RuntimeError("the log is gone")
-    import link.window_host as wh
-    monkeypatch.setattr(wh, "write_log", angry)
-    say = tray._drag_log(angry)
-    say("this must not raise")

@@ -316,81 +316,28 @@ New, optional messages - an older peer ignores them (N6):
 - `wopen` - the hub asks a member to dial a window channel (as `fwant`).
 - `whome` - bring every window between us home (the switch went off).
 
-### 4.6 Moving by dragging (stage 4)
+### 4.6 Moving by dragging - built, then taken out
 
-Two halves, and they are independent. Both are built: a frame is dragged
-back home on whichever computer is showing it, and one of this computer's own
-windows is thrown out by its title bar (Windows home only).
+Both halves were built and worked: a window thrown at another computer by
+dragging it off the edge of the screen, and a frame dragged back the same
+way. The maintainer then decided against the gesture and asked for the
+tray menu to be the only way, both directions
+(`git log -- link/windrag.py` has it, if it is ever wanted again).
 
-**Back home - built.** The frame knows which edge of the screen it is on
-the window's own computer lies beyond: the node works it out from the
-arrangement (`Node.side_toward`, the desk's own doorways) and it travels to
-the frame on the helper's command line (`--window-home-side`). Drag the
-frame far enough past that edge - `winmove.far_enough`: 40% of it
-(`THROW_BACK`) or 80 px (`THROW_PIXELS`), whichever comes first - let go, and
-it goes home - the same `home` message the tray sends. The title says
-"let go to send it back to <computer>" while it is there, so the gesture is
-not something to be found out by accident, and dragging it back on screen
-cancels it.
+Worth keeping from it, because they were measured rather than reasoned:
 
-Two things were deliberately NOT done:
-
-- **The pointer is never watched, only the frame's place.** The pointer
-  reaching the edge of the screen is the link's own doorway: the baton would
-  go to the other computer in the middle of the drag and leave the frame
-  half-thrown. A window dragged partly off an edge keeps its pointer well
-  inside the screen, so the two gestures never meet.
-- **Letting go is a short quiet (400 ms), not a button-up.** Tk never sees
-  the button come up on a drag by the title bar; that belongs to the window
-  manager. What is watched is where the frame is LEFT.
-
-Measured as a fraction of the window, not in pixels, so the same push of the
-hand works on a 1366x768 laptop screen and on a 4K monitor.
-
-**Out, by the window's own title bar - built, Windows home.** Windows says
-when any window starts and stops being dragged (`SetWinEventHook`,
-`EVENT_SYSTEM_MOVESIZESTART` / `END`) but nothing in between, so while a drag
-lasts the window's place is read off it every 60 ms. Once it is far enough past a
-border that leads somewhere, the window comes out of the move loop
-(`WM_CANCELMODE`, so it goes back to where it was picked up rather than being
-left hanging off the edge) and the node is asked to send it - the same
-`/api/window/move` the tray menu uses.
-
-The pieces, and why they are where they are:
-
-- **`windrag.py`** decides, and knows nothing of Windows: fed a drag began,
-  where the window is, a drag ended. **`windrag_win.py`** is the hook.
-- **The hook lives on the tray's thread**, because `WINEVENT_OUTOFCONTEXT`
-  delivers through the message queue of the thread that installed it and the
-  tray is the session's long-lived process with a message loop. Installing it
-  on one thread and pumping on another means not one event arrives.
-- **The node publishes the borders**, not the session: only it has the
-  arrangement. `Node.window_doorways()` gives `{"side", "edge", "device"}`
-  from the desk's own compiled doors, in `/api/status`, and the tray hands the
-  last poll's answer to the watcher - read, never asked for, because this is
-  consulted while a hand is moving.
-- **A border is a LINE, not the far side of everything.** The laptop has a
-  monitor to its left: the desktop is 3286x1080 and starts at (-1920, -148)
-  in Windows' own numbers, so only one of the two screens' borders leads to
-  the AIO. `desk.Door.edge` is that line, in local pixels, and
-  `windrag_win` subtracts the desktop's origin so the two agree.
-- **A window already hanging over a border is not sent when it is touched**
-  (`windrag.START_INSIDE`): a drag has to begin inside before it can cross.
-
-**Why the threshold is pixels as well as a fraction.** Windows CUTS a drag
-once a window hangs too far off the edge of the desktop, and snaps it back to
-where it was picked up - which is exactly where the border to the other
-computer is on a single-screen machine. Measured on the laptop, stepping a
-real drag 20 px at a time: a 500-wide window followed the pointer to 180 px
-past the desktop's right edge and then jumped back to its starting place; a
-300-wide one managed 115. Both are short of 40% of themselves, so a fraction
-alone was a threshold nobody could reach and the gesture simply never fired -
-found by a live test that failed, not by reasoning. `THROW_PIXELS = 80` sits
-well under both and is still a deliberate shove, since the drag has to begin
-inside the border (`windrag.START_INSIDE`).
-
-Not on GNOME: one program may not watch another's window being dragged there,
-the same wall that stops a window being hidden (stage 6).
+- **Windows CUTS a drag once a window hangs about a third of its width off
+  the edge of the desktop**, and snaps it back to where it was picked up.
+  Measured on the laptop: a 500-wide window reached 180 px of overhang, a
+  300-wide one 115. Any gesture judged at the edge of a screen needs a pixel
+  limit, not just a proportion of the window.
+- **A WinEvent hook and its message pump must be on the same thread.**
+  `WINEVENT_OUTOFCONTEXT` posts to the queue of the thread that installed the
+  hook; split them and not one event arrives.
+- **`GetWindowRect` counts from the PRIMARY screen's corner**, not the
+  desktop's, so with a monitor to the left every x is negative. Local
+  coordinates - the wire, the desk, `inject.py` - count from the desktop's
+  corner.
 
 ### 4.7 When things go wrong
 
@@ -443,7 +390,9 @@ the same wall that stops a window being hidden (stage 6).
 3. **Laptop to AIO:** Windows home (the agent: choose, hide, capture,
    compress, play input; the window's menus and dialogs with it - R11), Linux
    away (the session helper: the frame), the switch, the tray, the shortcut.
-4. **Dragging across the edge** - both ways, Windows home: done.
+4. ~~**Dragging across the edge.**~~ Built both ways and then taken out at
+   the maintainer's request: the tray menu is the only way to move a window
+   (section 4.6).
 5. **AIO to laptop:** GNOME home through the portals; Windows away (the frame
    in the agent).
 6. **Optional - the GNOME Shell extension:** dragging from the AIO, and
