@@ -477,6 +477,59 @@ re-litigated.
    raising `AHEAD` (it would queue older pictures, which is exactly what the
    design refuses).
 
+## 2026-10-14 - the AIO updated, and a threshold nobody could reach
+
+### The AIO (reported by the agent there, bridge id 295)
+
+Package `nishro-link_1.2.0-dev_all.deb`, sha256 `8022c788e05e5166` -
+checked on arrival before installing. Installed with
+`pkexec apt-get install -y --allow-downgrades`, Roni typing the password.
+Exit 0, clean unpack and setup, all three dpkg triggers normal. Afterwards:
+service active (restarted by the install), tray back by itself (new pid
+80284), connected to the laptop (`192.168.0.191:33586 <-> ...:8770`),
+journalctl clean - a tidy stop, a start, and a reconnection within the same
+second. No window had been shown yet, so the frame's `--window-home-side`
+and the drag-home log line could not be checked there; that waits on Roni.
+
+**A trap this exposed:** the AIO already had a `1.2.0~dev` installed from
+the previous session, and the new package has the SAME version string with
+different contents. `dpkg -l` therefore cannot tell which build is running.
+A dev version string needs a build id in it.
+
+### Windows cuts a drag at the edge of the desktop
+
+The live drag test kept failing under load and I kept assuming the test was
+at fault. It was not. Stepping a real drag 20 px at a time:
+
+    step 17: pointer x 1066 -> the window at local x 2926
+    step 18: pointer x 1086 -> the window at local x 2946
+    step 19: pointer x 1106 -> the window at local x 2966
+    step 20: pointer x 1126 -> the window at local x 2586   <- snapped back
+    ...                        and it stayed there
+
+The window tracks the pointer exactly, then Windows **cuts the drag** and
+returns the window to where it was picked up. How far it gets first:
+
+| window width | furthest overhang | as a fraction of itself |
+|---|---|---|
+| 300 px | 115 px | 38% |
+| 500 px | 180 px | 36% |
+
+Both short of the 40% the gesture asked for. On a single-screen machine the
+border to the other computer IS the desktop's outer edge, so **the threshold
+could not be reached at all** - the window would have snapped back and
+nothing would have been sent, with no word why. A real defect in the
+gesture, found only because a live test failed.
+
+Fixed: `winmove.far_enough` - 40% of the window or 80 px, whichever comes
+first. 80 sits well under both measured limits and is still a deliberate
+shove, because the drag has to begin inside the border
+(`windrag.START_INSIDE`). Both directions use the same rule.
+
+**Both machines were installed BEFORE this fix** (`CE90E293DA5BC8AF` on the
+laptop, `8022c788e05e5166` on the AIO), so both need rebuilding before the
+gesture can be tested by hand.
+
 ## Before 1.1.0 (from the history)
 
 - v1.0.1 (2026-09-29): fixed the window not opening from Ubuntu's app menu
