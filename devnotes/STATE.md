@@ -65,20 +65,34 @@ both real machines. Since the last state:
   level is right as it is - the reasoning is written down. What would help:
   overlap capture with encode, then a lossy codec.
 
-Installed on the laptop 2026-10-14: `NishroLink.exe` 1.2.0, sha256
-`CE90E293DA5BC8AF`, service Running, tray running. The live service reports
-both borders to the AIO. **The AIO still runs the older build**, so a frame
-shown there cannot yet be dragged home - it needs the new `.deb`.
+Installed and verified on both machines, 2026-10-14:
+
+- **The laptop:** `NishroLink.exe` 1.2.0, sha256 `A7F247AABDAE27AE`, service
+  Running, tray running. The live service reports both borders to the AIO
+  (`left` at 0 and `right` at 3286, both to `aio`), and the installed tray
+  writes "drag watcher: watching for windows dragged across a border to
+  another computer" into this person's own NishroLink folder under
+  LOCALAPPDATA - so the hook really is live in the BUILT program, not only
+  in the tests.
+- **The AIO:** `nishro-link_1.2.0-dev-2_all.deb`, sha256 `25d0472a0cdc64db`,
+  installed through pkexec with Roni typing the password; service active,
+  tray running, reconnected within a second, journalctl clean. (The two
+  later commits are Windows-only in effect - the tray's drag watcher, and a
+  log path that only ProgramData needed - so the AIO needs no further build
+  for this feature.)
+
+Not done here: the gesture end to end by hand. The AIO held the baton and
+was driving the laptop while this was being finished, so grabbing the
+pointer to inject a drag would have pulled it out from under whoever was
+using it.
 
 Still to do on this feature:
 
-1. **Rebuild and reinstall BOTH machines.** The builds installed on
-   2026-10-14 (`CE90E293DA5BC8AF` on the laptop, `8022c788e05e5166` on the
-   AIO) were made before `winmove.far_enough`, so they still ask for 40% of
-   the window past the border - which Windows will not allow at the
-   desktop's edge (TESTLOG 2026-10-14). The gesture cannot work on either
-   until they are rebuilt.
-2. Roni's own checks of the arrow, the wheel, and both drag gestures.
+1. **Roni's own checks** - the four things only he can do: the pointer's
+   arrow after a restart; the mouse wheel in a moved window; dragging a
+   window from the laptop across the edge to the AIO; and dragging the frame
+   back across the edge there. Everything checkable without his hands has
+   been checked.
 3. Stage 5 (a window FROM the AIO: GNOME home through the portals) and
    stage 6 (the GNOME Shell extension).
 4. Overlapping capture with encode, if the refresh rate is to be worked on.
