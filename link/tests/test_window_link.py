@@ -347,3 +347,39 @@ def test_the_dialled_window_channel_has_no_read_timeout(moving):
 
 
 
+
+
+# ------------------- when the other computer cannot show it, it says why
+def test_the_other_computers_reason_crosses_instead_of_a_dead_socket(moving):
+    """What the maintainer hit: the notification said the window was on the
+    AIO while the AIO had refused and closed the channel, and all the laptop
+    could report was "[WinError 10038] not a socket". The reason must cross.
+    """
+    moving.windows["w1"] = FakeWindow(title="Notepad")
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+    # The member cannot show it - as if nobody were signed in over there.
+    excuse = "nobody is signed in on aio, so there is no screen"
+    moving.aio.serve_window = lambda ch, k, w, s: excuse
+
+    assert moving.hub.move_window_to("aio", "w1") == ""
+    # The aio knows its own reason...
+    wait(lambda: moving.aio.window_trouble is not None,
+         "the aio to record why")
+    assert excuse in moving.aio.window_trouble["why"]
+    # ...and the hub's end of the window finishes with it, rather than with
+    # a socket that went away.
+    wait(lambda: any(s.ended and excuse in str(s.ended)
+                     for s in moving.sessions),
+         "the hub's session to end with the aio's reason")
+
+
+def test_a_window_that_went_and_came_home_leaves_no_trouble(moving):
+    moving.windows["w1"] = FakeWindow(title="Notepad")
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+    assert moving.hub.move_window_to("aio", "w1") == ""
+    wait(lambda: ("aio", "w1") in moving.frames, "the frame")
+    moving.hub.bring_windows_home()
+    wait(lambda: not moving.hub.windows_away, "the window to come home")
+    assert moving.hub.window_trouble is None, moving.hub.window_trouble

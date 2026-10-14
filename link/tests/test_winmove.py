@@ -616,3 +616,47 @@ def test_only_the_first_direction_to_stop_is_news():
     finally:
         for ch in (hub, away, net_a, net_b):
             ch.close()
+
+
+def test_the_relay_keeps_the_far_sides_reason_and_stops():
+    """The production path for "the other computer cannot show it".
+
+    The service relays frames between the network and the part with a
+    screen. A `cannot` frame is not passed on - the session over there would
+    ignore it - it is kept, so the service can answer with the reason
+    instead of with a socket that went away.
+    """
+    import threading
+    # relay(a, b): a is the NETWORK channel, b the part with the screen.
+    # So the refusal comes in on the network's far end.
+    screen, screen_far = _pair()
+    net, net_far = _pair()
+    said, trouble = [], {}
+    threading.Thread(
+        target=lambda: winmove.relay(net, screen, log=said.append,
+                                     trouble=trouble),
+        daemon=True).start()
+    try:
+        net_far.send(winmove.cannot("nobody is signed in on aio"))
+        end = time.monotonic() + 8
+        while time.monotonic() < end and not trouble:
+            time.sleep(0.02)
+        assert trouble.get("why") == "nobody is signed in on aio", trouble
+        assert any("cannot show the window" in m for m in said), said
+        # and it was NOT passed on to the part with the screen, which would
+        # have ignored it anyway
+        screen_far.sock.settimeout(0.5)
+        with pytest.raises(ChannelError):
+            screen_far.recv()
+    finally:
+        for ch in (screen, screen_far, net, net_far):
+            ch.close()
+
+
+def test_a_cannot_frame_says_what_it_is_and_fits():
+    frame = winmove.cannot("x" * 900)
+    header, _ = winmove.unpack(frame)
+    assert header["t"] == "cannot"
+    assert len(header["why"]) == 300, "a peer must not send us an essay"
+    assert frame[2:2 + len(winmove.CANNOT_FRAME)] == winmove.CANNOT_FRAME, (
+        "the relay spots these without unpacking every frame")

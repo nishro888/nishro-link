@@ -22,7 +22,9 @@ Works with every 1.x.
   pictures and what you type into it travel to the other computer - sealed
   like everything else on the link, with keys of their own, on a connection
   of their own so a window never holds up the pointer.
-  - From the tray: *Move a window to <computer>...*, or Win+Shift+Left/Right,
+  - From the tray: *Move the current window to*, then the computer - with
+    the window it means **named above it**, so there is never a doubt about
+    which one is about to go. Or Win+Shift+Left/Right,
     the keys that throw a window at the next monitor - carried on past the
     last one. The same keys bring it back, as does *Bring windows home*.
   - Away it is an ordinary window, saying where it came from
@@ -45,6 +47,17 @@ Works with every 1.x.
     works fully.
 
 ### Fixed
+- **"The window is now on the other computer" is no longer said before it
+  is.** The tray announced success the instant it was clicked, because
+  asking is not arriving - on a hub the request has only asked the other
+  computer to dial in. It now waits for the service to say the window
+  really is over there, and says plainly when it is not.
+- **The other computer's reason for refusing a window now reaches you.** It
+  used to close the channel without a word, so all this computer could say
+  was "[WinError 10038] An operation was attempted on something that is not
+  a socket" - where the truth was something as simple as nobody being
+  signed in over there. The reason crosses the link and reaches the
+  notification and the log.
 - **The pointer arrow is drawn as soon as the other computer's mouse moves
   it.** After a restart the pointer moved and clicked perfectly but no arrow
   was drawn until this computer's own mouse or touchpad was touched: Windows

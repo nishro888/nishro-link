@@ -982,6 +982,9 @@ class Node:
         # in the signed-in session, where windows and frames exist
         # (window_service.attach); the tests put a pair of sessions here.
         self.serve_window = None
+        # Why the last window could not be shown, so the tray can say it
+        # rather than claiming the window went. {"device", "why", "when"}.
+        self.window_trouble = None
         self.window_sides = ()        # "home", "away", or both
         self.list_windows = None      # () -> [(which, title)] that could move
         self.windows_away = {}        # key -> {"who", "mine"}
@@ -1415,10 +1418,26 @@ class Node:
             why = self.serve_window(ch, kind, which, whose)
             if why:
                 self._log(f"the window could not be shown: {why}")
+                self.window_trouble = {"device": with_whom, "why": why,
+                                       "when": time.time()}
+                # Tell the OTHER computer, while there is still a channel to
+                # tell it on. Otherwise all it ever learns is that a socket
+                # went away, which it reports as a WinError to someone who
+                # would much rather be told "nobody is signed in on aio".
+                # No echo is possible: when the reason came from over there,
+                # the relay has already closed this channel and the send
+                # quietly fails.
+                try:
+                    ch.send(winmove.cannot(why))
+                except Exception:
+                    pass
             else:
                 self._log(f"the window is back on its own screen ({whose})")
+                self.window_trouble = None     # it went, and came home
         except (winmove.ChannelError, OSError) as e:
             self._log(f"the window shared with {with_whom} ended: {e}")
+            self.window_trouble = {"device": with_whom, "why": str(e),
+                                   "when": time.time()}
         except Exception as e:
             self._log(f"the window shared with {with_whom} went wrong: {e!r}")
         finally:

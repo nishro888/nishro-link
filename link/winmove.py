@@ -389,6 +389,16 @@ def plain_channel(sock) -> "BinChannel":
 # biggest thing on the channel. pack() writes "t" first, so this is exactly
 # what one of these frames begins with.
 LOG_FRAME = b'{"t":"host_log"'
+# The other computer saying it cannot show the window at all, and WHY. The
+# reason is worth crossing: without it the near end sees only a socket that
+# closed, and reports "[WinError 10038] not a socket" to someone who would
+# much rather be told "nobody is signed in on aio".
+CANNOT_FRAME = b'{"t":"cannot"'
+
+
+def cannot(why: str) -> bytes:
+    """A frame saying this computer cannot show the window, and why."""
+    return pack({"t": "cannot", "why": str(why)[:300]})
 
 
 def host_log(message: str) -> bytes:
@@ -409,7 +419,7 @@ def _second_or_first(closing, which: str, why: str, odd: bool = False) -> str:
     return f"the window's frames stopped going {which}: {why}"
 
 
-def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
+def relay(a: "BinChannel", b: "BinChannel", log=None, trouble=None) -> None:
     """Pass frames between two window channels until either ends.
 
     This is how a moved window reaches the screen on Windows, and will on
@@ -420,6 +430,7 @@ def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
     along, which on loopback costs a copy and nothing else.
     """
     log = log or (lambda *_: None)
+    said = {} if trouble is None else trouble
     # Set by whichever direction finishes first, because its tidying closes
     # BOTH channels - so the other one is then bound to fail, and that
     # failure is not news.
@@ -429,6 +440,21 @@ def relay(a: "BinChannel", b: "BinChannel", log=None) -> None:
         try:
             while True:
                 frame = src.recv()
+                if (which == "in" and frame[_HDR.size:_HDR.size
+                                            + len(CANNOT_FRAME)]
+                        == CANNOT_FRAME):
+                    # The other computer cannot show it. Its reason is the
+                    # only useful thing anyone will get, so it is kept and
+                    # handed back rather than passed on to a session that
+                    # would ignore it.
+                    try:
+                        said["why"] = str(unpack(frame)[0].get("why") or "")
+                    except ChannelError:
+                        pass
+                    if said.get("why"):
+                        log(f"the other computer cannot show the window: "
+                            f"{said['why']}")
+                    return
                 if which == "out" and frame[_HDR.size:_HDR.size + len(LOG_FRAME)]                         == LOG_FRAME:
                     try:
                         log(f"the window's own part: "
@@ -654,6 +680,11 @@ class HomeSession:
             self.window.close()
         elif t == "home":
             self.stop(HOME)
+        elif t == "cannot":
+            # The other computer cannot show it, and said why. Kept as the
+            # reason this ended, so the log says something a person can act
+            # on instead of a socket error.
+            self.stop(str(header.get("why") or FAILED)[:300])
         # anything else: a newer peer talking about something we do not know
 
     def _input(self, header: dict) -> None:

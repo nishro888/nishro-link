@@ -261,6 +261,9 @@ class ControlAPI:
             # What this computer can actually do with windows, so the
             # settings page can say why the switch will not help here.
             "windows_here": sorted(self.node.window_sides),
+            # Why the last window could not be shown, if one could not, so
+            # the tray can say that rather than claiming it went.
+            "window_trouble": self.node.window_trouble,
             "windows_away": [
                 {"which": key, "device": s.get("who"), "ours": bool(s.get("mine"))}
                 for key, s in sorted(self.node.windows_away.items())],

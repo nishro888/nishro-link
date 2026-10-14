@@ -39,8 +39,19 @@ def attach(net, kind: str, which: str, whose: str, log=None,
     `net` is the window channel to the other computer. `kind` is "lend" (one
     of our windows, shown over there) or "show" (one of theirs, shown here).
     Returns "" once the window has come home, or why it could not go.
+
+    Whatever the reason, the NODE sends it to the other computer before the
+    channel closes (node._window_run), so the far end is not left with a
+    socket that went away - which it reported as "[WinError 10038] An
+    operation was attempted on something that is not a socket", alongside a
+    notification claiming the window was over there, when the truth was
+    something as simple and sayable as nobody being signed in.
     """
     log = log or (lambda *_: None)
+    return _attach(net, kind, which, whose, log, launch)
+
+
+def _attach(net, kind: str, which: str, whose: str, log, launch) -> str:
     token = secrets.token_hex(16)
     srv = socket.socket()
     srv.bind(("127.0.0.1", 0))
@@ -88,11 +99,14 @@ def attach(net, kind: str, which: str, whose: str, log=None,
             if not ready.get("ok"):
                 why = str(ready.get("why") or "that window cannot be moved")
                 net.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))
-                return why
-            winmove.relay(net, host, log=log)
+                return why                # attach() sends the reason on
+            trouble = {}
+            winmove.relay(net, host, log=log, trouble=trouble)
+            # If the other computer said it could not show the window, that
+            # is the answer - not "it came home fine".
+            return str(trouble.get("why") or "")
         finally:
             host.close()
-        return ""
     finally:
         _end(proc, log)
         _say_what_it_said(proc, log)

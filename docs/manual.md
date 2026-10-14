@@ -541,7 +541,9 @@ choice.
 
 ### Moving one
 
-- **The tray icon → Move the current window to**, then the computer.
+- **The tray icon → Move the current window to**, then the computer. The
+  menu names the window it means just above - *"In front: report.txt -
+  Notepad"* - so there is no doubt which one is about to go.
 - Or **Win+Shift+Left/Right**, the same keys Windows uses to throw a window
   at the next monitor - carried on past the last one, onto the next computer.
 
@@ -569,6 +571,15 @@ you would any window there.
 button would on its own computer - so the program may ask whether to save
 first. To get the window *back* without closing anything, use one of the ways
 above.
+
+### If it does not go
+
+Nishro Link waits to see the window appear on the other computer before it
+says anything, so **"report.txt is now on aio" means it really is there**.
+If it could not go you are told that instead, with the other computer's own
+reason where it gave one - *"nobody is signed in on aio, so there is no
+screen"* is the common one. The **Activity** page on either computer has
+more.
 
 ### What to expect
 
