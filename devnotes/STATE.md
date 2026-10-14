@@ -1,6 +1,6 @@
 # State
 
-**Last updated:** 2026-10-14
+**Last updated:** 2026-10-15
 
 ## Versions
 
@@ -37,71 +37,54 @@
 
 ## Moving windows (1.2.0 work, on `main`, nothing pushed)
 
-Stages 1-4 of `docs/moving-windows.md` are built and the feature works on
-both real machines. Since the last state:
+Stages 1-3 are built and the feature works on both real machines. Stage 4
+(dragging across the edge) was built both ways, used, and then **taken out**
+at the maintainer's request - the tray menu is the only way now, each way.
+Section 4.6 of `docs/moving-windows.md` keeps what it taught.
 
+Where it stands:
+
+- **The tray menu is the way.** *Move the current window to* with the
+  devices as a submenu - always a list, even for one other computer, since
+  there will be more than two. The window it means is named above it
+  ("In front: report.txt - Notepad"), because the maintainer could not
+  always tell which was chosen. The tray finds that window by looking at
+  this computer's own windows; asking the service would start a helper
+  process, far too much for every two-second poll.
+- **The notification no longer lies.** `/api/window/move` answers as soon as
+  the request is on its way, so the tray used to announce success at once
+  and the maintainer saw "the window is on the AIO" while it never
+  appeared. It now waits up to 12 s for the service to confirm, and says
+  plainly when the window did not go.
+- **A refusal now carries its reason.** The refusing computer closed the
+  channel without a word, so the near end could only report
+  "[WinError 10038] not a socket". A `cannot` frame carries the reason: the
+  node sends it while there is still a channel, the relay keeps it,
+  `window_trouble` holds it, `/api/status` publishes it, the tray shows it,
+  and `HomeSession` understands it so the log has it either way.
 - **The pointer's arrow** is drawn as soon as the other computer's mouse
-  moves it. GetCursorInfo said it was showing while it was not, so it is no
-  longer asked: real mouse input is sent whenever driving begins and the
-  pointer is put back on the exact pixel.
-- **The mouse wheel** scrolls in a moved window (the click-through bit is
-  lifted for a quarter of a second round the wheel).
-- **Dragging a frame back home** (stage 4, both systems): 40% of it past the
-  edge the window's own computer lies beyond, let go, and it goes. The node
-  works the edge out from the desk and it reaches the frame on the helper's
-  command line.
-- **Throwing a window out** by its own title bar (stage 4, Windows home):
-  a WinEvent hook on the tray's thread, the window taken out of the move
-  loop with WM_CANCELMODE, and the node asked through /api/window/move.
-  Borders come from the desk's own doors, as a LINE in local pixels.
-- **Avro Keyboard cannot be made to work** and that is now settled and
-  written down (TESTLOG, manual section 20): it acts on no injected key,
-  because it injects its own Bangla characters. Carrying the CHARACTER
-  instead of the key (KEYEVENTF_UNICODE, measured working) would sidestep
-  it - proposed, not built.
+  moves it (GetCursorInfo said it was showing while it was not, so it is no
+  longer asked).
+- **The mouse wheel** scrolls in a moved window.
+- **Avro Keyboard cannot be made to work** - settled and written down
+  (TESTLOG, manual section 20). Carrying the CHARACTER instead of the key
+  (KEYEVENTF_UNICODE, measured working) would sidestep it; proposed, not
+  built.
 - **The refresh rate is measured** (TESTLOG): an ordinary window manages 44
   frames a second and MAX_FPS = 25 is not the limit; a window of moving
-  colour manages 10.5, limited by the encoder and 300 KB a frame. zlib's
-  level is right as it is - the reasoning is written down. What would help:
-  overlap capture with encode, then a lossy codec.
+  colour manages 10.5, limited by the encoder and 300 KB a frame. What would
+  help: overlap capture with encode, then a lossy codec.
 
-Installed and verified on both machines, 2026-10-14:
+**Still unexplained:** why the AIO refuses a window. Reproduced reliably on
+2026-10-15 (04:17) - the dial succeeds, the helper starts, and the channel
+dies within a second. The `cannot` plumbing above exists so that the next
+attempt says why instead of leaving it to guesswork; it needs the new build
+on both machines to speak.
 
-- **The laptop:** `NishroLink.exe` 1.2.0, sha256 `A7F247AABDAE27AE`, service
-  Running, tray running. The live service reports both borders to the AIO
-  (`left` at 0 and `right` at 3286, both to `aio`), and the installed tray
-  writes "drag watcher: watching for windows dragged across a border to
-  another computer" into this person's own NishroLink folder under
-  LOCALAPPDATA - so the hook really is live in the BUILT program, not only
-  in the tests.
-- **The AIO:** `nishro-link_1.2.0-dev-2_all.deb`, sha256 `25d0472a0cdc64db`,
-  installed through pkexec with Roni typing the password; service active,
-  tray running, reconnected within a second, journalctl clean. (The two
-  later commits are Windows-only in effect - the tray's drag watcher, and a
-  log path that only ProgramData needed - so the AIO needs no further build
-  for this feature.)
-
-Not done here: the gesture end to end by hand. The AIO held the baton and
-was driving the laptop while this was being finished, so grabbing the
-pointer to inject a drag would have pulled it out from under whoever was
-using it.
-
-Still to do on this feature:
-
-1. **Roni's own checks** - the four things only he can do: the pointer's
-   arrow after a restart; the mouse wheel in a moved window; dragging a
-   window from the laptop across the edge to the AIO; and dragging the frame
-   back across the edge there. Everything checkable without his hands has
-   been checked.
-3. Stage 5 (a window FROM the AIO: GNOME home through the portals) and
-   stage 6 (the GNOME Shell extension).
-4. Overlapping capture with encode, if the refresh rate is to be worked on.
-5. **A build id in the dev version string.** The AIO already had a
-   `1.2.0~dev` with different contents, so `dpkg -l` cannot tell two dev
-   builds apart and the agent there had to take the installer's word for it.
-   A `link/_build.py` written by the build scripts (date and git short sha,
-   git-ignored) and shown in About and /api/status would fix it. Not asked
-   for; raised because it got in the way of checking an install.
+Built and waiting to be installed: `NishroLink.exe` `55F019CB90077621` and
+`nishro-link_1.2.0-dev_all.deb` `bd22634c37e3b44d`. The laptop still runs
+`7EE7C0D3842FB2C3` (the maintainer declined the install prompt); the AIO
+runs `25d0472a0cdc64db`.
 
 ## Next
 
