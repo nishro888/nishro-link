@@ -24,11 +24,16 @@ import time
 
 import pytest
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
+# Skipped before anything else runs, not by a mark: HOOKPROC below needs
+# ctypes.WINFUNCTYPE, which does not exist off Windows, so elsewhere even
+# COLLECTING this file fails with an AttributeError. A pytestmark would not
+# help - the module is imported before any mark is consulted. CI's Linux
+# jobs found this; running the suite on the laptop never could.
+if sys.platform != "win32":
+    pytest.skip("Windows hooks", allow_module_level=True)
 
-if sys.platform == "win32":
-    from link import keymap
-    from link.inject import WindowsInjector
+from link import keymap                                      # noqa: E402
+from link.inject import WindowsInjector                      # noqa: E402
 
 WH_KEYBOARD_LL, WH_MOUSE_LL = 13, 14
 WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN = 0x0100, 0x0101, 0x0104
