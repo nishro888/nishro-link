@@ -743,6 +743,13 @@ def test_with_no_window_in_front_there_is_nothing_to_move():
     assert items_of(st, "Move the current window to") is None
 
 
+# These two reach into window_win, which does ctypes.WinDLL("user32") when
+# it is imported - so they cannot even be collected off Windows, let alone
+# run. Pretending the platform is win32 is not enough; the module behind it
+# has to exist. CI's five Linux jobs found this in 25 seconds, which no
+# amount of running the suite on this laptop would have.
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="window_win loads user32 at import")
 def test_the_tray_sees_the_window_in_front_itself(monkeypatch):
     """Asked of this computer, not of the service: the tray runs where the
     windows are, and asking the service starts a helper process - far too
@@ -757,6 +764,8 @@ def test_the_tray_sees_the_window_in_front_itself(monkeypatch):
                                      "title": "report.txt - Notepad"}
 
 
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="window_win loads user32 at import")
 def test_nothing_in_front_is_not_an_error(monkeypatch):
     monkeypatch.setattr(tray.sys, "platform", "win32")
     import link.window_win as ww
