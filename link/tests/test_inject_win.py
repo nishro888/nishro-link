@@ -279,9 +279,14 @@ def test_moving_the_pointer_puts_it_exactly_where_asked(injector):
     CI's Windows runner is 1024 wide, so the pointer clamped to 1023 and the
     test failed for a reason that had nothing to do with what it checks.
     """
+    # The PRIMARY monitor, in screen coordinates, which always start at
+    # (0, 0) and are always a place the pointer can really be. The whole
+    # virtual desktop is wrong for this: with a second monitor it is a
+    # bounding box, and its far corner can be in the dead space between
+    # screens, where the pointer clamps to the nearest valid pixel instead.
     u = ctypes.WinDLL("user32")
-    w = u.GetSystemMetrics(78) or 1024      # SM_CXVIRTUALSCREEN
-    h = u.GetSystemMetrics(79) or 768
+    w = u.GetSystemMetrics(0) or 1024       # SM_CXSCREEN
+    h = u.GetSystemMetrics(1) or 768
     # The far corner matters most: that is where the 0-65535 grid's rounding
     # is worst. The two adjacent pixels catch an off-by-one.
     places = [(w // 4, h // 4), (w // 4 + 1, h // 4),
