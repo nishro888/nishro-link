@@ -321,3 +321,13 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   `log=print`, so every line it says is lost in the installed program.
   Anything worth knowing from the tray has to go to a file - and "has the
   hook been installed?" turned out to be exactly that sort of thing.
+- **A test's size can be the thing being tested.** The big-copy test uses
+  6 MB in 2 KB pieces, which looks absurd for `BACKLOG = 32`. Shrinking it
+  to 1.5 MB was tried - and with the backlog wait DELETED the test still
+  passed, because the connection's queue never filled. The size is what
+  makes it overflow. Mutation-check before trimming a test that looks
+  wasteful; the waste may be the point.
+- **`time.sleep` on Windows before Python 3.11 lasts a timer tick** - up to
+  15.6 ms, whatever you asked for. A poll loop of `sleep(0.002)` run a few
+  thousand times therefore takes a minute on CI's Windows 3.8 runner and a
+  second and a half on 3.11. That one difference is what made CI red.
