@@ -1376,8 +1376,16 @@ class Node:
     def _peer_moves_windows(self, who: str) -> bool:
         return bool(self.window_peers.get(who))
 
-    def bring_windows_home(self, who: str = None) -> int:
-        """Bring every moved window back (R5, R6). How many there were."""
+    def bring_windows_home(self, who: str = None, tell: bool = True) -> int:
+        """Bring every moved window back (R5, R6). How many there were.
+
+        `tell` says whether to ask the other computer to do the same. It is
+        False when we are HANDLING such a request: answering `whome` with
+        another `whome` made the two computers bounce it between them for
+        ever. Measured: one "Bring windows home" became 28,451 messages in
+        three seconds, and the flood closed the channel of every window moved
+        afterwards - the second send from the tray simply never arrived.
+        """
         keys = [k for k, s in list(self.windows_away.items())
                 if who is None or s.get("who") == who]
         for key in keys:
@@ -1388,7 +1396,7 @@ class Node:
                 except Exception:     # the window comes home at both ends
                     pass
             self.windows_away.pop(key, None)
-        if who is None or self._peer_moves_windows(who):
+        if tell and (who is None or self._peer_moves_windows(who)):
             self._send({"t": "whome", "to": who} if who else {"t": "whome"})
         return len(keys)
 
@@ -1409,8 +1417,16 @@ class Node:
         """Hand one window to the part of Nishro Link that has a screen, and
         keep it in the list while it is away."""
         key = f"{whose}:{which}"
+        # The SAME window can go again as soon as it is home, so two runs
+        # share a key: the one finishing and the one starting. Each run
+        # therefore carries a mark of its own, and only ever forgets its own
+        # entry. Without it the finishing run's tidying up deleted the new
+        # run's record - the window was away with nothing saying so, and
+        # bringing it home then found nothing to bring. That is what the
+        # maintainer saw as the second send from the tray doing nothing.
+        mark = object()
         self.windows_away[key] = {"who": with_whom, "mine": kind == "lend",
-                                  "ch": ch}
+                                  "ch": ch, "mark": mark}
         try:
             if not self.serve_window:
                 ch.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))
@@ -1441,7 +1457,8 @@ class Node:
         except Exception as e:
             self._log(f"the window shared with {with_whom} went wrong: {e!r}")
         finally:
-            self.windows_away.pop(key, None)
+            if self.windows_away.get(key, {}).get("mark") is mark:
+                self.windows_away.pop(key, None)
             try:
                 ch.close()
             except Exception:
@@ -2982,7 +2999,9 @@ class Node:
                         daemon=True, name="window-show").start()
                     continue
                 if t == "whome":
-                    self.bring_windows_home(None)
+                    # tell=False: this IS the telling. Passing it on sent it
+                    # straight back and the two of us bounced it for ever.
+                    self.bring_windows_home(None, tell=False)
                     continue
                 if not hub and t == "set_policy":
                     rights = {k: bool(msg[k]) for k in ("may_drive", "may_be_driven")

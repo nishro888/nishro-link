@@ -331,3 +331,15 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   15.6 ms, whatever you asked for. A poll loop of `sleep(0.002)` run a few
   thousand times therefore takes a minute on CI's Windows 3.8 runner and a
   second and a half on 3.11. That one difference is what made CI red.
+- **A message that triggers the same handler on both sides will bounce for
+  ever.** `bring_windows_home` sent `whome` to the other computer, and the
+  handler for `whome` called `bring_windows_home` - which sent `whome` back.
+  Measured: ONE "Bring windows home" became 28,451 messages in three
+  seconds, and the flood closed the channel of every window moved
+  afterwards. Any handler that acts on a request must act WITHOUT
+  re-announcing it; pass a flag that says "this is the telling".
+- **Tidying up by key deletes the next run's record.** The same window can
+  be sent again as soon as it is home, so the run that is finishing and the
+  run that is starting share a dictionary key - and the finishing one's
+  `finally` removed the new one's entry. Give each run a mark of its own and
+  forget the entry only when the mark still matches.

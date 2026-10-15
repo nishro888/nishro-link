@@ -383,3 +383,110 @@ def test_a_window_that_went_and_came_home_leaves_no_trouble(moving):
     moving.hub.bring_windows_home()
     wait(lambda: not moving.hub.windows_away, "the window to come home")
     assert moving.hub.window_trouble is None, moving.hub.window_trouble
+
+
+# ---------------------------------------- sending the SAME window twice
+def test_a_window_can_be_sent_again_after_it_has_come_home(moving):
+    """The maintainer: "after returning back from aio to pc, second time
+    taskbar method doesn't shift the window to aio".
+
+    Nothing about moving a window is once-only, so the second go must work
+    exactly like the first. Every other test here moves a window once.
+    """
+    moving.windows["w1"] = FakeWindow(title="Notepad")
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+
+    for go in (1, 2, 3):
+        assert moving.hub.move_window_to("aio", "w1") == "", f"go {go}"
+        wait(lambda: ("aio", "w1") in moving.frames,
+             f"the frame on go {go}")
+        frame = moving.frames[("aio", "w1")]
+        wait(lambda: frame.opened, f"the frame to open on go {go}")
+        wait(lambda: frame.drawn, f"a picture on go {go}")
+        wait(lambda: moving.hub.windows_away,
+             f"go {go}: the hub to count it as away")
+
+        moving.hub.bring_windows_home()
+        wait(lambda: not moving.hub.windows_away,
+             f"the window to come home after go {go}")
+        # The frame must be forgotten, or the next go would find the old one
+        # still in the list and think it had worked.
+        moving.frames.pop(("aio", "w1"), None)
+        assert moving.hub.window_trouble is None, \
+            f"go {go} left trouble behind: {moving.hub.window_trouble}"
+
+
+def test_the_window_is_not_left_marked_away_once_it_is_home(moving):
+    """If the record of what is away still holds the window, the next
+    attempt is refused before it starts - and MOST_AWAY would fill up."""
+    moving.windows["w1"] = FakeWindow(title="Notepad")
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+    assert moving.hub.move_window_to("aio", "w1") == ""
+    wait(lambda: moving.hub.windows_away, "the window to go")
+    moving.hub.bring_windows_home()
+    # BOTH ends, and waited for: the hub forgets it as it asks, the other
+    # computer a moment later when its own session ends. Checking the far end
+    # the instant the near one is clear is a race in the test, and it failed
+    # about two runs in three that way.
+    wait(lambda: not moving.hub.windows_away, "the hub to forget it")
+    wait(lambda: not moving.aio.windows_away,
+         f"the aio to forget it (still {list(moving.aio.windows_away)})")
+
+
+def test_bringing_windows_home_does_not_bounce_between_the_computers(moving):
+    """One "Bring windows home" must send ONE message, not start a storm.
+
+    It sent `whome` to the other computer, and the other computer's handler
+    for `whome` called bring_windows_home - which sent `whome` back. Measured
+    before the fix: one request became 28,451 messages in three seconds, and
+    the flood tore down every window moved afterwards. That is what the
+    maintainer saw as "after returning back from aio to pc, second time
+    taskbar method doesn't shift the window to aio".
+    """
+    sent = {"laptop": 0, "aio": 0}
+    for name, node in (("laptop", moving.hub), ("aio", moving.aio)):
+        real = node._send
+
+        def spy(msg, _real=real, _name=name):
+            if isinstance(msg, dict) and msg.get("t") == "whome":
+                sent[_name] += 1
+            return _real(msg)
+        node._send = spy
+
+    moving.windows["w1"] = FakeWindow(title="Notepad")
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+    assert moving.hub.move_window_to("aio", "w1") == ""
+    wait(lambda: ("aio", "w1") in moving.frames, "the frame")
+
+    sent["laptop"] = sent["aio"] = 0
+    moving.hub.bring_windows_home()
+    time.sleep(2)
+    assert sent["laptop"] == 1, f"the hub sent whome {sent['laptop']} times"
+    assert sent["aio"] == 0, (
+        f"the aio answered a whome with another whome {sent['aio']} times")
+
+
+def test_a_window_sent_again_the_instant_it_gets_home(moving):
+    """No pause between coming home and going again.
+
+    The slow version of this works; this one is the race. Each end forgets a
+    window in the `finally` of the thread that was showing it, and that
+    thread is still unwinding while the next send is already setting the
+    same key - so one go's tidying up can throw away the next go's record.
+    """
+    moving.windows["w1"] = FakeWindow(title="Notepad")
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+
+    for go in (1, 2, 3, 4):
+        assert moving.hub.move_window_to("aio", "w1") == "", f"go {go}"
+        wait(lambda: ("aio", "w1") in moving.frames, f"the frame on go {go}")
+        frame = moving.frames.pop(("aio", "w1"))
+        wait(lambda: frame.opened, f"the frame to open on go {go}")
+        # Straight back, with no pause at all.
+        moving.hub.bring_windows_home()
+        wait(lambda: not moving.hub.windows_away,
+             f"the window home after go {go}")
