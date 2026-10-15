@@ -25,6 +25,11 @@ and three-computer groups are especially valuable - even "it works".
 
 ## Working on the code
 
+**`main` is protected: every change arrives by pull request, with CI green.**
+Branch names, the review you can expect, keeping a branch current, and how a
+release is cut are all in [docs/development.md](docs/development.md) - read
+that before your first branch.
+
 Nishro Link is plain Python (3.8+) with Tkinter for the window. Code must run
 on Python 3.8 and on the libraries Ubuntu 20.04 and Debian 11 ship - CI runs
 the tests there - so no `match`, no `X | Y` outside annotations, and
