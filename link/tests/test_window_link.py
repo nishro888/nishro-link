@@ -490,3 +490,31 @@ def test_a_window_sent_again_the_instant_it_gets_home(moving):
         moving.hub.bring_windows_home()
         wait(lambda: not moving.hub.windows_away,
              f"the window home after go {go}")
+
+
+def test_bringing_one_window_home_leaves_the_others_where_they_are(moving):
+    """Two windows away; one comes home. The other is untouched.
+
+    The record of what is away is keyed per window, and the fix for the
+    second-send bug turns on those keys, so this checks the keys really do
+    keep windows apart.
+    """
+    moving.windows["w1"] = FakeWindow(title="Notepad")
+    moving.windows["w2"] = FakeWindow(title="A browser")
+    moving.start()
+    wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
+    for which in ("w1", "w2"):
+        assert moving.hub.move_window_to("aio", which) == ""
+        wait(lambda w=which: ("aio", w) in moving.frames,
+             f"the frame for {which}")
+    wait(lambda: len(moving.hub.windows_away) == 2,
+         f"both away (have {list(moving.hub.windows_away)})")
+
+    # Close just one of them, as the frame's own close button would.
+    one = moving.frames[("aio", "w1")]
+    one.events.put({"t": "home"})
+    wait(lambda: len(moving.hub.windows_away) == 1,
+         f"one to come home (have {list(moving.hub.windows_away)})")
+    left = list(moving.hub.windows_away)
+    assert left == ["laptop:w2"], left
+    assert moving.frames[("aio", "w2")].closed is None, "the other frame went"
