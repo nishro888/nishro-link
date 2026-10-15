@@ -272,14 +272,28 @@ def test_moving_the_pointer_puts_it_exactly_where_asked(injector):
     """Whatever is done about the arrow, a pointer crossing an edge must
     land on the pixel it was sent to - SendInput's absolute move rounds
     through a 0-65535 grid and lands a pixel out, which is why it cannot be
-    used on its own."""
+    used on its own.
+
+    The places are worked out from THIS screen, not written down. They were
+    written down - (1365, 767), the corner of the maintainer's laptop - and
+    CI's Windows runner is 1024 wide, so the pointer clamped to 1023 and the
+    test failed for a reason that had nothing to do with what it checks.
+    """
+    u = ctypes.WinDLL("user32")
+    w = u.GetSystemMetrics(78) or 1024      # SM_CXVIRTUALSCREEN
+    h = u.GetSystemMetrics(79) or 768
+    # The far corner matters most: that is where the 0-65535 grid's rounding
+    # is worst. The two adjacent pixels catch an off-by-one.
+    places = [(w // 4, h // 4), (w // 4 + 1, h // 4),
+              (w // 2, h // 2 + 1), (w - 1, h - 1)]
     home = injector._pos()
     try:
-        for x, y in ((300, 300), (301, 300), (700, 451), (1365, 767)):
+        for x, y in places:
             injector.move_abs(x - injector.ox, y - injector.oy)
             time.sleep(0.05)
-            assert injector._pos() == (x, y), \
-                f"asked for {x},{y} and landed on {injector._pos()}"
+            assert injector._pos() == (x, y), (
+                f"asked for {x},{y} and landed on {injector._pos()} "
+                f"(this desktop is {w}x{h})")
     finally:
         injector.u.SetCursorPos(*home)
 
