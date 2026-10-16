@@ -88,7 +88,14 @@ def moving():
 # whole second connection and its handshake, and these run alongside fifteen
 # hundred other tests on a laptop. A short wait here fails for reasons that
 # have nothing to do with what is being checked (seen twice in full runs).
-PATIENCE = 30.0
+# These tests each start a real pair of nodes that connect over a real
+# socket, and there are two dozen of them in this file now. On a shared CI
+# runner - ubuntu:20.04 and Python 3.14 both showed it - thirty seconds was
+# not enough for two windows to appear, or sometimes even for the two ends to
+# connect. Nothing was wrong with the code; the runner was simply busy. Sixty
+# costs nothing when things are working, because every wait returns as soon
+# as its condition is true.
+PATIENCE = 60.0
 
 
 def wait(cond, what, timeout=PATIENCE, moving=None):
