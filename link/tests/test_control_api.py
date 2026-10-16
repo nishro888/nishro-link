@@ -808,3 +808,89 @@ def test_nothing_is_spent_on_it_while_everyone_is_connected(api, monkeypatch):
     assert looks == [1], "a device is missing: look"
     api._halt = halt
     monkeypatch.setattr(api, "status", real)
+
+
+# ------------------------------------------- moving windows between computers
+def test_moving_windows_is_off_until_it_is_switched_on(api):
+    """R1: a moved window's pictures and what is typed into it travel to the
+    other computer, so nobody gets that by accident."""
+    assert api.status()["move_windows"] is False
+    assert api.node.move_windows is False
+
+
+def test_the_switch_reaches_the_node_and_is_remembered(api):
+    got = api.command("/api/config", {"move_windows": True})
+    assert got["applied_now"]["move_windows"] is True
+    assert api.node.move_windows is True
+    assert api.cfg["move_windows"] is True
+    assert api.status()["move_windows"] is True
+
+
+def test_switching_it_off_brings_every_window_home(api):
+    """R1 and R6: it must not be possible to leave a window on another
+    screen with the switch off."""
+    api.command("/api/config", {"move_windows": True})
+    home = []
+    api.node.bring_windows_home = lambda who=None: home.append(who) or 0
+    api.command("/api/config", {"move_windows": False})
+    assert api.node.move_windows is False
+    assert home == [None], "nothing was brought home"
+
+
+def test_the_status_says_what_this_computer_can_do_with_windows(api):
+    """So the settings page can say why the switch will not help here."""
+    assert api.status()["windows_here"] == []
+    api.node.window_sides = ("home",)
+    assert api.status()["windows_here"] == ["home"]
+    api.node.window_sides = ("home", "away")
+    assert api.status()["windows_here"] == ["away", "home"]
+
+
+def test_a_window_cannot_be_moved_without_saying_where(api):
+    assert "which window" in api.command("/api/window/move", {}).get("error", "")
+    assert "which window" in api.command(
+        "/api/window/move", {"which": "w1"}).get("error", "")
+
+
+def test_the_reason_a_window_cannot_move_is_passed_on(api):
+    """Whatever the node says, the person sees - not a bare failure."""
+    api.node.move_window_to = lambda who, which: "aio is not connected"
+    got = api.command("/api/window/move", {"which": "w1", "device": "aio"})
+    assert got.get("error") == "aio is not connected"
+
+
+def test_a_window_that_can_move_is_asked_for(api):
+    asked = []
+    api.node.move_window_to = lambda who, which: asked.append((who, which)) or ""
+    got = api.command("/api/window/move", {"which": "w1", "device": "aio"})
+    assert got.get("ok") is True
+    assert asked == [("aio", "w1")]
+
+
+def test_bringing_windows_home_says_how_many_there_were(api):
+    api.node.bring_windows_home = lambda who=None: 2
+    got = api.command("/api/window/home", {})
+    assert got == {"ok": True, "brought_home": 2}
+
+
+def test_the_windows_that_could_move_are_listed_for_the_tray(api):
+    assert api.command("/api/windows", {}) == {"windows": []}
+    api.command("/api/config", {"move_windows": True})
+    api.node.window_sides = ("home",)
+    api.node.list_windows = lambda: [(123, "Notepad"), (456, "A browser")]
+    assert api.command("/api/windows", {}) == {"windows": [
+        {"which": "123", "title": "Notepad"},
+        {"which": "456", "title": "A browser"}]}
+
+
+def test_a_lister_that_breaks_does_not_break_the_tray(api):
+    api.command("/api/config", {"move_windows": True})
+    api.node.window_sides = ("home",)
+    api.node.list_windows = lambda: 1 / 0
+    assert api.command("/api/windows", {}) == {"windows": []}
+
+
+def test_windows_already_on_another_screen_are_reported(api):
+    api.node.windows_away = {"us:7": {"who": "aio", "mine": True}}
+    assert api.status()["windows_away"] == [
+        {"which": "us:7", "device": "aio", "ours": True}]

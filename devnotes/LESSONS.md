@@ -55,15 +55,66 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   unsigned setup (same file name) could have replaced the signed one in the
   release. **Works:** download each finished set by name.
 
+- **An elevated process starts in system32.** `Start-Process -Verb RunAs`
+  with a relative script path runs nothing at all and exits 0xFFFD0000, with
+  no log because the script never began. Pass an absolute path, and
+  `-WorkingDirectory`.
+- **A windowed build has no console**, so `--flag` output looks empty when
+  run from one and works perfectly down a pipe. Judge such a thing by
+  redirecting it to a file, never by eye in a terminal.
+- **The service cannot see a desktop.** Anything that looks at windows has to
+  be asked of the session - and on Windows it must be *started* there
+  (`winsvc.launch_in_console`), where its output goes nowhere the service can
+  read. Hand the answer back over loopback with a one-use token, as a moved
+  window is handed over.
+- **Never kill a helper that holds something of the person's.** The process
+  that hides a window was killed as soon as its connection broke, so it never
+  restored the window. Close its channel, let it finish, and only insist
+  after that.
+- **A menu item with no handler is drawn and does nothing.** Two tray entries
+  shipped that way until they were clicked in a test. A new menu entry needs
+  a test that calls `act()` with its action.
+
+- **A connect timeout left on a socket is a read timeout too.**
+  `socket.create_connection(addr, timeout=5)` keeps those five seconds for
+  every later read. A long-lived channel that is quiet when nothing is
+  happening dies on it - and from the far end that looks exactly like the
+  other computer letting go, which sent the search in the wrong direction
+  for an hour. Clear it (`settimeout(None)`) or set one that suits the
+  channel, as files.py does.
+- **When two ends both report "the other end closed it", neither is the
+  cause.** Say which direction stopped FIRST and why, rather than swallowing
+  the error; that one log line found it.
+- **A helper in the person's session cannot be heard.** Its output goes to
+  the system log at best, and nowhere from a windowed build. Have it send
+  its log back on the channel AND write a file: when the channel is what
+  broke, the lines that matter most cannot be sent on it.
+- **Reading one frame for an answer is a bug the moment anything else can
+  arrive first.** A log line sent before the answer was read as the answer,
+  and every move failed with a message about the window instead.
+
 ## Testing
 
+- **A socket round-trip of more than a buffer's worth deadlocks in one
+  thread.** A 2 MB frame sent with `sendall` blocks once the send buffer
+  (tens of KB) fills and nothing is draining the other end - the test just
+  hangs. Send from a thread while the test reads, which is also how the real
+  sessions work (one thread each way). (winmove's big-frame test.)
 - **A test that reads what a background thread saw must join it first.** The
   impostor-hub test failed 9 times in 15: it checked before the fake hub's
   thread had noted the member hanging up. Run a new test 15-20 times before
   trusting it; join the thread, never sleep.
 - **A pacing test on one machine may never fill the queue**: loopback drains
   faster than the sender fills it, so removing the pacing passed. Make the
-  receiver slower than the sender, then the break shows.
+  receiver slower than the sender, then the break shows. And no tiny sleep at
+  every step: before Python 3.11 a sleep on Windows lasts at least a timer
+  tick (up to 15.6 ms) - 3,072 of them timed out on CI. Pause less often.
+- **To tell which commit made a test flaky, alternate the runs.** Forty runs
+  of one commit, then forty of the other, read 0 vs 3 failures - as if the
+  later one brought the race; other work on the computer comes and goes.
+  Alternating them in one loop showed it in both (1 vs 4): an older race
+  that the change made likelier. Then force the window open (a sleep in the
+  right place) for a test that fails every time.
 - **A CI job stuck or failed at `apt-get` never ran a test.** Ubuntu's package
   servers once stopped answering plain HTTP (HTTPS still worked): the
   container jobs failed, the others hung - for up to GitHub's 6 hours.
@@ -202,3 +253,93 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   must not fail.
 - **`git rm` refuses files that `cherry-pick -n` just staged** ("changes
   staged in the index"); `git rm -f` removes them.
+- **A program that injects input ignores injected input.** Avro Keyboard
+  swallows every key and puts Bangla characters of its own in its place, so
+  it has to ignore anything marked injected or it would read its own output
+  back - and `SendInput` cannot clear that mark. Scan codes made no
+  difference. Before trying to fix such a program, ask whether it CAN act on
+  us (see TESTLOG 2026-10-14). The way round is to send the character, not
+  the key: `KEYEVENTF_UNICODE` asks no layout and no input method, so
+  nothing can refuse it.
+- **A test that does not know the state it is testing proves nothing.** The
+  first Avro probe typed 'amar' and got 'amar', which says nothing when
+  Avro's mode is unknown and unreadable. Rebuilt to press the switch between
+  three attempts, so every mode was covered and the answer held whichever one
+  it started in.
+- **A low-level hook in a test must only swallow what the test injected.**
+  Ours swallowed every key so nothing would be typed into a window; a run
+  left hanging in the background then ate every keystroke on the machine and
+  the maintainer could not type until he restarted. Pass real keys through,
+  and unhook in the fixture rather than leaving it to the process exiting.
+- **Windows says the pointer arrow is showing when it is not.**
+  `GetCursorInfo` returned `CURSOR_SHOWING` while no arrow was being drawn,
+  so a fix that asked first never fired. Do not ask: send real mouse input
+  whenever driving begins, and put the pointer back on the exact pixel.
+- **A WinEvent hook and its message pump must be on the SAME thread.**
+  `WINEVENT_OUTOFCONTEXT` posts to the queue of the thread that called
+  `SetWinEventHook`; installed on one thread and pumped on another, not one
+  event arrives and it looks exactly like a hook that does not work. Cost one
+  "the drag was not noticed" before it was spotted.
+- **Windows' window coordinates are not the ones the rest of Nishro Link
+  speaks.** `GetWindowRect` counts from the PRIMARY screen's corner, so with
+  a monitor to the left every x is negative; local coordinates (the wire, the
+  desk, `inject.py`) count from the corner of the whole desktop. Subtract
+  `SM_XVIRTUALSCREEN`/`SM_YVIRTUALSCREEN`. Measured here: the desktop is
+  3286x1080 starting at (-1920, -148), so getting this wrong puts a border
+  out by the whole of a screen.
+- **`WM_CANCELMODE` ends a window-manager drag cleanly** and puts the window
+  back where it was picked up. Escape would do it too, but Escape is a key
+  the program itself would also see.
+- **A window manager's move loop follows real mouse input, not
+  `SetCursorPos`.** A test that pressed a title bar and then put the cursor
+  elsewhere saw the move loop BEGIN - the hook reported it - and the window
+  then follow by 0 pixels. It passed run on its own and failed under the
+  whole suite, the worst way for a test to be wrong. Drive a simulated drag
+  with `SendInput` absolute moves on every step. `move_abs` is not enough
+  either: since the arrow fix it sends real input only on the first movement
+  of a spell and `SetCursorPos` for the rest.
+- **When a live test fails, the message must carry the state.** "The drag was
+  not noticed" cost two rounds of guessing; "the hook reported the drag and
+  the window went from X to X" named the cause immediately.
+- **Windows cuts a drag once a window hangs too far off the edge of the
+  desktop**, snapping it back to where it was picked up. Measured, stepping a
+  real drag 20 px at a time: a 500-wide window reached 180 px of overhang and
+  a 300-wide one 115, then both jumped back. So a threshold set as a FRACTION
+  of the window (40%) could not be reached at the desktop's outer edge, which
+  is exactly where the border to the other computer is. Any gesture measured
+  at the edge of the screen needs a pixel limit as well as a proportion - and
+  a live test is what found it, after three rounds of blaming the test.
+- **A line nobody can write is a line nobody can read.** The drag watcher
+  runs in the TRAY, in the person's session, and logged beside the service's
+  own files in `ProgramData` - which the service (SYSTEM) writes and a normal
+  account can only READ. `write_log` swallowed the `PermissionError`, so when
+  the hook failed to install there was nothing anywhere saying why and the
+  gesture looked as though it simply did nothing. It now falls back to the
+  person's own `LOCALAPPDATA` folder. Check that the account a log line comes
+  from can write where it is going.
+- **A windowed build has no stdout.** The tray is started with
+  `log=print`, so every line it says is lost in the installed program.
+  Anything worth knowing from the tray has to go to a file - and "has the
+  hook been installed?" turned out to be exactly that sort of thing.
+- **A test's size can be the thing being tested.** The big-copy test uses
+  6 MB in 2 KB pieces, which looks absurd for `BACKLOG = 32`. Shrinking it
+  to 1.5 MB was tried - and with the backlog wait DELETED the test still
+  passed, because the connection's queue never filled. The size is what
+  makes it overflow. Mutation-check before trimming a test that looks
+  wasteful; the waste may be the point.
+- **`time.sleep` on Windows before Python 3.11 lasts a timer tick** - up to
+  15.6 ms, whatever you asked for. A poll loop of `sleep(0.002)` run a few
+  thousand times therefore takes a minute on CI's Windows 3.8 runner and a
+  second and a half on 3.11. That one difference is what made CI red.
+- **A message that triggers the same handler on both sides will bounce for
+  ever.** `bring_windows_home` sent `whome` to the other computer, and the
+  handler for `whome` called `bring_windows_home` - which sent `whome` back.
+  Measured: ONE "Bring windows home" became 28,451 messages in three
+  seconds, and the flood closed the channel of every window moved
+  afterwards. Any handler that acts on a request must act WITHOUT
+  re-announcing it; pass a flag that says "this is the telling".
+- **Tidying up by key deletes the next run's record.** The same window can
+  be sent again as soon as it is home, so the run that is finishing and the
+  run that is starting share a dictionary key - and the finishing one's
+  `finally` removed the new one's entry. Give each run a mark of its own and
+  forget the entry only when the mark still matches.

@@ -32,7 +32,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import files, keymap, pairing, protocol, runtime, secure
+from . import files, keymap, pairing, protocol, runtime, secure, winmove
 from .baton import Arbiter, BatonState, ClaimDetector, Grant, now_ms
 from .clip import ClipboardSync
 from .motion import Cursor, exits, to_pixels
@@ -973,6 +973,22 @@ class Node:
         self.file_offers = {}
         self.files_dest = None        # () -> the "Nishro Link Files" folder
         self.on_files = None          # (top-level paths, from whom)
+        # Moving windows between computers (docs/moving-windows.md). Off until
+        # both sides switch it on; the program fills these in, and a machine
+        # that cannot do either side simply leaves them unset.
+        self.move_windows = False     # the switch (R1)
+        # (channel, "lend"|"show", which, whose) -> "" or why it could not.
+        # In the real program this relays to the part of Nishro Link that sits
+        # in the signed-in session, where windows and frames exist
+        # (window_service.attach); the tests put a pair of sessions here.
+        self.serve_window = None
+        # Why the last window could not be shown, so the tray can say it
+        # rather than claiming the window went. {"device", "why", "when"}.
+        self.window_trouble = None
+        self.window_sides = ()        # "home", "away", or both
+        self.list_windows = None      # () -> [(which, title)] that could move
+        self.windows_away = {}        # key -> {"who", "mine"}
+        self.window_peers = {}        # name -> will that computer move windows?
         self.on_invited = None        # (hub, hub_id, addr, port, secret, by) -> bool
         self.on_removed = None        # (by) - this device was removed from its group
         # Adding a device, either way - invite() or probe() - for the window.
@@ -1315,6 +1331,223 @@ class Node:
             self.files_push(seq)
         except (files.FilesError, OSError) as e:
             self._log(f"files: could not send copy {seq}: {e}")
+
+    # ----------------------------------------------------------- moved windows
+    # docs/moving-windows.md. The window's program stays where it is; the
+    # window is shown, and driven, on the other computer. The pictures travel
+    # on a connection of their own, like a file copy.
+    #
+    # Only the hub listens, so the member always dials - whichever way the
+    # window is going. When the window lives on the HUB, the hub asks the
+    # member over the link to dial in and be shown it ("wopen"); when it lives
+    # on a member, that member dials in and offers it.
+
+    def window_can_move(self) -> bool:
+        """Is this computer willing and able to move windows either way?"""
+        return bool(self.move_windows and self.serve_window and self.window_sides)
+
+    def move_window_to(self, who: str, which) -> str:
+        """Start showing one of OUR windows on `who`'s screen. "" if it is on
+        its way, else why not."""
+        if not self.move_windows:
+            return "moving windows is switched off on this computer"
+        if not self.serve_window or "home" not in self.window_sides:
+            return "this computer cannot move its own windows"
+        with self._links_lock:
+            there = who in self.links
+        if not there and who != self.trusted_peer:
+            return f"{who} is not connected"
+        if not self._peer_moves_windows(who):
+            return (f"{who} cannot show a window from here - switch it on there, "
+                    f"or update Nishro Link there")
+        if len(self.windows_away) >= winmove.MOST_AWAY:
+            return (f"{winmove.MOST_AWAY} windows are already on another screen, "
+                    f"which is as many as Nishro Link will move at once")
+        which_id = str(which)
+        if self.core.is_hub:
+            # We listen, so they must dial us: ask over the link.
+            self._send({"t": "wopen", "id": which_id, "to": who,
+                        "from": self.core.node})
+            return ""
+        threading.Thread(target=self._window_out, args=(which_id, True),
+                         daemon=True, name="window-lend").start()
+        return ""
+
+    def _peer_moves_windows(self, who: str) -> bool:
+        return bool(self.window_peers.get(who))
+
+    def bring_windows_home(self, who: str = None, tell: bool = True) -> int:
+        """Bring every moved window back (R5, R6). How many there were.
+
+        `tell` says whether to ask the other computer to do the same. It is
+        False when we are HANDLING such a request: answering `whome` with
+        another `whome` made the two computers bounce it between them for
+        ever. Measured: one "Bring windows home" became 28,451 messages in
+        three seconds, and the flood closed the channel of every window moved
+        afterwards - the second send from the tray simply never arrived.
+        """
+        keys = [k for k, s in list(self.windows_away.items())
+                if who is None or s.get("who") == who]
+        for key in keys:
+            ch = self.windows_away.get(key, {}).get("ch")
+            if ch is not None:
+                try:
+                    ch.close()        # the session on the other side ends, and
+                except Exception:     # the window comes home at both ends
+                    pass
+            self.windows_away.pop(key, None)
+        if tell and (who is None or self._peer_moves_windows(who)):
+            self._send({"t": "whome", "to": who} if who else {"t": "whome"})
+        return len(keys)
+
+    def _window_serve(self, ch, who: str, want: dict) -> None:
+        """Our end of a window connection, whichever way the window is going.
+
+        `mine` in the ask means the window belongs to whoever dialled, so we
+        are the one showing it; without it, they want to be shown one of ours.
+        """
+        which = str(want.get("id") or "")
+        theirs = bool(want.get("mine"))
+        kind = "show" if theirs else "lend"
+        whose = who if theirs else self.core.node
+        self._window_run(ch, kind, which, whose, who)
+
+    def _window_run(self, ch, kind: str, which: str, whose: str,
+                    with_whom: str) -> None:
+        """Hand one window to the part of Nishro Link that has a screen, and
+        keep it in the list while it is away."""
+        key = f"{whose}:{which}"
+        # The SAME window can go again as soon as it is home, so two runs
+        # share a key: the one finishing and the one starting. Each run
+        # therefore carries a mark of its own, and only ever forgets its own
+        # entry. Without it the finishing run's tidying up deleted the new
+        # run's record - the window was away with nothing saying so, and
+        # bringing it home then found nothing to bring. That is what the
+        # maintainer saw as the second send from the tray doing nothing.
+        mark = object()
+        self.windows_away[key] = {"who": with_whom, "mine": kind == "lend",
+                                  "ch": ch, "mark": mark}
+        try:
+            if not self.serve_window:
+                ch.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))
+                return
+            why = self.serve_window(ch, kind, which, whose)
+            if why:
+                self._log(f"the window could not be shown: {why}")
+                self.window_trouble = {"device": with_whom, "why": why,
+                                       "when": time.time()}
+                # Tell the OTHER computer, while there is still a channel to
+                # tell it on. Otherwise all it ever learns is that a socket
+                # went away, which it reports as a WinError to someone who
+                # would much rather be told "nobody is signed in on aio".
+                # No echo is possible: when the reason came from over there,
+                # the relay has already closed this channel and the send
+                # quietly fails.
+                try:
+                    ch.send(winmove.cannot(why))
+                except Exception:
+                    pass
+            else:
+                self._log(f"the window is back on its own screen ({whose})")
+                self.window_trouble = None     # it went, and came home
+        except (winmove.ChannelError, OSError) as e:
+            self._log(f"the window shared with {with_whom} ended: {e}")
+            self.window_trouble = {"device": with_whom, "why": str(e),
+                                   "when": time.time()}
+        except Exception as e:
+            self._log(f"the window shared with {with_whom} went wrong: {e!r}")
+        finally:
+            if self.windows_away.get(key, {}).get("mark") is mark:
+                self.windows_away.pop(key, None)
+            try:
+                ch.close()
+            except Exception:
+                pass
+
+    def _window_out(self, which: str, mine: bool, whose: str = None) -> None:
+        """A member dialling the hub for one window."""
+        try:
+            ch, hub = self._window_channel(which, mine=mine)
+        except (winmove.ChannelError, OSError) as e:
+            self._log(f"could not move a window with {self.trusted_peer}: {e}")
+            return
+        kind = "lend" if mine else "show"
+        self._window_run(ch, kind, which, whose or (self.core.node if mine else hub),
+                         hub)
+
+    def _window_channel(self, which: str, mine: bool):
+        """A member's connection to the hub for one window, proved both ways
+        and sealed like the link itself."""
+        hub = self.trusted_peer
+        with self._links_lock:
+            link = self.links.get(hub)
+        if link is None or not isinstance(link.addr, tuple):
+            raise winmove.ChannelError("not connected")
+        sock = socket.create_connection(link.addr, timeout=5)
+        # The five seconds were for CONNECTING. Left on the socket they
+        # become a read timeout, and a moved window that nobody is touching
+        # sends nothing for far longer than that - so every window came home
+        # after exactly five seconds, looking for all the world as though
+        # the other computer had let go. A window channel waits as long as
+        # it takes; that the other end is still there is the link's business,
+        # and the end of this one is seen as the end of the connection.
+        sock.settimeout(None)
+        ch = protocol.LineChannel(sock)
+        try:
+            greet = ch.recv()
+            if not greet or greet.get("t") != "auth" or not greet.get("dh"):
+                raise winmove.ChannelError(
+                    (greet or {}).get("msg") or "no answer from the hub")
+            if greet.get("node") != hub:
+                raise winmove.ChannelError(f"{link.addr[0]} is not {hub} any more")
+            mine_chal = protocol.nonce()
+            dh_priv, dh_pub = secure.keypair()
+            bind = f"{greet['dh']}|{dh_pub}"
+            k = self._key_for(greet.get("id"))
+            ch.send(protocol.hello(
+                self.core.node, [], None,
+                proof=protocol.proof(k, greet["nonce"], self.core.node, hub, bind),
+                chal=mine_chal, dev_id=self.device_id, version=self.version,
+                dh=dh_pub, window={"id": str(which), "mine": bool(mine)}))
+            reply = ch.recv()
+            if not reply or reply.get("t") != "window_ok":
+                raise winmove.ChannelError(
+                    (reply or {}).get("msg") or "the hub refused")
+            if not protocol.verify(k, mine_chal, hub, self.core.node,
+                                   reply.get("proof", ""), bind):
+                raise winmove.ChannelError(
+                    f"{hub} could not prove it knows the password")
+            sealer, opener = secure.session(secure.shared(dh_priv, greet["dh"]), k,
+                                            greet["nonce"], mine_chal, "dialer")
+            ch.seal(sealer, opener)
+            raw, rest = ch.detach()
+            return winmove.BinChannel(raw, sealer, opener, rest), hub
+        except Exception:
+            ch.close()
+            raise
+
+    def _window_dial_out(self, which: str) -> str:
+        """A member lending one of its windows to the hub."""
+        threading.Thread(target=self._window_lend_quietly, args=(which,),
+                         daemon=True, name="window-lend").start()
+        return ""
+
+    def _window_lend_quietly(self, which: str) -> None:
+        try:
+            ch, hub = self._window_channel(which, mine=True)
+        except (winmove.ChannelError, OSError) as e:
+            self._log(f"could not show our window on {self.trusted_peer}: {e}")
+            return
+        self._window_lend(ch, which, hub)
+
+    def _window_show_quietly(self, which: str, whose: str) -> None:
+        """A member asked by the hub to come and be shown the hub's window."""
+        try:
+            ch, hub = self._window_channel(which, mine=False)
+        except (winmove.ChannelError, OSError) as e:
+            self._log(f"could not show {whose}'s window here: {e}")
+            return
+        self._window_show(ch, which, whose or hub)
 
     def _key_for(self, hub_id) -> str:
         """The key this device's password proves to a hub with that ID."""
@@ -2067,6 +2300,28 @@ class Node:
             ch.seal(*secure.session(dh_secret, self._own_key(), chal, their_chal, "hub"))
             self._files_serve(ch, who, hello["files"])
             return None
+        if isinstance(hello.get("window"), dict):
+            # A connection for one moved window, for the same reason as the
+            # files one: its pictures must never queue in front of the
+            # pointer. Proved and sealed exactly like a link, and never a
+            # link - no baton, no session, no change to the group.
+            if not self.move_windows:
+                ch.send(protocol.err("moving windows is switched off here",
+                                     code="windows"))
+                return None
+            ch.send({"t": "window_ok", "v": protocol.VERSION, "node": self.core.node,
+                     "proof": my_proof})
+            sealer, opener = secure.session(dh_secret, self._own_key(), chal,
+                                            their_chal, "hub")
+            ch.seal(sealer, opener)
+            # From here the connection carries pictures, so it is handed over
+            # to frames of their own: a length and the sealed bytes, with no
+            # base64 and no line cap (winmove.BinChannel). The answer above
+            # goes out first, and whatever was read past it comes along.
+            raw, rest = ch.detach()
+            self._window_serve(winmove.BinChannel(raw, sealer, opener, rest),
+                               who, hello["window"])
+            return None
         if their_id:
             self.pending_names.pop(their_id, None)
             old = self.names_by_id.get(their_id)
@@ -2094,6 +2349,7 @@ class Node:
                                      "may_be_driven": pol.get("may_be_driven", True)}
         if hello.get("version"):
             self.versions[who] = hello["version"]
+        self.window_peers[who] = bool(hello.get("windows"))
         # Learn their name and screen size rather than making someone type them.
         screens = hello.get("screens") or []
         if who and screens:
@@ -2121,7 +2377,8 @@ class Node:
             ch.send(protocol.welcome(self.core.node, g.epoch, g.holder,
                                      self.core.layout.to_dict(), g.screen,
                                      g.x, g.y, resumed=resumed, session=sid,
-                                     proof=my_proof))
+                                     proof=my_proof,
+                                     windows=self.window_can_move()))
             # Everything after the welcome is encrypted, both ways.
             ch.seal(*secure.session(dh_secret, self._own_key(), chal, their_chal,
                                     "hub"))
@@ -2598,7 +2855,8 @@ class Node:
             self.core.node, screens, self.core.policy,
             proof=protocol.proof(k, greet["nonce"], self.core.node, hub, bind),
             chal=mine, resume=self.session, dev_id=self.device_id,
-            join=self.joining, version=self.version, dh=dh_pub))
+            join=self.joining, version=self.version, dh=dh_pub,
+            windows=self.window_can_move()))
 
         reply = ch.recv()
         if reply is None:
@@ -2636,6 +2894,9 @@ class Node:
             self._log(f"{hub}: {e}")
             return False
         self.trusted_peer = hub
+        # Whether the hub will move windows with us (R1, N6: an older hub
+        # says nothing, which means it will not).
+        self.window_peers[hub] = bool(reply.get("windows"))
         self._hub_id = hub_id
         with self._lock:
             self.core.peer_online(hub)
@@ -2728,6 +2989,19 @@ class Node:
                 if not hub and t == "fwant":
                     threading.Thread(target=self._files_push_quietly,
                                      args=(msg.get("seq"),), daemon=True).start()
+                    continue
+                if not hub and t == "wopen":
+                    # The hub is lending us a window: dial in to be shown it.
+                    threading.Thread(
+                        target=self._window_out,
+                        args=(str(msg.get("id") or ""), False,
+                              msg.get("from") or name),
+                        daemon=True, name="window-show").start()
+                    continue
+                if t == "whome":
+                    # tell=False: this IS the telling. Passing it on sent it
+                    # straight back and the two of us bounced it for ever.
+                    self.bring_windows_home(None, tell=False)
                     continue
                 if not hub and t == "set_policy":
                     rights = {k: bool(msg[k]) for k in ("may_drive", "may_be_driven")
