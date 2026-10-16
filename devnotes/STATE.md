@@ -86,6 +86,21 @@ Built and waiting to be installed: `NishroLink.exe` `55F019CB90077621` and
 `7EE7C0D3842FB2C3` (the maintainer declined the install prompt); the AIO
 runs `25d0472a0cdc64db`.
 
+## Known flake: the live node-pair fixture and ports
+
+`test_node_live.Pair` picks one port and binds TCP and UDP on it. Across a
+whole CI run, with two dozen pairs in test_window_link.py alone, that
+sometimes collides - "timed out waiting for both ends to connect (port
+NNNNN)". It fails on a DIFFERENT job each run (Linux 3.14, then ubuntu:20.04,
+then Linux 3.10), which is the signature of contention rather than a bug in
+what is being tested; raising PATIENCE to 60 s did not stop it, which points
+the same way.
+
+Not chased yet, and it should be: a fixture that picks a free port properly
+(bind to 0 and read it back, for UDP as well as TCP) would end it. Same
+family as the hub join race. Until then a red CI job on this test is worth
+re-running once before believing it.
+
 ## Next
 
 1. **Before tagging v1.1.0**, the maintainer's checks by hand
