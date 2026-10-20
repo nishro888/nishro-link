@@ -116,8 +116,8 @@ Words used below:
 
 Sound; video smoother than the picture rate allows; games; drag and drop into
 or out of a moved window; scaling between screens of different density (shown
-1:1); moving between two members of a group of three or more (through the hub,
-later); the lock and sign-in screens.
+1:1); moving between two members of a group of three or more, and on from
+wherever a window is shown (version 2, section 9); the lock and sign-in screens.
 
 ## 3. What was measured first
 
@@ -400,6 +400,9 @@ Worth keeping from it, because they were measured rather than reasoned:
 7. **Documents** (manual, DESIGN.md, CHANGELOG), the real-machine checks, a
    release.
 
+Version 2 - any window to any device, and back - has its own steps, 2.1 to
+2.5, in section 9.7.
+
 ## 8. Risks and open questions
 
 - Windows programs that will not hide this way (their own per-pixel
@@ -415,3 +418,221 @@ Worth keeping from it, because they were measured rather than reasoned:
 - Screens of different density: 1:1 at first.
 - GNOME home: whether a window's own pop-ups (menus) are in its portal
   stream.
+
+## 9. Version 2: any window, to any device, and back (design, 2026-10-19)
+
+**Status: design agreed 2026-10-19 - the maintainer's answers are in 9.9.
+Built one step at a time: the next starts only once the last is built,
+tested and reported (his rule).**
+Asked for by the maintainer, who is the designer and architect of this
+feature, after the first real use: two windows moved to the AIO could only
+come back together; one should come back on its own, the same way it went;
+and a window should be able to go on from wherever it is shown to any other
+device, the pictures always taking the shortest way.
+
+### 9.1 What it must do
+
+| | |
+|---|---|
+| **A1 - Any window, any device.** | A window on any device can be shown on any other connected device, Windows or Linux, in a group of any size. |
+| **A2 - Per window.** | Every action acts on one window: the one in front. "Bring windows home" (all of them) stays as well. |
+| **A3 - Send back, the same way it went.** | Where a window is shown, with it in front, the tray offers **Send back to *owner***: one item, no list of devices, because back always means to the owner. |
+| **A4 - Send on.** | Where a window is shown, with it in front, **Move the current window to** lists the other devices (not this one, not the owner - that is A3) and moves it there. |
+| **A5 - Never through the device it leaves.** | Sending a window on never makes the device it leaves a relay: the pictures go from the owner to the new viewer - through the hub where both are members. |
+| **A6 - The hub carries it, for now.** | Between two members everything goes through the hub, even where a shorter way exists. The maintainer's choice (2026-10-19): the fewest changes now; traffic optimization later, with a topology and connection architecture designed for it. Direct member-to-member channels (9.4) are that later step, not part of version 2. |
+| **A7 - Never lost.** | Everything in R6 still holds at every step: a window whose move fails stays where it was; a window whose owner or viewer goes away comes home. |
+
+### 9.2 Words
+
+| | |
+|---|---|
+| **owner** | the device the program runs on - "home" in sections 1-8. It never changes. |
+| **viewer** | the device showing the window now - "away". At most one at a time. |
+| **window id** | `<owner>:<its own id there>` - a window handle on Windows, the dialog's choice on GNOME. Unique in the group, so any device can say which window it means. |
+
+### 9.3 The operations
+
+| Operation | Who starts it | What happens |
+|---|---|---|
+| **Send** | the owner (window in front) | As today (section 4). |
+| **Send back** | the viewer (frame in front) | The viewer closes that one window's channel with the reason *home*; the owner shows the window again. The other windows are untouched. |
+| **Send on** | the viewer (frame in front) | The viewer asks the **owner** - over the link, through the hub if need be - to show the window on the new device. The owner opens a channel to it, sends the window's size and a whole picture, and once that frame is up, tells the old viewer the window has moved on; its frame closes. The window stays hidden at the owner the whole time. |
+| **Bring back** | the owner | Per window, from the owner's tray - see 9.9, question 1. |
+| **Bring windows home** | either | All of them, as today. |
+
+Only the owner and the current viewer may ask for a window to move; the
+owner checks who asked before doing anything.
+
+### 9.4 The shortest way, and who connects to whom
+
+Today only the hub listens: a member always dials the hub, which is why a
+window can only move between the hub and a member. Version 2 keeps the hub
+as the one place every decision goes through, and adds channels for data
+only:
+
+| Owner and new viewer | The pictures go | |
+|---|---|---|
+| one of them is the hub | straight between them | as today |
+| both members - **step 2.3** | through the hub, which joins two channels | works on any network, costs the hub's bandwidth - **version 2** |
+| both members - *later* | member to member, set up through the hub | not in version 2 (A6): its own design first |
+
+The later step, as far as it was sketched (2026-10-19), for when its own
+design is done: the new viewer opens a listener for one channel and tells
+the hub; the hub passes its address and a one-use token to the owner, who
+dials; both prove the group password and seal the channel as every channel
+is (4.4); nothing within three seconds - a Wi-Fi that keeps its devices
+apart, a firewall - and it falls back to the hub. It is not the full mesh
+that section 3 of the design decisions turned down: no state is shared
+between members, and the hub still holds the baton, the group and the
+layout.
+
+### 9.5 Which window is "in front", where the window is a frame
+
+A frame is Nishro Link's own window, in a helper process of its own, so
+the tray cannot ask the system about it (on GNOME it cannot ask the system
+anything). The frame knows when it has the focus, and says so to its
+service over its loopback connection - a message the service keeps and does
+not pass on. The status then carries the frame in front (its window id,
+title and owner), and the tray offers A3 and A4 for it. On Windows, a
+frame is also refused as a window to move from here (it belongs to Nishro
+Link - checked by the program it belongs to, not by its title).
+
+The viewer's service also learns each window's title as its size and title
+pass through the relay, so the tray can name every window it lists.
+
+### 9.6 What changes on the wire
+
+New, optional messages; an older peer ignores them, and every 1.x still
+works with every 1.x (N6):
+
+| Message | From - to | |
+|---|---|---|
+| `wmove` id, to | viewer -> owner (through the hub) | send this window on to `to` |
+| `wdirect` id, addr, port, token | new viewer -> hub -> owner | *later* (9.4): dial me here, once |
+| `moved` to | owner -> old viewer, on the window channel | the window has gone on; close the frame, do not call it home |
+| `focus` on | frame -> its own service, loopback only | for 9.5; never sent to another device |
+
+### 9.7 Steps
+
+Each is a branch and a pull request of its own, and each is useful without
+the next. They are built **one after another**: a step starts only when the
+one before it is built, tested and reported.
+
+| Step | What | Done when |
+|---|---|---|
+| **2.1** | **Send back, per window** (A3), and the window's title in the menus. | With two windows moved to the AIO, *Send back* returns the one in front; the other stays. Both trays name the windows. |
+| **2.2** | **Bring back, per window, from the owner** (9.9, question 1: yes). | The owner's tray lists its windows away - "Notepad, on aio" - and brings one back. |
+| **2.3** | **Send on** (A4, A5) - the owner re-targets its pictures; through the hub where both are members. | pc1's window shown on pc2, sent on to pc3: pc3 shows it, pc2's frame closes, and pc2 carries none of its pictures (counted). |
+| *later* | **Member-to-member channels**, after a topology and connection design of their own (A6, 9.9 question 4). | Not part of version 2. |
+| **2.5** | **Files over the clipboard**, the clipboards' half of the 1.2 plan - its own track (devnotes/STATE.md, "Next", item 4, step 4). | A file, several, a folder: copied in Explorer or Files, pasted on the other computer, both ways. |
+| 6 | Optional: the GNOME Shell extension (section 7) - a real move FROM GNOME, the window hidden there. | |
+
+### 9.8 Testing
+
+Steps 2.1 and 2.2 need two devices, which there are. Step 2.3 needs
+three, and there is no third real device for now (9.9, question 5): it is
+tested with three nodes on one computer, as the live tests already run them
+(`test_multi_live.py`, its `trio`), and on real machines once there is a
+third. Every step keeps the rule of section 6: a test that
+fails without the change, both systems in CI, the real machines before
+anything is released.
+
+### 9.9 Questions for the maintainer - and his answers (2026-10-19)
+
+1. **Yes** - the owner's tray lists its windows away (step 2.2).
+2. Not answered against the proposal, so it stands: sending on is a move,
+   never a mirror.
+3. Not answered against the proposal, so it stands: only the owner and the
+   device showing a window may move it.
+4. **No, not now** - "for now only hub should be developed": everything
+   between members goes through the hub; traffic optimization later, with a
+   topology and connection architecture of its own.
+5. **None for now** - three devices in the automatic tests only.
+6. **Share now, test today** (asked the same morning); a real move from
+   GNOME is decided after trying it.
+
+The questions, as they were asked:
+
+1. **At the owner**, a moved window is hidden, so it cannot be "the window
+   in front". Should the owner's tray list its windows that are away, each
+   with *Bring back*? (Proposed: yes - step 2.2.)
+2. **Send on is a move**: the window leaves the device it was on. Never
+   shown on two devices at once (a mirror, for a presentation, say)?
+   (Proposed: not now.)
+3. **Who may move a window**: only its owner and the device showing it?
+   (Proposed: yes - nobody else can reach into another device's window.)
+4. **Members listening** (step 2.4): a member would accept one connection,
+   only after the hub has asked it to, on Private networks only, proved with
+   the group password both ways. Acceptable, with the hub as the fallback?
+5. **A third device** for steps 2.3 and 2.4: is there one - a third PC, or a
+   virtual machine?
+6. **From GNOME**, sharing (shown on both) is what exists. Is that enough
+   for A1, or is stage 6, a real move from GNOME, wanted after all?
+
+## 10. Capturing on Windows the way GNOME does (design, 2026-10-19)
+
+**What the maintainer saw.** A window shared from GNOME to the laptop felt
+"way faster ... like a remote share", the pointer showing on both screens -
+and could the laptop's windows go to the AIO the same way?
+
+**What is different.** Everything after the capture is the same code on
+both: which squares changed, PNG or JPEG, the window channel, the frame. The
+capture is not:
+
+- **GNOME:** the compositor hands over each new picture of the window
+  (PipeWire) as soon as the window has drawn. Nothing is asked of the
+  program and nothing waits for a timer.
+- **Windows, now:** `PrintWindow` asks the program to draw itself into our
+  bitmap, at each tick (25 a second at most) - on the home computer's
+  processor, and up to a tick after the change.
+
+**Measured on the laptop** (a 1000x700 window whose whole picture changes;
+40 captures each; "away" is the window as Nishro Link hides it, layered at
+alpha 1):
+
+| | Tk (drawn with GDI) | Edge (drawn by the GPU) | Away, Edge |
+|---|---|---|---|
+| `PrintWindow` (now) | 15.0 ms | 16.1 ms | 15.3 ms, works |
+| the screen (`BitBlt`) | 15.3 ms | 15.6 ms | what is behind it - wrong |
+| the window's own DC | 4.9 ms | 4.6 ms, but **frozen** (1 picture in 40) | frozen |
+| **Windows.Graphics.Capture** | - | **4.5 ms, 60 new pictures a second** | **4.4 ms, 60 a second** |
+
+No GDI way is faster for the windows that matter (browsers draw with the
+GPU). Windows.Graphics.Capture - Windows 10 1903 and later, the API screen
+recorders use - is Windows' own counterpart of GNOME's stream: the
+compositor hands over each new picture, GPU-drawn windows included, and it
+still works on a window hidden the way Nishro Link hides one. The probe used
+`ctypes` alone (WinRT activation, Direct3D 11, a staging copy to read the
+pixels): no new dependency.
+
+**Proposal.** Capture with Windows.Graphics.Capture, `PrintWindow` kept as
+the fallback (older Windows, or the capture refused). A capture then costs
+a third, and pictures come when the window draws instead of at the next
+tick. The cap (`MAX_FPS = 25`) and the pacing stay: going above them is a
+question of bytes on the Wi-Fi, not of capture.
+
+The other half of what was seen - the window staying **visible at home**,
+the pointer showing on both - is not part of this. It is what GNOME forces
+(4.2); on Windows the window is hidden and taken over by posted messages so
+that the laptop stays usable (4.1). Unchanged unless the maintainer wants a
+"share" as well as a "move".
+
+**Open, to settle before building:**
+
+1. **The yellow border.** Windows 10 outlines a window being captured, and
+   this laptop's Windows (10 22H2) cannot turn that off (no
+   `IsBorderRequired` - Windows 11 can). A screen read at the window's edge
+   saw no yellow, which may not prove anything: someone has to look. Around
+   a hidden window, an outline would float over the laptop's desktop.
+2. **Who captures.** The desk agent runs as SYSTEM in the person's session;
+   capturing from there is untried. If refused, the capture moves to a
+   helper run as the person, as on GNOME (4.2).
+3. **End to end, both ways,** on the real Wi-Fi with the same window: frames
+   shown a second and the delay from a key to its picture - numbers for what
+   was so far an impression.
+
+**Steps, if approved:** (1) a capture class in `window_win` behind the
+present interface, `PrintWindow` as fallback, with the probe's checks as
+tests (pictures come, change, are not black; still when away; a resize
+recreates the pool); (2) pictures sent when the window draws, never faster
+than the away side acknowledges; (3) the measurements of point 3 above.
