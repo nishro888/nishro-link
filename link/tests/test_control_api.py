@@ -846,6 +846,14 @@ def test_the_status_says_what_this_computer_can_do_with_windows(api):
     assert api.status()["windows_here"] == ["away", "home"]
 
 
+def test_the_status_says_whether_the_desktop_chooses_the_window(api):
+    """On GNOME its own dialog chooses, so the tray offers "Show a window
+    on" rather than naming the window in front."""
+    assert api.status()["windows_pick"] is False
+    api.node.window_pick = True
+    assert api.status()["windows_pick"] is True
+
+
 def test_a_window_cannot_be_moved_without_saying_where(api):
     assert "which window" in api.command("/api/window/move", {}).get("error", "")
     assert "which window" in api.command(

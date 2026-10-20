@@ -24,6 +24,10 @@ POLL_S = 2.0
 # machine; short enough that nobody is left wondering.
 WINDOW_WAIT_S = 12.0
 WINDOW_POLL_S = 0.4
+# Where the window is chosen in GNOME's own dialog, the person has as long as
+# that dialog stays open (window_gnome.CHOOSE_S, three minutes) before the
+# tray gives up on it.
+PICK_WAIT_S = 200.0
 
 
 # ------------------------------------------------------------------ what to show
@@ -58,6 +62,7 @@ def state(s) -> dict:
             # Moving windows between computers (docs/moving-windows.md).
             "move_windows": bool(s.get("move_windows")),
             "windows_here": list(s.get("windows_here") or []),
+            "windows_pick": bool(s.get("windows_pick")),
             "windows_away": list(s.get("windows_away") or []),
             # Which window "Move the current window to" means, so nobody has
             # to guess - the maintainer could not always tell which was
@@ -158,6 +163,15 @@ def window_items(st: dict) -> list:
         # Always a list, even for one other computer: there will be more
         # than two, and the shape should not change when the third appears.
         out.append({"kind": "sub", "label": "Move the current window to",
+                    "enabled": live,
+                    "items": [{"kind": "item", "label": d["name"],
+                               "action": f"window:{d['name']}",
+                               "enabled": live} for d in others]})
+    elif "home" in st["windows_here"] and others and st.get("windows_pick"):
+        # GNOME: no program may see which window is in front, so the person
+        # chooses it in GNOME's own dialog once the computer is chosen here.
+        # "Show", not "move": it stays on this screen as well.
+        out.append({"kind": "sub", "label": "Show a window on",
                     "enabled": live,
                     "items": [{"kind": "item", "label": d["name"],
                                "action": f"window:{d['name']}",
@@ -309,6 +323,7 @@ class Tray:
         which, name = self._what_to_move()
         if which is None:
             return                        # already said why
+        picking = which.startswith("pick")
         try:
             got = self.api.command("/api/window/move",
                                    {"which": which, "device": device}) or {}
@@ -318,13 +333,24 @@ class Tray:
         if got.get("error"):
             self.ui.notify("Nishro Link", got["error"])
             return
-        if self._arrived(which, device):
-            self.ui.notify("Nishro Link", f"{name} is now on {device}.")
+        if picking:
+            self.ui.notify("Nishro Link",
+                           f"Choose the window to show on {device}, in the "
+                           f"dialog that opens.")
+        if self._arrived(which, device, PICK_WAIT_S if picking else None):
+            self.ui.notify("Nishro Link",
+                           f"The window is now on {device}, and still here "
+                           f"too." if picking else f"{name} is now on {device}.")
             return
         self.ui.notify("Nishro Link", self._why_not(device, name, which))
 
     def _what_to_move(self):
         """(which, name), or (None, None) having said why not."""
+        if (self.st or {}).get("windows_pick"):
+            # GNOME's dialog will choose. A name of its own for each request,
+            # so two windows shown at once are not taken for one.
+            import secrets
+            return f"pick-{secrets.token_hex(4)}", "The window"
         here = (self.st or {}).get("current_window")
         if here and here.get("which"):
             return str(here["which"]), (here.get("title") or "The window")[:60]
@@ -344,9 +370,9 @@ class Tray:
         return (str(first.get("which")),
                 (first.get("title") or "The window")[:60])
 
-    def _arrived(self, which: str, device: str) -> bool:
+    def _arrived(self, which: str, device: str, wait: float = None) -> bool:
         """Wait, briefly, for the service to say the window is over there."""
-        end = time.monotonic() + WINDOW_WAIT_S
+        end = time.monotonic() + (WINDOW_WAIT_S if wait is None else wait)
         while time.monotonic() < end:
             for away in (self._fresh() or {}).get("windows_away") or []:
                 key = str(away.get("which") or "")

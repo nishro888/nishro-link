@@ -123,6 +123,24 @@ def test_the_frame_is_marked_so_it_is_never_moved_from_here(frame):
     assert "from another computer" in window_win.why_not(hwnd)
 
 
+def test_the_frame_marks_the_window_it_shows_and_keeps_the_mark(frame):
+    """So that this frame, shared on through GNOME's own dialog, is known
+    for what it is (window_gnome.shows_a_frame) - even after a piece of the
+    window has been drawn over the corner the mark is in."""
+    from link import picture, winmove
+    opened(frame, "Notepad", 64, 32)
+    n = len(winmove.FRAME_MARK)
+
+    def corner():
+        return [tuple(int(v) for v in frame._picture.get(64 - n + i, 31))
+                for i in range(n)]
+    assert on_tk(corner) == list(winmove.FRAME_MARK)
+    whole = picture.encode(bytes(64 * 32 * 4), 64, 32)
+    frame.draw([(0, 0, 64, 32, whole[0], whole[1])])
+    time.sleep(0.4)
+    assert on_tk(corner) == list(winmove.FRAME_MARK), "drawn over and not put back"
+
+
 def test_the_title_always_says_where_the_window_really_lives(frame):
     """N5: the person must never have to wonder which computer they are
     typing into."""

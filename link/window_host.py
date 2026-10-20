@@ -39,13 +39,37 @@ CONNECT_TIMEOUT = 15.0
 
 
 def windows_module():
-    """The module that can hide and capture a window on this system, or None
-    where that cannot be done yet - Linux, until the GNOME side is built
-    (docs/moving-windows.md, stage 5)."""
+    """The module that can capture and drive a window on this system, or
+    None where that cannot be done.
+
+    Windows hides and captures any window (window_win). On Linux it is the
+    desktop portal (window_gnome, docs/moving-windows.md stage 5) - where its
+    libraries are there at all; whether the portal itself will is asked in
+    the session, by why_not, which can say what is missing.
+    """
     if sys.platform == "win32":
         from . import window_win
         return window_win
+    if sys.platform.startswith("linux"):
+        from . import window_gnome
+        if window_gnome.possible():
+            return window_gnome
     return None
+
+
+def _ref(win, which):
+    """`which` - always text on the way here - as the module takes it: a
+    window handle (a number) on Windows; on GNOME what the tray asked for,
+    since GNOME's own dialog chooses the window."""
+    return getattr(win, "ref", int)(which)
+
+
+def picks() -> bool:
+    """Whether a window to move is chosen in a dialog of the desktop's own
+    (GNOME) rather than being the one in front (Windows): the tray then
+    offers "Show a window on" instead of naming one."""
+    win = windows_module()
+    return win is not None and getattr(win, "PICK", None) is not None
 
 
 def can_lend() -> bool:
@@ -168,15 +192,34 @@ def can_lend_this(which: str) -> str:
     if win is None:
         return "this computer cannot move its own windows yet"
     try:
-        return win.why_not(int(which), own_pid=os.getpid())
+        return win.why_not(_ref(win, which), own_pid=os.getpid())
     except (TypeError, ValueError):
         return "that is not a window"
 
 
-def lend(which: str, to_whom: str, ch, log) -> str:
-    """Hide one of our windows and send what it looks like over `ch`."""
+def open_window(which: str, log):
+    """(the window, "") - or (None, why not), for the person.
+
+    Done BEFORE the helper tells the service it is ready, because on GNOME
+    this is where the person answers GNOME's dialog - and a "no" given here
+    goes back as the reason, to the tray on both computers, the way any
+    refusal does. Once the service is passing frames along, all it could
+    say is that the window came home.
+    """
     win = windows_module()
-    window = win.Window(int(which), rescue=rescue_record(log), log=log)
+    try:
+        return win.Window(_ref(win, which), rescue=rescue_record(log), log=log), ""
+    except Exception as e:
+        return None, (str(e) or f"the window could not be opened ({e!r})")
+
+
+def lend(which: str, to_whom: str, ch, log, window=None) -> str:
+    """Hide one of our windows and send what it looks like over `ch`.
+    `window` is the one open_window() opened; without it, it is opened here."""
+    if window is None:
+        window, why = open_window(which, log)
+        if window is None:
+            return why
     session = winmove.HomeSession(ch, window, picture.encode, log=log)
 
     # The window is hidden only once the frame is really up over there, so a
@@ -269,12 +312,16 @@ def one_window(port: int, token: str, kind: str, which: str, whose: str,
             except Exception:
                 pass
         log(f"starting: {kind} window {which} with {whose}")
-        why = can_lend_this(which) if kind == "lend" else ""
+        why, window = "", None
+        if kind == "lend":
+            why = can_lend_this(which)
+            if not why:
+                window, why = open_window(which, log)
         ch.send(winmove.pack({"t": "host_ready", "ok": not why, "why": why}))
         if why:
             return why
         if kind == "lend":
-            return lend(which, whose, ch, log)
+            return lend(which, whose, ch, log, window=window)
         return show(which, whose, ch, log)
     finally:
         ch.close()

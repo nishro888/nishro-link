@@ -41,10 +41,12 @@ Works with every 1.x.
     is not. Browsers and editors work; a game, or anything reading the mouse
     and keyboard straight from the hardware, will not respond. Windows that
     cannot move say which and why.
-  - Moving a window **from** Ubuntu is not finished: GNOME does not let one
-    program hide another's window, so for now such a window shows on the
-    other computer and stays on its own screen too. Moving one **to** Ubuntu
-    works fully.
+  - **From Ubuntu**, the tray's *Show a window on* opens GNOME's own dialog,
+    where you choose the window and allow it to be used from the other
+    computer. GNOME does not let one program hide another's window, so it
+    shows on both screens; over there, clicks reach it where nothing covers
+    it on the Ubuntu screen, and keys go to whichever window has the focus
+    there. Moving one **to** Ubuntu works fully.
 
 ### Fixed
 - **"The window is now on the other computer" is no longer said before it

@@ -36,6 +36,13 @@ MAX_SIDE = 8192                 # pixels; no real window is wider or taller
 MAX_REGIONS = 256               # changed rectangles in one picture, at most
 AHEAD = 2                       # pictures sent and not yet shown, at most
 MOST_AWAY = 4                   # windows on another screen at once (R8)
+# Every frame draws these eight pixels - green and magenta, alternating - in
+# the bottom-right corner of the window it shows. GNOME's own dialog says
+# nothing of the window the person chose to share, so a FRAME chosen there
+# (another computer's window, shown here) can only be told by its picture,
+# and is refused: it would be shown back to its own computer, or on, in a
+# frame of a frame. No window draws exactly this in that place.
+FRAME_MARK = ((0, 255, 0), (255, 0, 255)) * 4
 TILE = 64                       # pictures are compared in squares this big
 CODECS = ("jpeg", "png", "raw")
 

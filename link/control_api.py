@@ -261,6 +261,10 @@ class ControlAPI:
             # What this computer can actually do with windows, so the
             # settings page can say why the switch will not help here.
             "windows_here": sorted(self.node.window_sides),
+            # Whether a window to move is chosen in the desktop's own dialog
+            # (GNOME) rather than being the one in front: the tray then offers
+            # "Show a window on" without naming a window.
+            "windows_pick": bool(getattr(self.node, "window_pick", False)),
             # Why the last window could not be shown, if one could not, so
             # the tray can say that rather than claiming it went.
             "window_trouble": self.node.window_trouble,
