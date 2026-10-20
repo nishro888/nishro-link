@@ -160,6 +160,17 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   dial was rolled. One click at a time, slowly, with the presses timed,
   would have shown one press per click from the start. Ask for single,
   paced actions; let a script prompt and label them.
+- **A script's windows stop coming to the front after its first one.**
+  Windows' foreground lock: in one process, the first Notepad a probe opened
+  came to the front and later ones did not, so every case after the first
+  measured a browser that was never covered - and a fix looked like it
+  worked. One case a process, and have the probe say what is in front and
+  which window is above which (`GetForegroundWindow`, `GW_HWNDPREV`) instead
+  of assuming it.
+- **A cover in a test must be an ordinary window.** Chromium does not count
+  a tool window (Tk's borderless `overrideredirect` is one) or a popup as
+  covering anything, so the first check's always-on-top Tk cover read
+  "Edge keeps drawing when covered" - wrong for any real window.
 - **A fake that answers at once can hide a state.** "Make it private" turns
   its button off while Windows' prompt is open; a fake prompt that returned
   instantly had turned it back on before the test looked. Make the fake wait
@@ -210,6 +221,15 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
 - **A hidden window is still a visible window to Windows** - at the top of
   the stack, too. Anything that walks the windows ("the one in front")
   must skip the ones Nishro Link has hidden.
+
+
+- **Chromium stops drawing a window it works out is covered** - Chrome, Edge,
+  Electron programs - hidden or not (native window occlusion). A moved
+  window is kept topmost for that reason.
+- **SetWindowPos saying yes is not SetWindowPos having done it.** A Chromium
+  window covered since it was last in front stays out of the topmost band
+  with the call returning success. Read the state back
+  (`GetWindowLongW(GWL_EXSTYLE) & WS_EX_TOPMOST`).
 
 ## Linux at run time
 

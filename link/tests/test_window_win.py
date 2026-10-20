@@ -26,7 +26,9 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
 
 if sys.platform == "win32":
     from link import keymap, picture, winmove
-    from link.window_win import (GWL_EXSTYLE, WS_EX_LAYERED, Window, movable,
+    from link.window_win import (GWL_EXSTYLE, HWND_NOTOPMOST, HWND_TOPMOST,
+                                 SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+                                 WS_EX_LAYERED, WS_EX_TOPMOST, Window, movable,
                                  restore_everything, user32, why_not)
 
 SUBJECT = pathlib.Path(__file__).with_name("win32_subject.py")
@@ -220,6 +222,96 @@ def test_a_handle_that_now_belongs_to_another_window_is_left_alone(subject, resc
     said = []
     assert restore_everything(rescue, log=said.append) == 0
     assert any("leaving it alone" in m for m in said)
+
+
+# ----------------------------------------------- above the others, while away
+# Chromium stops drawing a window it works out is covered, hidden or not, so a
+# hidden window is kept topmost (TESTLOG 2026-10-18). Chromium itself cannot
+# be in a test; what is tested is that the window goes up, comes back down,
+# and is never left up there.
+def topmost(hwnd):
+    return bool(user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST)
+
+
+def set_topmost(hwnd, on):
+    user32.SetWindowPos(hwnd, HWND_TOPMOST if on else HWND_NOTOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+
+
+def test_a_hidden_window_is_kept_above_the_others_so_nothing_covers_it(subject, rescue):
+    win = Window(subject.hwnd, rescue=rescue)
+    assert not topmost(subject.hwnd)
+    win.hide()
+    try:
+        assert topmost(subject.hwnd), "a window put over it could freeze it"
+    finally:
+        win.show()
+    assert not topmost(subject.hwnd), "it must come home an ordinary window"
+
+
+def test_a_window_that_was_topmost_already_stays_so_when_it_comes_home(subject, rescue):
+    set_topmost(subject.hwnd, True)
+    try:
+        win = Window(subject.hwnd, rescue=rescue)
+        win.hide()
+        win.show()
+        assert topmost(subject.hwnd), "its own always-on-top was taken away"
+    finally:
+        set_topmost(subject.hwnd, False)
+
+
+def test_a_window_left_hidden_comes_down_from_the_top_at_the_next_start(subject, rescue):
+    win = Window(subject.hwnd, rescue=rescue)
+    win.hide()
+    del win                                        # as if the process had gone
+    assert restore_everything(rescue) == 1
+    assert not topmost(subject.hwnd)
+
+
+def test_one_that_loses_its_place_while_away_is_put_back_up(subject, hidden):
+    """Chromium turns the request down while it thinks it is covered, and a
+    program may take the bit off itself: so it is asked again, now and then,
+    as the window is captured."""
+    set_topmost(subject.hwnd, False)
+    assert not topmost(subject.hwnd)
+    hidden._next_on_top = 0.0                      # it is time to ask again
+    assert hidden.capture()
+    assert topmost(subject.hwnd)
+
+
+def test_it_is_not_asked_again_on_every_picture(subject, hidden):
+    set_topmost(subject.hwnd, False)
+    hidden._next_on_top = 10 ** 9                  # not yet
+    hidden.capture()
+    assert not topmost(subject.hwnd)
+
+
+def test_a_window_on_its_way_home_is_never_put_back_up(subject, rescue):
+    """show() and the capture run on different threads: once show() has
+    begun, nothing may make the window topmost again behind its back."""
+    win = Window(subject.hwnd, rescue=rescue)
+    win.hide()
+    win._going_home = True                         # show() has just begun
+    set_topmost(subject.hwnd, False)
+    win._stay_uncovered()
+    assert not topmost(subject.hwnd)
+    win.show()
+    win._next_on_top = 0.0
+    win.capture()
+    assert not topmost(subject.hwnd)
+
+
+def test_a_window_that_was_never_hidden_is_not_touched_by_show(subject, rescue):
+    """The frame never came up, so the window never left - and show() runs
+    all the same. It must not take a window's own always-on-top away."""
+    set_topmost(subject.hwnd, True)
+    try:
+        before = user32.GetWindowLongW(subject.hwnd, GWL_EXSTYLE)
+        Window(subject.hwnd, rescue=rescue).show()
+        assert topmost(subject.hwnd)
+        assert user32.GetWindowLongW(subject.hwnd, GWL_EXSTYLE) == before
+    finally:
+        set_topmost(subject.hwnd, False)
 
 
 # ------------------------------------------------------------------- driving

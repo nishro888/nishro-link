@@ -4,14 +4,20 @@ docs/moving-windows.md is the design; this is section 4.1. What a window has
 to offer winmove.HomeSession is here, over Windows' own APIs through ctypes -
 nothing new to install.
 
-The three things that were not obvious, each measured on a real laptop before
-being built on (TESTLOG, 2026-10-13):
+The four things that were not obvious, each measured on a real laptop before
+being built on (TESTLOG, 2026-10-13 and 2026-10-18):
 
 * **Hiding.** A window moved off the screen, or minimized, STOPS DRAWING, so
   neither can be how a window leaves home - it would freeze the picture the
   moment it left. A window made layered at alpha 1 and click-through is gone
   from the screen, out of the way of this computer's own mouse, and still
   draws. That is what hiding means here.
+* **Staying uncovered.** Chromium - Chrome, Edge, and every program built on
+  it, VS Code and Teams among them - stops drawing a window it works out is
+  covered by others, hidden or not. A moved browser froze on the other
+  computer the moment a window here was put over it. So a hidden window is
+  also made topmost: invisible and click-through, it is in nobody's way up
+  there, and nothing can cover it.
 * **Capturing.** PrintWindow with PW_RENDERFULLCONTENT gets the picture of a
   window that is covered, hidden, or drawn by DirectComposition (anything
   Chromium-based). 15-35 ms for a windowful.
@@ -47,9 +53,10 @@ HWND = wt.HWND
 GWL_STYLE, GWL_EXSTYLE = -16, -20
 WS_CHILD, WS_VISIBLE = 0x40000000, 0x10000000
 WS_EX_LAYERED, WS_EX_TRANSPARENT, WS_EX_TOOLWINDOW = 0x80000, 0x20, 0x80
-WS_EX_NOACTIVATE = 0x08000000
+WS_EX_NOACTIVATE, WS_EX_TOPMOST = 0x08000000, 0x8
 LWA_ALPHA = 0x2
-SWP_NOZORDER, SWP_NOACTIVATE, SWP_NOMOVE = 0x4, 0x10, 0x2
+SWP_NOSIZE, SWP_NOZORDER, SWP_NOACTIVATE, SWP_NOMOVE = 0x1, 0x4, 0x10, 0x2
+HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
 PW_RENDERFULLCONTENT = 2
 SRCCOPY = 0x00CC0020
 
@@ -432,6 +439,10 @@ class Window:
         self._wheel_lock = threading.Lock()
         self._lifted = False           # the click-through bit is off, for a wheel
         self._clickable_until = 0.0
+        self._undo = None              # how it looked, as written to the rescue
+        self._stack_lock = threading.Lock()
+        self._going_home = False       # _stay_uncovered must stand down
+        self._next_on_top = 0.0        # when to ask again to be topmost
 
     # --------------------------------------------------------------- looking
     def alive(self) -> bool:
@@ -451,6 +462,9 @@ class Window:
         r = rect_of(self.hwnd)
         if not r or r[2] <= 0 or r[3] <= 0 or not self.alive():
             return None
+        if self.hidden and time.monotonic() >= self._next_on_top:
+            self._next_on_top = time.monotonic() + self.ON_TOP_RETRY_S
+            self._stay_uncovered()
         w, h = r[2], r[3]
         screen = user32.GetDC(None)
         dc = gdi32.CreateCompatibleDC(screen)
@@ -482,18 +496,24 @@ class Window:
             # look as how to put it back, and it would never be seen again.
             self.log("that window is already on another screen")
             return False
+        with self._stack_lock:
+            self._going_home = False
         ex = user32.GetWindowLongW(self.hwnd, GWL_EXSTYLE)
         alpha = wt.BYTE(255)
         flags = wt.DWORD(0)
         had = bool(user32.GetLayeredWindowAttributes(
             self.hwnd, None, ctypes.byref(alpha), ctypes.byref(flags)))
+        # The extended style carries WS_EX_TOPMOST as well, so this also says
+        # where the window stood in the stack: whether to take it out of the
+        # topmost band again on the way home.
+        self._undo = {
+            "exstyle": int(ex),
+            "alpha": int(alpha.value) if had else None,
+            "flags": int(flags.value) if had else None,
+            "title": self.title()[:120],
+        }
         if self.rescue is not None:
-            self.rescue.remember(int(self.hwnd), {
-                "exstyle": int(ex),
-                "alpha": int(alpha.value) if had else None,
-                "flags": int(flags.value) if had else None,
-                "title": self.title()[:120],
-            })
+            self.rescue.remember(int(self.hwnd), self._undo)
         # NOACTIVATE as well: hidden, it must not be what Windows hands the
         # focus to when the person alt-tabs or clicks on the desktop.
         user32.SetWindowLongW(self.hwnd, GWL_EXSTYLE,
@@ -502,22 +522,70 @@ class Window:
             user32.SetWindowLongW(self.hwnd, GWL_EXSTYLE, ex)
             if self.rescue is not None:
                 self.rescue.forget(int(self.hwnd))
+            self._undo = None
             return False
         self.hidden = True
+        # Topmost only now that it is invisible: done first, it would show
+        # above the taskbar for a moment.
+        self._next_on_top = time.monotonic() + self.ON_TOP_RETRY_S
+        if not self._stay_uncovered():
+            self.log("this window would not stay above the others while away, "
+                     "so it may stop changing over there whenever a window "
+                     "here covers it - it had been covered since it was last "
+                     "in front")
         return True
+
+    # How often a hidden window that is not topmost is asked again.
+    ON_TOP_RETRY_S = 1.0
+
+    def _stay_uncovered(self) -> bool:
+        """Keep the hidden window topmost, so that nothing can cover it;
+        whether it is.
+
+        Chromium stops drawing a window it works out is covered, hidden or
+        not - measured: a hidden Edge froze the moment a Notepad was
+        maximized over it, and drew on, covered, once it was topmost.
+
+        One thing it will not do: a Chromium window that has been covered
+        since it was last in front turns the request down - SetWindowPos
+        says yes and nothing changes, uncovered or not, until the window is
+        in front again (a Notepad covered the same way does become topmost).
+        The window moved is nearly always the one in front, so this is rare;
+        and since the person may yet bring it to the front from the taskbar,
+        and a program may take the bit off itself, capture() asks again now
+        and then.
+
+        Under the lock, so that a window on its way home is never made
+        topmost again behind show()'s back.
+        """
+        with self._stack_lock:
+            if not self.hidden or self._going_home:
+                return False
+            if user32.GetWindowLongW(self.hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST:
+                return True
+            user32.SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+            return bool(user32.GetWindowLongW(self.hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST)
 
     def show(self) -> None:
         """Put it back exactly as it was, and let go of anything the other
         computer was still holding down."""
         with self._wheel_lock:
             self._clickable_until = 0.0     # the lifting thread stands down
+        with self._stack_lock:
+            self._going_home = True         # and so does _stay_uncovered
         self._let_go()
         if self.alive():
             undo = (self.rescue.pending().get(str(int(self.hwnd)))
-                    if self.rescue is not None else None)
-            _unhide(self.hwnd, undo)
+                    if self.rescue is not None else None) or self._undo
+            # A window that was never hidden - the frame never came up over
+            # there - is not touched: there is nothing to put back, and a
+            # guess would take its own layering or always-on-top away.
+            if undo is not None or self.hidden:
+                _unhide(self.hwnd, undo)
         if self.rescue is not None:
             self.rescue.forget(int(self.hwnd))
+        self._undo = None
         self.hidden = False
 
     # --------------------------------------------------------------- driving
@@ -829,6 +897,15 @@ def _unhide(hwnd, undo) -> None:
     """Put a window's look back from what Rescue wrote down."""
     ex = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
     was = (undo or {}).get("exstyle")
+    # Out of the topmost band first, while it is still invisible, so it never
+    # shows above the taskbar on its way back - unless it was topmost before
+    # it left. Only SetWindowPos can do this; SetWindowLong cannot change
+    # the bit. With nothing written down it was not: hiding made it so, and
+    # hardly any window is topmost of its own accord. It comes back above
+    # every ordinary window, where the person can see it has come home.
+    if ex & WS_EX_TOPMOST and not (was is not None and int(was) & WS_EX_TOPMOST):
+        user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
     user32.SetWindowLongW(hwnd, GWL_EXSTYLE, int(was) if was is not None
                           else ex & ~(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE))
     alpha = (undo or {}).get("alpha")

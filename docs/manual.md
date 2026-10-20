@@ -561,6 +561,7 @@ you would any window there.
   laptop"**; let go and it goes. Drag it back on screen instead and nothing happens.
 - Or **Win+Shift+** the arrow back towards its own computer.
 - Or **the tray icon → Bring windows home**.
+- It comes back on top of your other windows, where you can see it.
 - It also comes back by itself if anything goes wrong: the network drops,
   either computer's Nishro Link stops or restarts, the other computer locks,
   or you switch the feature off. **A window is never left invisible** - even
