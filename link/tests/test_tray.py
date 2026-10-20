@@ -856,3 +856,33 @@ def test_a_refusal_from_this_computer_is_said_at_once():
     t._move_a_window("aio")
     assert any("cannot show a window" in text for _title, text in ui.said), \
         ui.said
+
+
+# ------------------------------------------- Bangla from the other keyboard
+def _bangla_state(typing, here=True):
+    return tray.state({"enabled": True, "connected": True, "role": "hub",
+                       "devices": [], "bangla_here": here,
+                       "typing_bangla": typing})
+
+
+def test_switching_language_with_f12_is_never_a_notification():
+    """A notification at every F12 was too much (the maintainer)."""
+    assert tray.changes(_bangla_state(False), _bangla_state(True)) == []
+    assert tray.changes(_bangla_state(True), _bangla_state(False)) == []
+
+
+def test_the_tooltip_says_quietly_that_bangla_is_on():
+    assert "typing Bangla" in _bangla_state(True)["tooltip"]
+    assert "Bangla" not in _bangla_state(False)["tooltip"]
+    assert "Bangla" not in _bangla_state(True, here=False)["tooltip"]
+
+
+def test_nothing_is_said_where_bangla_is_not_on_offer():
+    got = tray.changes(_bangla_state(False, here=False),
+                       _bangla_state(True, here=False))
+    assert not any("Typing" in t for t, _m in got), got
+
+
+def test_nothing_is_said_when_the_language_did_not_change():
+    got = tray.changes(_bangla_state(True), _bangla_state(True))
+    assert not any("Typing" in t for t, _m in got), got

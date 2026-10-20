@@ -916,6 +916,19 @@ class Node:
         self.core = core
         self.capture = capture
         self.injector = injector
+        # Bangla from another computer's keyboard (bangla.py). Every key this
+        # node plays goes through it; it only does anything while `bangla_ok`
+        # says so - set by whoever starts the node, because only they know
+        # whether Avro Keyboard is running and the setting is on. Until then
+        # it is off, and every key passes through exactly as before.
+        from . import bangla
+        self.bangla_ok = lambda: False
+        self.typing_bangla = False          # Avro starts in English, so do we
+        self.typing = bangla.Composer(
+            press=lambda code, value: self.injector.key(code, value),
+            type_text=self._type_text,
+            active=lambda: self.bangla_ok(),
+            on_mode=self._bangla_mode, log=self._log_async_safe)
         self.port = port
         # Compared without dashes, spaces or capitals - see pairing.py.
         self.pin = pairing.normalise(pin)
@@ -1559,6 +1572,28 @@ class Node:
         """The key this device's password proves to a hub with that ID."""
         return pairing.key(self.pin, hub_id)
 
+    def _type_text(self, s: str) -> None:
+        text = getattr(self.injector, "text", None)
+        if text is None:
+            # This injector cannot type characters (uinput on Linux sends
+            # keys only). Raising makes the composer play the key instead,
+            # so nothing is lost - P4.
+            raise OSError("this computer cannot type characters")
+        text(s)
+
+    def _bangla_mode(self, on: bool) -> None:
+        self.typing_bangla = bool(on)
+        self._log_async("typing from other computers: "
+                        + ("Bangla (F12 for English)" if on
+                           else "English (F12 for Bangla)"))
+        self._event("typing", bangla=bool(on))
+
+    def _log_async_safe(self, message: str) -> None:
+        try:
+            self._log_async(message)
+        except Exception:
+            pass
+
     def _event(self, kind: str, **info) -> None:
         cb = self.on_event
         if cb is not None:
@@ -1670,12 +1705,16 @@ class Node:
         self._act(self.core.local_motion, dx, dy)
 
     def on_button(self, name, down):
+        if down:
+            self.typing.interrupted()       # a flag: safe on the hook thread
         self._act(self.core.local_button, name, down)
 
     def on_wheel(self, dx, dy):
         self._act(self.core.local_wheel, dx, dy)
 
     def on_key(self, code, down):
+        if down:
+            self.typing.interrupted()       # this computer's own keyboard
         self._act(self.core.local_key, code, down)
 
     def on_failsafe(self):
@@ -1742,9 +1781,11 @@ class Node:
                 if note:
                     note(what[1], what[2])
             elif kind == "button":
+                if what[2]:
+                    self.typing.interrupted()   # the caret is somewhere else
                 self.injector.button(what[1], what[2])
             elif kind == "key":
-                self.injector.key(what[1], what[2])
+                self.typing.key(what[1], what[2])
             elif kind == "wheel":
                 self.injector.wheel(what[1], what[2])
             elif kind == "spotlight":

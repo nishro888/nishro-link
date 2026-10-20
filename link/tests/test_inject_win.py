@@ -355,3 +355,31 @@ def test_it_is_sent_again_after_a_pause(injector, mouse):
         assert mouse.wait_for(1), "nothing was sent when driving began again"
     finally:
         injector.u.SetCursorPos(*home)
+
+
+# ---------------------------------------------- characters, not keys
+VK_PACKET = 0xE7
+
+
+def test_text_arrives_as_characters_the_system_cannot_reinterpret(keys, injector):
+    """KEYEVENTF_UNICODE shows up as VK_PACKET carrying the character itself
+    - which is why Avro cannot turn it into anything else, and why Bangla
+    from another computer's keyboard is typed this way (bangla.py)."""
+    bangla = chr(0x0986) + chr(0x09AE)          # aa, ma
+    injector.text(bangla)
+    seen = keys.wait_for(4)
+    downs = [e for e in seen if not e["up"]]
+    assert [e["vk"] for e in downs] == [VK_PACKET, VK_PACKET], downs
+    assert [e["scan"] for e in downs] == [0x0986, 0x09AE], downs
+
+
+def test_every_character_is_let_go_as_well_as_pressed(keys, injector):
+    injector.text("ab")
+    seen = keys.wait_for(4)
+    assert sum(1 for e in seen if e["up"]) == 2, seen
+
+
+def test_nothing_to_type_sends_nothing(keys, injector):
+    injector.text("")
+    time.sleep(0.3)
+    assert keys.ours() == []

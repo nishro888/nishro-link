@@ -45,6 +45,10 @@ DEFAULTS = {
     # default (R1): a moved window's pictures and what is typed into it
     # travel to the other computer, so it is the person's choice to make.
     "move_windows": False,
+    # Type Bangla for another computer's keyboard where Avro Keyboard is
+    # running here, F12 switching it (bangla.py). On, because it does nothing
+    # at all unless Avro is running - and then it is what F12 already means.
+    "bangla_phonetic": True,
     "policy": {
         "may_drive": True,       # may this machine take control?
         "may_be_driven": True,   # may others inject here?

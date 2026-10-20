@@ -61,6 +61,7 @@ class WindowsInjector(Injector):
     # to wake a cursor Windows has stopped drawing.
     INPUT_MOUSE, INPUT_KEYBOARD = 0, 1
     KEYEVENTF_EXTENDED, KEYEVENTF_KEYUP = 0x0001, 0x0002
+    KEYEVENTF_UNICODE = 0x0004
     MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_VIRTUALDESK = 0x8000, 0x4000
     MAPVK_VK_TO_VSC_EX = 4
     CURSOR_SHOWING = 0x0001
@@ -126,6 +127,38 @@ class WindowsInjector(Injector):
     def _send(self, one) -> bool:
         return self.u.SendInput(1, self.c.byref(one),
                                 self.c.sizeof(self._INPUT)) == 1
+
+    def text(self, s: str) -> None:
+        """Type CHARACTERS, not keys: SendInput with KEYEVENTF_UNICODE.
+
+        A character asks no keyboard layout and no input method for
+        anything, so nothing can turn it into something else or ignore it.
+        That is the whole reason it exists here: Avro Keyboard ignores every
+        injected key, so Bangla from another computer's keyboard is typed as
+        Bangla characters instead (bangla.py). Measured landing exactly in
+        Notepad: four Bangla code points in, the same four read back.
+
+        One press and one release per UTF-16 unit, all in one SendInput call
+        so nothing can come between them. Characters outside the BMP go as
+        their two surrogates, which Windows puts back together.
+        """
+        if not s:
+            return
+        units = []
+        data = s.encode("utf-16-le")
+        for i in range(0, len(data), 2):
+            units.append(int.from_bytes(data[i:i + 2], "little"))
+        n = len(units) * 2
+        batch = (self._INPUT * n)()
+        for i, u in enumerate(units):
+            for j, up in enumerate((0, self.KEYEVENTF_KEYUP)):
+                one = batch[i * 2 + j]
+                one.type = self.INPUT_KEYBOARD
+                one.u.ki = self._KEYBDINPUT(0, u, self.KEYEVENTF_UNICODE | up,
+                                            0, None)
+        sent = self.u.SendInput(n, batch, self.c.sizeof(self._INPUT))
+        if sent != n:
+            raise OSError(f"only {sent} of {n} character events were sent")
 
     def _pos(self):
         pt = self.c.wintypes.POINT()
