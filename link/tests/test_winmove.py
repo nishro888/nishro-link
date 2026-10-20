@@ -660,3 +660,60 @@ def test_a_cannot_frame_says_what_it_is_and_fits():
     assert len(header["why"]) == 300, "a peer must not send us an essay"
     assert frame[2:2 + len(winmove.CANNOT_FRAME)] == winmove.CANNOT_FRAME, (
         "the relay spots these without unpacking every frame")
+
+
+# ------------------------------------- Bangla typed into a moved window
+def test_a_moved_window_takes_its_keys_through_the_composer_when_given_one():
+    """Where Avro runs at home, the person typing into the frame over there
+    gets Bangla too - F12 in the frame switches it, as on the desktop."""
+    from link import avro_phonetic, bangla, keymap
+    E = keymap.E
+
+    class Window:
+        def __init__(self):
+            self.keys, self.typed = [], []
+
+        def key(self, code, down):
+            self.keys.append((code, down))
+
+        def text(self, s):
+            self.typed.append(s)
+
+        def button(self, name, down):
+            pass
+
+    w = Window()
+    c = bangla.Composer(press=lambda code, v: w.key(code, bool(v)),
+                        type_text=w.text, active=lambda: True)
+    s = winmove.HomeSession(ch=None, window=w, encode=None, typing=c)
+
+    def key(name, down):
+        s._input({"t": "in", "how": "key", "code": E[name], "down": down})
+
+    key("F12", True)
+    key("F12", False)
+    for ch in "amar":
+        key(ch.upper(), True)
+        key(ch.upper(), False)
+    shown = ""
+    for t in w.typed:
+        shown += t
+    # (no rub-outs here: amar only ever grows)
+    assert shown == avro_phonetic.parse("amar")
+    assert not [k for k in w.keys if k[0] == E["A"]], "an English a went in too"
+
+
+def test_without_a_composer_keys_go_straight_into_the_window():
+    from link import keymap
+
+    class Window:
+        def __init__(self):
+            self.keys = []
+
+        def key(self, code, down):
+            self.keys.append((code, down))
+
+    w = Window()
+    s = winmove.HomeSession(ch=None, window=w, encode=None)
+    s._input({"t": "in", "how": "key", "code": keymap.E["A"], "down": True})
+    assert w.keys == [(keymap.E["A"], True)]

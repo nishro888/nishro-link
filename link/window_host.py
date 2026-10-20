@@ -177,7 +177,8 @@ def lend(which: str, to_whom: str, ch, log) -> str:
     """Hide one of our windows and send what it looks like over `ch`."""
     win = windows_module()
     window = win.Window(int(which), rescue=rescue_record(log), log=log)
-    session = winmove.HomeSession(ch, window, picture.encode, log=log)
+    session = winmove.HomeSession(ch, window, picture.encode, log=log,
+                                  typing=_bangla_for(window, log))
 
     # The window is hidden only once the frame is really up over there, so a
     # frame that never appears cannot leave a window invisible here; and it
@@ -202,6 +203,32 @@ def lend(which: str, to_whom: str, ch, log) -> str:
     finally:
         window.show()
     return ""
+
+
+def _bangla_for(window, log):
+    """Bangla typed into a moved window from the other keyboard, where Avro
+    Keyboard runs here - the same as on the desktop (bangla.py). None where
+    the window cannot be typed into with characters, which leaves its keys
+    exactly as they always were.
+
+    The setting is read from the config file, since this is a process of its
+    own: the service's when started by the service (SYSTEM can read it), the
+    person's own when run from source. Its F12 switches this window's
+    typing; it starts in English, as the desktop's does.
+    """
+    if not hasattr(window, "text"):
+        return None
+    try:
+        from . import bangla, bangla_gate, config, service
+        gate = bangla_gate.Gate(
+            wanted=bangla_gate.Setting([service.CONFIG, config.path()]),
+            log=log)
+        return bangla.Composer(
+            press=lambda code, value: window.key(code, bool(value)),
+            type_text=window.text, active=gate, log=log)
+    except Exception as e:
+        log(f"Bangla typing is not available in this window: {e!r}")
+        return None
 
 
 def show(which: str, whose: str, ch, log) -> str:

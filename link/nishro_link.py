@@ -691,6 +691,11 @@ def _engine(args, cfg, stop=None) -> int:
     # itself and the frame live in the signed-in session, so the node hands
     # each one to a helper started there and only passes frames along.
     from . import window_host, window_service
+    # Bangla from another computer's keyboard, where Avro Keyboard runs here.
+    from .bangla_gate import Gate
+    n.bangla_gate = Gate(wanted=lambda: bool(cfg.get("bangla_phonetic", True)),
+                         log=log)
+    n.bangla_ok = n.bangla_gate
     n.move_windows = bool(cfg.get("move_windows", False))
     n.serve_window = lambda ch, kind, which, whose: window_service.attach(
         ch, kind, which, whose, log=log)

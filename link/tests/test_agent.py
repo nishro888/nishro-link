@@ -192,3 +192,16 @@ def test_the_service_keeps_an_agent_running():
     finally:
         agent.HELLO_TIMEOUT = old
         hub.stop()
+
+
+def test_characters_are_sent_to_the_agent_to_type():
+    """How Bangla from another computer's keyboard reaches the screen: the
+    service has no desktop, so the agent types it (bangla.py)."""
+    from link.agent import AgentInjector
+    sent = []
+
+    class Hub:
+        def send(self, msg):
+            sent.append(msg)
+    AgentInjector(Hub()).text("আম")
+    assert sent == [{"t": "inj", "k": "text", "a": ["আম"]}]

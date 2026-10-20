@@ -52,7 +52,13 @@ def state(s) -> dict:
         icon, header = "alert", f"Not connected to {s.get('group') or 'the hub'}"
     devices = [{"name": d.get("name", "?"), "online": bool(d.get("online")),
                 "me": bool(d.get("me")), "hub": bool(d.get("hub"))} for d in devs]
-    return {"icon": icon, "header": header, "tooltip": f"Nishro Link - {header}",
+    # Typing Bangla for the other keyboard: said in the tooltip, quietly -
+    # never as a notification (the maintainer: "i dont want the
+    # notification"), since it comes at every F12.
+    tip = f"Nishro Link - {header}"
+    if s.get("bangla_here") and s.get("typing_bangla"):
+        tip += " - typing Bangla (F12 for English)"
+    return {"icon": icon, "header": header, "tooltip": tip,
             "sharing": bool(s.get("enabled")), "devices": devices,
             "notify": bool(s.get("notify", True)), "reachable": True,
             # Moving windows between computers (docs/moving-windows.md).
@@ -63,6 +69,9 @@ def state(s) -> dict:
             # to guess - the maintainer could not always tell which was
             # chosen. Put in by poll_once, which can see this computer.
             "current_window": s.get("current_window"),
+            # Bangla for another computer's keyboard (bangla.py).
+            "bangla_here": bool(s.get("bangla_here")),
+            "typing_bangla": bool(s.get("typing_bangla")),
             # Why the last window could not be shown, if one could not.
             "window_trouble": s.get("window_trouble")}
 
@@ -187,6 +196,9 @@ def changes(before: dict, after: dict) -> list:
             out.append(("Device connected", f"{d['name']} is connected."))
         else:
             out.append(("Device disconnected", f"{d['name']} is no longer connected."))
+    # F12 on another computer's keyboard is NOT said here: a notification at
+    # every switch was too much (the maintainer, 2026-10-19). The tooltip
+    # says it quietly, and what is typed shows which it is.
     return out
 
 

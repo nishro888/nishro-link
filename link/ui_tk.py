@@ -873,6 +873,18 @@ class App:
                  bg=C["card"], fg=C["ink"]).pack(side="left", padx=10)
         info(row, kit, "The tray icon shows a notification when another device "
                        "connects or drops out.").pack(side="left")
+        self.bangla = tk.BooleanVar(value=True)
+        row = tk.Frame(ctl.body, bg=C["card"])
+        row.pack(fill="x", pady=3)
+        Toggle(row, kit, self.bangla, command=self._set_bangla).pack(side="left")
+        tk.Label(row, text="Type Bangla from other keyboards (Avro, F12)",
+                 font=F["body"], bg=C["card"], fg=C["ink"]).pack(side="left",
+                                                                 padx=10)
+        info(row, kit, "Where Avro Keyboard runs on this computer, F12 on another "
+                       "computer's keyboard switches Bangla here, and the letters "
+                       "come out as Avro types them. Avro cannot do this itself: "
+                       "it ignores keys that arrive from another computer.").pack(
+            side="left")
 
         # Applied as soon as it is flipped, not by Save: it changes nothing in
         # the running program, and a switch that waits for a button reads as
@@ -1092,6 +1104,8 @@ class App:
             self.find_shake.set(bool(s["find_on_shake"]))
         if "notify" in s and self.notify.get() != s["notify"]:
             self.notify.set(bool(s["notify"]))
+        if "bangla_phonetic" in s and self.bangla.get() != s["bangla_phonetic"]:
+            self.bangla.set(bool(s["bangla_phonetic"]))
         if self.autostart is not None:
             a = s.get("autostart") or {}
             if self.autostart.get() != bool(a.get("on")):
@@ -1516,6 +1530,13 @@ class App:
 
     def _set_notify(self) -> None:
         r = self.api.command("/api/config", {"notify": bool(self.notify.get())}) or {}
+        if r.get("error"):
+            self._say(r["error"], self.C["bad"])
+        self._poll_now()
+
+    def _set_bangla(self) -> None:
+        r = self.api.command("/api/config",
+                             {"bangla_phonetic": bool(self.bangla.get())}) or {}
         if r.get("error"):
             self._say(r["error"], self.C["bad"])
         self._poll_now()

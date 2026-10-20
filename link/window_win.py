@@ -776,6 +776,30 @@ class Window:
             flags |= MK_CONTROL
         return flags
 
+    def text(self, s: str) -> None:
+        """Type CHARACTERS into the window - how Bangla reaches a moved
+        window from the other computer's keyboard (bangla.py).
+
+        A moved window's keys are posted, so the program turns them into
+        characters through its own layout, which is English. Here the
+        characters themselves are posted, as WM_CHAR, one per UTF-16 unit,
+        to the control holding the focus. Measured on a Notepad hidden
+        exactly as a moved window is: ka, aa-kar and ma all landed.
+
+        A backspace still goes as a key (key(), WM_KEYDOWN/UP VK_BACK), and
+        it has to: posted as WM_CHAR(8) instead, Notepad ignored it outright
+        and the vowel sign it should have rubbed out stayed - measured, the
+        opposite of what reasoning about TranslateMessage's ordering had
+        suggested. As a key it lands in order with the characters around it.
+        """
+        if not s:
+            return
+        target = self._focus()
+        data = s.encode("utf-16-le")
+        for i in range(0, len(data), 2):
+            unit = int.from_bytes(data[i:i + 2], "little")
+            user32.PostMessageW(target, WM_CHAR, unit, 1)
+
     def _let_go(self) -> None:
         """Nothing may be left held down when a window comes home - a stuck
         Ctrl or mouse button is the kind of thing the person cannot undo."""

@@ -13,6 +13,14 @@ change the protocol, and a group had to run the same minor version.
 Works with every 1.x.
 
 ### Added
+- **Type Bangla from the other computer's keyboard.** Where Avro Keyboard is
+  running, F12 on the other computer's keyboard now switches Bangla on and
+  off, and the letters come out exactly as Avro would type them. Avro cannot
+  do this itself - it ignores any key that did not come from real hardware,
+  and every key Nishro Link sends is marked as coming from a program - so
+  Nishro Link uses Avro's own rules and types the result as characters.
+  Nothing changes where Avro is not running; *Settings -> Type Bangla from
+  other keyboards* turns it off.
 - **Move a window to the other computer.** A program keeps running where it
   is; its window appears on the other computer, live, and the mouse and
   keyboard used over there drive it. It is the window that moves, not the

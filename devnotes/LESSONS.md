@@ -364,3 +364,28 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   run that is starting share a dictionary key - and the finishing one's
   `finally` removed the new one's entry. Give each run a mark of its own and
   forget the entry only when the mark still matches.
+- **`git checkout -- <file>` cannot restore a file git has never seen.** A
+  mutation loop "restored" a new, untracked module with it after each break;
+  the checkout failed quietly, the mutations piled up in the file (failures
+  rose 2, 3, 4), and nothing said so. Stage a new file before mutating it, or
+  copy it aside and copy it back - and check the file afterwards, not the
+  exit code.
+- **Close a test window by what marks it as the test's, never by the PID
+  started.** Edge hands its window to a different browser process, so killing
+  the launched PID left a test page on the maintainer's screen. Match the
+  throwaway profile (`--user-data-dir`) or the title instead. Windows 11's
+  Notepad does the same hand-off.
+- **`cmd | tail` hides cmd's exit code from `&&`.** `ruff check . | tail -2
+  && git commit` committed with a lint error, because the pipeline's status
+  is tail's, and tail succeeded. Run the check on its own (`ruff check . &&
+  git commit`), or `set -o pipefail` first.
+- **A scripted multi-edit can report success and leave an edit out.** Three
+  replacements in one script, each asserted, printed "done" - and the third
+  was not on disk. A test caught it. After a scripted edit, grep the file for
+  each change before relying on it; the script's own word is not evidence.
+- **Reason about a Windows message queue, then measure it - they disagree.**
+  Posting a moved window "backspace, then a character" looked sure to go
+  wrong (TranslateMessage posts its WM_CHAR behind what is queued), so the
+  backspace was posted as WM_CHAR(8) instead. Measured: the KEY version was
+  right and WM_CHAR(8) was ignored outright by Notepad.
+

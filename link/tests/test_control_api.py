@@ -894,3 +894,29 @@ def test_windows_already_on_another_screen_are_reported(api):
     api.node.windows_away = {"us:7": {"who": "aio", "mine": True}}
     assert api.status()["windows_away"] == [
         {"which": "us:7", "device": "aio", "ours": True}]
+
+
+# ------------------------------------------ Bangla from the other keyboard
+def test_the_bangla_switch_applies_at_once_with_no_restart(api):
+    """The gate is given this very config, so the next key sees the change."""
+    from link.bangla_gate import Gate
+    api.node.bangla_gate = Gate(
+        wanted=lambda: bool(api.cfg.get("bangla_phonetic", True)),
+        programs=lambda: {"avro keyboard.exe"}, every=10)
+    api.node.bangla_ok = api.node.bangla_gate
+    try:
+        assert api.node.bangla_ok() is True
+        post(api, "/api/config", {"bangla_phonetic": False})
+        assert api.node.bangla_ok() is False
+        assert json.loads(get(api, "/api/status")[1])["bangla_phonetic"] is False
+        post(api, "/api/config", {"bangla_phonetic": True})
+        assert api.node.bangla_ok() is True
+    finally:
+        api.node.bangla_gate.stop()
+
+
+def test_the_status_says_whether_bangla_is_on_offer_and_on(api):
+    s = json.loads(get(api, "/api/status")[1])
+    assert s["bangla_here"] is False           # no gate wired in this test node
+    assert s["typing_bangla"] is False
+    assert s["bangla_phonetic"] is True        # the default

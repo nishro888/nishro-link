@@ -574,6 +574,44 @@ shove, because the drag has to begin inside the border
 laptop, `8022c788e05e5166` on the AIO), so both need rebuilding before the
 gesture can be tested by hand.
 
+## 2026-10-18 - Bangla from the other keyboard, typed for real
+
+The maintainer, again after the 2026-10-14 finding: F12 on the AIO's
+keyboard does not switch Avro, and that keyboard types English. Avro ignores
+every injected key, so Nishro Link now does Avro's job for keys from another
+computer: `bangla.Composer`, Avro's own rules in `avro_phonetic.py`, the
+characters typed with `WindowsInjector.text` (KEYEVENTF_UNICODE).
+
+**The rules are Avro's own, checked.** jsAvroPhonetic (OmicronLab, MPL 1.1)
+ported to Python; all **412** of its own test cases pass, from single
+letters to "ami banglay gan gai". avro.py (MIT) was rejected: its rules
+derive from pyAvroPhonetic, GPL-3.0.
+
+**Backspace deletes one code point in both of Windows' text engines** - the
+composer depends on it, because it re-renders a word by rubbing out what
+changed, counting code points. Typed U+0995 U+09BE (ka + aa-kar, two code
+points drawn as one letter), then one Backspace:
+
+| program | left |
+|---|---|
+| Notepad (Edit control) | U+0995 |
+| Edge, a `<textarea>` (Chromium) | U+0995 |
+
+So the approach works in both.
+
+**End to end on the laptop, with Avro Keyboard running.** The composer
+driving the real `WindowsInjector`, fed the key stream the other computer
+sends: F12, "ami banglay gan gai ", then "khk" and a Backspace (a
+correction), F12. Read back:
+
+| program | result |
+|---|---|
+| Notepad | exactly Avro Phonetic's output, 20 code points |
+| Edge `<textarea>` | exactly the same |
+
+Still to see on the real pair: the AIO's keyboard driving the laptop, after
+the new build is installed on both (needs the maintainer's UAC and pkexec).
+
 ## Before 1.1.0 (from the history)
 
 - v1.0.1 (2026-09-29): fixed the window not opening from Ubuntu's app menu

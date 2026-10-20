@@ -515,11 +515,15 @@ class HomeSession:
     whole session can be driven by fakes.
     """
 
-    def __init__(self, ch, window, encode, log=None, pacer=None, clock=time.monotonic):
+    def __init__(self, ch, window, encode, log=None, pacer=None, clock=time.monotonic,
+                 typing=None):
         self.ch = ch
         self.window = window
         self.encode = encode
         self.log = log or (lambda *_: None)
+        # Bangla typed into the moved window from the other keyboard
+        # (bangla.Composer), where Avro runs here. None: keys go straight in.
+        self.typing = typing
         self.pacer = pacer or Pacer()
         self.clock = clock
         self.ended = None             # one of HOME/GONE/DROPPED/STOPPED/FAILED
@@ -703,6 +707,8 @@ class HomeSession:
         elif how == "btn":
             name, down = header.get("name"), bool(header.get("down"))
             if name in ("left", "right", "middle"):
+                if down and self.typing is not None:
+                    self.typing.interrupted()   # the caret is somewhere else
                 self.window.button(name, down)
         elif how == "wheel":
             dx, dy = _step(header.get("dx")), _step(header.get("dy"))
@@ -711,7 +717,11 @@ class HomeSession:
         elif how == "key":
             code = header.get("code")
             if isinstance(code, int) and 0 <= code < 1024:
-                self.window.key(code, bool(header.get("down")))
+                down = bool(header.get("down"))
+                if self.typing is not None:
+                    self.typing.key(code, 1 if down else 0)
+                else:
+                    self.window.key(code, down)
 
 
 def _is_move(event) -> bool:

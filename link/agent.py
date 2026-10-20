@@ -264,6 +264,11 @@ class AgentInjector:
     def key(self, code, down):
         self._do("key", code, int(down))
 
+    def text(self, s):
+        """Characters, typed as characters (WindowsInjector.text) - how Bangla
+        from another computer's keyboard reaches the screen (bangla.py)."""
+        self._do("text", str(s))
+
     def spotlight(self, x, y):
         self._do("spotlight", int(x), int(y))
 

@@ -554,3 +554,36 @@ def test_a_click_goes_past_a_click_through_child():
         assert "left-down" in kinds and "left-up" in kinds, kinds
     finally:
         s.close()
+
+
+# ---------------------------------------- Bangla into a moved window
+def test_characters_reach_a_hidden_window_as_characters(subject, hidden):
+    """How Bangla from the other keyboard reaches a moved window: posted as
+    WM_CHAR, one per UTF-16 unit, to the control with the focus (window_win
+    Window.text). The window must receive exactly those characters."""
+    bangla = chr(0x0986) + chr(0x09AE) + chr(0x09BE) + chr(0x09B0)   # amar
+    hidden.text(bangla)
+    time.sleep(0.4)
+    got = subject.saw()
+    chars = [e[1] for e in got if e[0] == "char"]
+    assert chars == [ord(c) for c in bangla], got
+
+
+def test_bangla_typed_into_a_hidden_window_through_the_composer(subject, hidden):
+    """The whole of it, as a moved window gets it: the composer playing into
+    the real hidden window - F12, then the keys for "amar" - and the window
+    receiving Avro's Bangla as characters, with no English letter keys."""
+    from link import avro_phonetic, bangla
+    c = bangla.Composer(press=lambda code, v: hidden.key(code, bool(v)),
+                        type_text=hidden.text, active=lambda: True)
+    c.key(keymap.E["F12"], 1)
+    c.key(keymap.E["F12"], 0)
+    for ch in "amar":
+        c.key(key_of(ch), 1)
+        c.key(key_of(ch), 0)
+    time.sleep(0.5)
+    got = subject.saw()
+    chars = "".join(chr(e[1]) for e in got if e[0] == "char")
+    assert chars == avro_phonetic.parse("amar"), got
+    assert not [e for e in got if e[0] == "key-down"], (
+        f"an English key went in as well: {got}")

@@ -258,6 +258,11 @@ class ControlAPI:
             "find_on_shake": bool(self.node.core.find_on_shake),
             "notify": bool(self.cfg.get("notify", True)),
             "move_windows": bool(self.node.move_windows),
+            # Bangla for another computer's keyboard (bangla.py): whether it
+            # is on offer here at all, and whether F12 has switched it on.
+            "bangla_here": bool(self._bangla_here()),
+            "bangla_phonetic": bool(self.cfg.get("bangla_phonetic", True)),
+            "typing_bangla": bool(getattr(self.node, "typing_bangla", False)),
             # What this computer can actually do with windows, so the
             # settings page can say why the switch will not help here.
             "windows_here": sorted(self.node.window_sides),
@@ -913,6 +918,13 @@ class ControlAPI:
         return autostart.command(["--config", str(self.cfg_path)]
                                  if self.cfg_path else [])
 
+    def _bangla_here(self) -> bool:
+        ok = getattr(self.node, "bangla_ok", None)
+        try:
+            return bool(ok()) if ok else False
+        except Exception:
+            return False
+
     def _autostart_state(self) -> dict:
         if self.service:
             # It starts with the computer; a per-user login entry would only
@@ -1062,6 +1074,11 @@ class ControlAPI:
         if "notify" in body:
             self.cfg["notify"] = bool(body["notify"])
             live["notify"] = self.cfg["notify"]
+        if "bangla_phonetic" in body:
+            # Read live by the gate (bangla_gate.Gate is given this very
+            # config), so it applies from the next key, with no restart.
+            self.cfg["bangla_phonetic"] = bool(body["bangla_phonetic"])
+            live["bangla_phonetic"] = self.cfg["bangla_phonetic"]
         if "move_windows" in body:
             on = bool(body["move_windows"])
             self.cfg["move_windows"] = on
