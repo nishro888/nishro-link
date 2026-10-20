@@ -59,6 +59,7 @@ def state(s) -> dict:
             "move_windows": bool(s.get("move_windows")),
             "windows_here": list(s.get("windows_here") or []),
             "windows_away": list(s.get("windows_away") or []),
+            "frame_in_front": s.get("frame_in_front"),
             # Which window "Move the current window to" means, so nobody has
             # to guess - the maintainer could not always tell which was
             # chosen. Put in by poll_once, which can see this computer.
@@ -150,7 +151,17 @@ def window_items(st: dict) -> list:
     away = st.get("windows_away") or []
     out = [{"kind": "sep"}]
     here = st.get("current_window")
-    if "home" in st["windows_here"] and others and here:
+    front = st.get("frame_in_front")
+    if front and front.get("which") and not here:
+        # A frame - another computer's window - is in front: back it goes,
+        # the way it came (docs/moving-windows.md 9.3). No list of devices:
+        # back always means to the computer the window belongs to.
+        dev = front.get("device") or "its own computer"
+        out.append({"kind": "item", "label": f"In front: {_named(front)} - from {dev}",
+                    "action": None, "enabled": False})
+        out.append({"kind": "item", "label": f"Send back to {dev}",
+                    "action": f"sendback:{front['which']}", "enabled": live})
+    elif "home" in st["windows_here"] and others and here:
         # The window is NAMED, because the menu moves whichever is in front
         # and that is not always the one the person has in mind.
         out.append({"kind": "item", "label": f"In front: {here['title']}",
@@ -167,9 +178,26 @@ def window_items(st: dict) -> list:
                 else f"{len(away)} windows are on another screen")
         out.append({"kind": "item", "label": what, "action": None,
                     "enabled": False})
+        # One at a time, by name (9.3, step 2.2): ours, from wherever they
+        # are shown; and the frames shown here, back to their own computers.
+        out.append({"kind": "sub", "label": "Bring one back", "enabled": live,
+                    "items": [{"kind": "item", "label": _away_label(a),
+                               "action": f"sendback:{a.get('which')}",
+                               "enabled": live} for a in away if a.get("which")]})
         out.append({"kind": "item", "label": "Bring windows home",
                     "action": "windows-home", "enabled": live})
     return out if len(out) > 1 else []
+
+
+def _named(w: dict) -> str:
+    return (w.get("title") or "a window")[:60]
+
+
+def _away_label(a: dict) -> str:
+    """One window away, as the menu lists it: ours by where it is shown,
+    another computer's by where it is from."""
+    dev = a.get("device") or "another computer"
+    return f"{_named(a)} - {'on' if a.get('ours') else 'from'} {dev}"
 
 
 def changes(before: dict, after: dict) -> list:
@@ -279,6 +307,14 @@ class Tray:
                     self.ui.notify("Nishro Link",
                                    f"{how_many} window(s) are back on this "
                                    f"computer.")
+            elif str(action).startswith("sendback:"):
+                if api is None:
+                    return
+                got = api.command("/api/window/home",
+                                  {"which": str(action)[len("sendback:"):]}) or {}
+                if not got.get("brought_home"):
+                    self.ui.notify("Nishro Link",
+                                   "That window is no longer on another screen.")
             elif str(action).startswith("window:"):
                 if api is None:
                     return

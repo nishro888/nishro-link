@@ -26,7 +26,9 @@ Works with every 1.x.
     the window it means **named above it**, so there is never a doubt about
     which one is about to go. Or Win+Shift+Left/Right,
     the keys that throw a window at the next monitor - carried on past the
-    last one. The same keys bring it back, as does *Bring windows home*.
+    last one. The same keys bring it back; so does the tray - *Send back*
+    for the window in front, *Bring one back* for any one by name, *Bring
+    windows home* for all of them.
   - Away it is an ordinary window, saying where it came from
     ("Notepad - from laptop"): move it, resize it, maximize it, type in it.
     Its close button closes the program's window, as that button would at

@@ -271,6 +271,7 @@ class Frame:
         c.bind("<Button-5>", lambda e: self._wheel_x11(e, -1))
         top.bind("<KeyPress>", self._key_down)
         top.bind("<KeyRelease>", self._key_up)
+        top.bind("<FocusIn>", self._focus_gained)
         top.bind("<FocusOut>", self._focus_lost)
         c.bind("<Configure>", self._configured)
 
@@ -310,14 +311,24 @@ class Frame:
         self.events.put({"t": "in", "how": "key", "code": int(code),
                          "down": bool(down)})
 
-    def _focus_lost(self, _ev=None) -> None:
+    def _focus_gained(self, ev=None) -> None:
+        """The frame has the keyboard: its service is told, so the tray
+        knows which window "Send back" means."""
+        if ev is not None and getattr(ev, "widget", None) is not self._top:
+            return                   # a widget inside it - not news
+        self.events.put({"t": "focus", "on": True})
+
+    def _focus_lost(self, ev=None) -> None:
         """The frame lost the keyboard while keys were held - the person
         clicked away with Ctrl down, say: its release now goes to some other
         window, never to this one, and home would hold Ctrl in the window
         for good. So everything still held is let go here."""
+        if ev is not None and getattr(ev, "widget", None) is not self._top:
+            return                   # a widget inside it - not news
         for code in sorted(self._keys_held):
             self.events.put({"t": "in", "how": "key", "code": code, "down": False})
         self._keys_held.clear()
+        self.events.put({"t": "focus", "on": False})
 
     def _key_down(self, ev) -> None:
         self._key(ev, True)

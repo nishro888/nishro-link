@@ -241,6 +241,20 @@ def test_keys_still_held_when_the_frame_loses_focus_are_let_go(frame):
     assert {"t": "in", "how": "key", "code": ctrl, "down": False} in got, got
 
 
+def test_the_frame_says_when_it_has_the_keyboard_and_when_not(frame):
+    """For the tray: "Send back" means the frame in front (moving-windows
+    9.5), and only the frame knows when it has the keyboard."""
+    opened(frame, "x", 120, 80)
+    on_tk(lambda: frame._top.event_generate("<FocusIn>", when="now"))
+    on_tk(lambda: frame._top.event_generate("<FocusOut>", when="now"))
+    got = [e for e in drained(frame.events,
+                              until=lambda seen: {"t": "focus", "on": False}
+                              in seen)
+           if e.get("t") == "focus"]
+    # (the frame takes the keyboard as it opens, so "on" may come twice)
+    assert {"t": "focus", "on": True} in got and {"t": "focus", "on": False} in got, got
+
+
 def test_a_key_nishro_link_does_not_carry_is_said_once_and_dropped(frame):
     opened(frame, "x", 120, 80)
     said = []
