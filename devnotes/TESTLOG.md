@@ -4,6 +4,31 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-19 - capturing a window on Windows: four ways, measured
+
+For section 10 of `docs/moving-windows.md`. On the laptop, a 1000x700
+window whose whole picture changes every frame - a Tk canvas (GDI) and a
+page in Edge (GPU; a throwaway profile, closed after) - each captured 40
+times, then again "away" (layered, alpha 1, click-through):
+
+| | Tk | Edge | Edge away |
+|---|---|---|---|
+| `PrintWindow(PW_RENDERFULLCONTENT)` | 15.0 ms (p90 18.5) | 16.1 ms (p90 27.0) | 15.3 ms |
+| screen `BitBlt` | 15.3 ms | 15.6 ms | 16.1 ms - the desktop behind |
+| window DC `BitBlt` | 4.9 ms | 4.6 ms, 1 distinct picture in 40 | 5.1 ms, 1 in 40 |
+
+**Windows.Graphics.Capture**, from `ctypes` only (RoGetActivationFactory,
+`IGraphicsCaptureItemInterop::CreateForWindow`, a free-threaded frame pool
+on a Direct3D 11 device, `TryGetNextFrame`, a staging texture, `Map`), on
+the Edge page for 4 s: **59.5-60.0 pictures a second**, every one different,
+none black; from the GPU into readable memory **4.4-4.5 ms** (p90 5.0-5.3).
+The same with the window away. `IGraphicsCaptureSession3` (the border
+switch) is not there on Windows 10 22H2. Pixels read from the screen at the
+window's outline found no yellow during capture - not taken as proof.
+
+A screen grab around the test window also caught whatever was open behind
+it: for the border, look with eyes; never grab the screen for a test.
+
 ## 2026-10-19 - the maintainer's first use: keys, tabs, and windows moved twice
 
 He used a build of last night's branches on both machines. What he found,

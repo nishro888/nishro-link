@@ -114,6 +114,26 @@ like a normal PC. Any computer can be the hub; a group of one is its own hub.
 impossible rather than unlikely, and the only cost, a hub that is off, fails
 back to normal PCs.
 
+### 3.1 Later: data may travel member to member
+
+**Direction for later (2026-10-19, the maintainer; [moving-windows.md](moving-windows.md),
+section 9).** The hub stays the one arbiter. In time, a moved window's
+pictures - and files - need not pass through it: the hub could introduce
+two members to each other for one data channel, and relay the data itself
+only when the two cannot reach each other directly. **For now the hub
+carries everything between members** - the fewest changes now, and traffic
+optimization later, with a topology and connection architecture designed
+for it first.
+
+This is not the full mesh turned down above. Nothing is kept in step
+between members, and no member decides anything: a data channel carries one
+window between two devices the hub has introduced, proved with the group
+password and sealed like every other channel, and it closes when the window
+does.
+
+**In one sentence:** decisions still have one place to go; only the bytes
+take the shortest road.
+
 ---
 
 ## 4. The baton and epochs
