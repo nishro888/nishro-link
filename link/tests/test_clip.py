@@ -523,3 +523,179 @@ def test_an_image_survives_the_trip_through_a_dib():
     masks = struct.pack("<III", 0x00FF0000, 0x0000FF00, 0x000000FF)
     back = Image.open(io.BytesIO(clip_win._dib_to_png(bytes(head) + masks + dib[40:])))
     assert back.convert("RGB").tobytes() == im.tobytes()
+
+
+# ------------------------------------------------- files (STATE, item 4.4)
+def _linux_tools(monkeypatch, answers):
+    """xclip as the only tool, answering each command from `answers`:
+    (a word that must be in the command, its stdout) - first match wins."""
+    import subprocess
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append((cmd, kw))
+        for word, out in answers:
+            if word in cmd:
+                return subprocess.CompletedProcess(cmd, 0, stdout=out)
+        return subprocess.CompletedProcess(cmd, 0, stdout="")
+    monkeypatch.setattr(clip.sys, "platform", "linux")
+    monkeypatch.setattr(clip, "_tools", lambda: ("xclip",))
+    monkeypatch.setattr(clip.subprocess, "run", run)
+    from link import session
+    monkeypatch.setattr(session, "running_as_root", lambda: False)
+    return calls
+
+
+def test_a_gnome_files_copy_is_read_as_files_not_as_its_text(monkeypatch):
+    """Files offers the paths as text too; pasting text is not what copying
+    a file was for."""
+    _linux_tools(monkeypatch, [
+        ("TARGETS", "x-special/gnome-copied-files\nUTF8_STRING\ntext/plain\n"),
+        (clip.GNOME_FILES, "copy\nfile:///home/u/a%20b.txt\nfile:///home/u/c"),
+        ("-o", "/home/u/a b.txt\n/home/u/c")])
+    assert clip.get() == (clip.FILES, ["/home/u/a b.txt", "/home/u/c"])
+
+
+def test_another_file_managers_uri_list_is_read_too(monkeypatch):
+    _linux_tools(monkeypatch, [
+        ("TARGETS", "text/uri-list\ntext/plain\n"),
+        ("text/uri-list", "# from a file manager\r\nfile:///home/u/x.png\r\n")])
+    assert clip.get() == (clip.FILES, ["/home/u/x.png"])
+
+
+def test_files_go_on_the_clipboard_as_gnome_files_takes_them(monkeypatch):
+    calls = _linux_tools(monkeypatch, [])
+    assert clip.set((clip.FILES, ["/home/u/a b.txt", "/home/u/c"])) is True
+    cmd, kw = calls[0]
+    assert cmd == clip.WRITE_FILES["xclip"]
+    assert kw["input"] == "copy\nfile:///home/u/a%20b.txt\nfile:///home/u/c"
+
+
+def test_files_cross_the_agents_channel_as_their_paths():
+    spooled = []
+    wire = clip.to_wire((clip.FILES, [r"C:\a.txt", r"C:\b"]), lambda: spooled.append(1))
+    assert wire == {"fmt": "files", "paths": [r"C:\a.txt", r"C:\b"]}
+    assert not spooled, "nothing to write to disk for a list of paths"
+    assert clip.from_wire(wire) == (clip.FILES, [r"C:\a.txt", r"C:\b"])
+
+
+def test_a_file_list_is_read_whatever_its_names():
+    text = clip.file_list_text(["/home/u/a b.txt", "/home/u/\u09a8\u09a5\u09bf.txt"])
+    assert text.startswith("copy\nfile:///home/u/a%20b.txt\n")
+    assert clip.parse_file_list(text) == ["/home/u/a b.txt",
+                                          "/home/u/\u09a8\u09a5\u09bf.txt"]
+
+
+def test_a_cut_is_read_as_files_and_another_hosts_are_left_out():
+    """Nothing is ever moved: a cut over there is a copy here."""
+    got = clip.parse_file_list("cut\nfile:///home/u/a\nfile://elsewhere/b\n")
+    assert got == ["/home/u/a"]
+
+
+# --------------------------------------------- files: the sync's part
+FILES_HERE = ["/home/u/report.pdf", "/home/u/Album"]
+
+
+def test_files_copied_here_are_announced_with_their_size():
+    s, b = sync()
+    offered = []
+    s.offer_files = lambda seq, paths: offered.append((seq, paths)) or 4321
+    b.copy((clip.FILES, FILES_HERE))
+    meta = only(s.poll(), "clipmeta")
+    assert meta and meta[0]["formats"] == [clip.FILES] and meta[0]["bytes"] == 4321
+    assert offered == [(meta[0]["seq"], FILES_HERE)]
+
+
+def test_with_nothing_to_carry_them_files_are_not_announced():
+    s, b = sync()
+    b.copy((clip.FILES, FILES_HERE))
+    assert s.poll() == []
+
+
+def test_files_that_cannot_be_offered_are_said_so_not_announced():
+    s, b = sync()
+    said = []
+    s.log = said.append
+
+    def too_big(seq, paths):
+        raise ValueError("3 GB is more than one copy can carry")
+    s.offer_files = too_big
+    b.copy((clip.FILES, FILES_HERE))
+    assert s.poll() == []
+    assert any("cannot be offered" in m for m in said), said
+
+
+def test_files_copied_over_there_wait_for_the_pointer():
+    """Fetched when the pointer comes here - most copies are pasted where
+    they were made - and on a files connection of their own, never asked
+    for in pieces on the link the pointer uses."""
+    s, _ = sync("laptop")
+    asked = []
+    s.fetch_files = asked.append
+    msg = protocol.clipmeta("aio", 7, [clip.FILES], 1000)
+    assert s.on_message(msg) == []
+    assert asked == []
+    s.pointer_here()
+    assert asked == [msg]
+    s.pointer_here()
+    assert asked == [msg], "the same copy was fetched twice"
+
+
+def test_a_newer_copy_over_there_means_the_files_are_not_fetched():
+    s, _ = sync("laptop")
+    asked = []
+    s.fetch_files = asked.append
+    s.on_message(protocol.clipmeta("aio", 7, [clip.FILES], 1000))
+    s.on_message(protocol.clipmeta("aio", 8, ["text"], 5))
+    s.pointer_here()
+    assert asked == []
+
+
+def test_a_newer_copy_here_means_the_files_are_not_fetched():
+    s, b = sync("laptop")
+    asked = []
+    s.fetch_files = asked.append
+    s.on_message(protocol.clipmeta("aio", 7, [clip.FILES], 1000))
+    b.copy("copied here afterwards")
+    s.poll()
+    s.pointer_here()
+    assert asked == []
+
+
+def test_files_that_cannot_be_fetched_are_said_so():
+    s, _ = sync("laptop")
+    said = []
+    s.log = said.append
+
+    def refused(msg):
+        raise ValueError("not connected")
+    s.fetch_files = refused
+    s.on_message(protocol.clipmeta("aio", 7, [clip.FILES], 1000))
+    s.pointer_here()
+    assert any("could not be fetched" in m for m in said), said
+
+
+def test_files_that_land_after_a_newer_copy_leave_the_clipboard_alone():
+    s, b = sync("laptop")
+    s.fetch_files = lambda msg: None
+    s.on_message(protocol.clipmeta("aio", 7, [clip.FILES], 1000))
+    s.pointer_here()
+    b.copy("copied while they were on their way")
+    s.poll()
+    assert not s.files_arrived(["C:/Users/u/Desktop/Nishro Link Files/a.txt"], "aio")
+    assert b.text == "copied while they were on their way"
+
+
+def test_without_a_way_to_fetch_them_files_are_left_alone():
+    """As an older 1.x does: nothing asked, nothing broken."""
+    s, _ = sync("laptop")
+    assert s.on_message(protocol.clipmeta("aio", 7, [clip.FILES], 1000)) == []
+    s.pointer_here()
+
+
+def test_files_that_arrive_go_on_the_clipboard_and_are_not_sent_back():
+    s, b = sync()
+    s.offer_files = lambda seq, paths: 1
+    assert s.files_arrived(["C:/Users/u/Desktop/Nishro Link Files/a.txt"], "aio")
+    assert b.text == (clip.FILES, ["C:/Users/u/Desktop/Nishro Link Files/a.txt"])
+    assert s.poll(force=True) == [], "the files it just received went straight back"

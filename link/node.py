@@ -1015,7 +1015,6 @@ class Node:
         # settings UI needs that: killing the process would take the UI with it.
         self.enabled = True
         self.clip = ClipboardSync(core.node)
-        self.clip.log = self._log_async
         # Clipboard work never runs on the reader or a hook: clip.get()/set()
         # shell out (~200ms on Windows), which would stall input for as long as
         # it takes. The reader only ever enqueues.
@@ -1261,6 +1260,65 @@ class Node:
                 self.on_files(tops, who)
             except Exception:
                 pass
+        try:
+            self.clip.files_arrived(tops, who)    # and onto this clipboard
+        except Exception as e:
+            self._log(f"files: they could not be put on the clipboard: {e!r}")
+
+    @property
+    def clip(self) -> ClipboardSync:
+        return self._clip
+
+    @clip.setter
+    def clip(self, sync: ClipboardSync) -> None:
+        """Whichever clipboard the node is given - its own, or the desk
+        agent's that the service puts in - carries files the node's way, on a
+        files connection, which only the node can open; and what it does is
+        in the node's log."""
+        self._clip = sync
+        sync.log = self._log_async
+        sync.offer_files = self._clip_offer_files
+        sync.fetch_files = self._clip_fetch_files
+
+    # How many copies of files are still offered: an older one asked for
+    # after a newer copy is simply gone.
+    FILE_OFFERS_KEPT = 4
+
+    def _clip_offer_files(self, seq: int, paths) -> int:
+        offer = files.Offer(paths)    # FilesError if it is more than one copy carries
+        if not offer.items:
+            raise files.FilesError("nothing there can be copied (links and devices are not)")
+        self.file_offers[seq] = offer
+        for old in sorted(self.file_offers)[:-self.FILE_OFFERS_KEPT]:
+            self.file_offers.pop(old, None)
+        return offer.total
+
+    def _clip_fetch_files(self, msg: dict) -> None:
+        """Files copied over there, and the pointer is here now: the hub asks
+        the member for them (it cannot dial a member); a member takes the
+        hub's. Only from the computer at the other end of a link: a copy
+        made on another member would have to be passed on by the hub, which
+        it does not do yet - and its number means nothing to the hub."""
+        seq = msg.get("seq")
+        who = msg.get("origin") or msg.get("from")
+        if self.core.is_hub:
+            with self._links_lock:
+                linked = who in self.links
+            if not linked:
+                raise files.FilesError(f"{who} is not connected")
+            self.files_request(who, seq)
+            return
+        if who != self.trusted_peer:
+            raise files.FilesError(f"files copied on {who} would have to come "
+                                   f"through {self.trusted_peer}, which does not pass them on yet")
+        threading.Thread(target=self._files_pull_quietly, args=(seq,),
+                         daemon=True, name="files-pull").start()
+
+    def _files_pull_quietly(self, seq) -> None:
+        try:
+            self.files_pull(seq)
+        except (files.FilesError, OSError) as e:
+            self._log(f"files: could not fetch copy {seq}: {e}")
 
     def files_request(self, name: str, seq: int) -> None:
         """The hub asks a member for its copy; the member pushes it."""
@@ -2151,6 +2209,8 @@ class Node:
         remote = self.core.cursor_is_remote()
         left = remote and not self._was_remote
         self._was_remote = remote
+        if not remote:
+            self.clip.pointer_here()          # files copied over there come now
         # On leaving, always a real look, whatever the change counter says:
         # the moment a copy made here can next be pasted elsewhere, and a
         # counter that is missing or wrong must not keep it back.

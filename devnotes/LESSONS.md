@@ -114,6 +114,12 @@ fails or misleads. Each entry: **what was tried or seen** - why - **what works**
   impostor-hub test failed 9 times in 15: it checked before the fake hub's
   thread had noted the member hanging up. Run a new test 15-20 times before
   trusting it; join the thread, never sleep.
+- **Hooks wired onto an object that others replace are lost with it.** The
+  node gave its clipboard the way to carry files in its constructor; the
+  service, and the live tests, then put another clipboard in its place, and
+  files were silently neither offered nor fetched. Every unit test passed;
+  the first end-to-end test failed. **Works:** wire in a property's setter
+  (`Node.clip`), so whatever is assigned is wired.
 - **A pacing test on one machine may never fill the queue**: loopback drains
   faster than the sender fills it, so removing the pacing passed. Make the
   receiver slower than the sender, then the break shows. And no tiny sleep at

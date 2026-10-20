@@ -158,12 +158,13 @@ of this entry and the join race (`test_multi_live`).
       like the link and never a link (`files` in the hello; the member always
       dials; the hub asks with `fwant`); paced on the queue, so nothing is
       dropped. 8 live tests.
-   4. Next: the clipboards - announce a copied file list (`clipmeta` with
-      format "files"), pull on arrival of the pointer, put the received
-      files on the clipboard (CF_HDROP + Preferred DropEffect on Windows; the
-      GNOME target on Linux); the arrivals folder per user (Desktop through
-      the user's shell folders / `xdg-user-dir`); files owned by the person
-      on Linux.
+   4. **Done, on branch `feat/files-over-clipboard`** (tests on this laptop
+      only): a copied file list announced (`clipmeta`, format "files"),
+      fetched when the pointer arrives, put on the clipboard; a newer copy
+      drops it; the Desktop of the person at the screen (`link/userdirs.py`),
+      files given to them on Linux. Files go to and from the hub only.
+      Needs the installed builds: the SYSTEM service's Desktop lookup, GNOME
+      Files' copy and paste on the AIO.
    5. Progress notifications; then both machines, both ways: one file,
       several, a folder tree, a big file, odd names.
 5. **Moving windows between computers - being built now** (the maintainer

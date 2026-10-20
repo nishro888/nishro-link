@@ -34,7 +34,7 @@ import sys
 import threading
 import time
 
-from . import access, config, control_api, desk, desktop, pairing
+from . import access, config, control_api, desk, desktop, pairing, userdirs
 from .inject import make_injector
 from .node import Node, NodeCore
 from .runtime import RunLog, SingleInstance, log_path
@@ -697,6 +697,10 @@ def _engine(args, cfg, stop=None) -> int:
     n.window_sides = (("home", "away") if window_host.can_lend() else ("away",))
     n.list_windows = lambda: window_service.windows_in_session(log)
     window_service.put_windows_back(log)       # R6, before anything hides one
+    # Files from another computer: onto the Desktop of the person at the
+    # screen, not the service's own, and theirs (userdirs).
+    n.files_dest = userdirs.files_folder
+    n.on_files = lambda tops, who: userdirs.give_to_person(tops)
     if hub is not None:
         from .clip import ClipboardSync
         n.detect_desktop = hub.desktop
