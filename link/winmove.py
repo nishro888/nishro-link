@@ -401,6 +401,20 @@ def cannot(why: str) -> bytes:
     return pack({"t": "cannot", "why": str(why)[:300]})
 
 
+# A frame telling the service of its own computer that it has the keyboard,
+# or has lost it - so the tray knows which frame is in front, and can offer
+# to send THAT window back (docs/moving-windows.md 9.5). The service keeps
+# it; it never goes to the other computer.
+FOCUS_FRAME = b'{"t":"host_focus"'
+# A window's size and title, on its way to the frame; the services it passes
+# through read the title, so the trays can name the window.
+META_FRAME = b'{"t":"meta"'
+
+
+def host_focus(on: bool) -> bytes:
+    return pack({"t": "host_focus", "on": bool(on)})
+
+
 def host_log(message: str) -> bytes:
     """A line for the service's log, from the part of Nishro Link that has a
     screen. It runs in the person's session, where its own output goes to the
@@ -419,7 +433,8 @@ def _second_or_first(closing, which: str, why: str, odd: bool = False) -> str:
     return f"the window's frames stopped going {which}: {why}"
 
 
-def relay(a: "BinChannel", b: "BinChannel", log=None, trouble=None) -> None:
+def relay(a: "BinChannel", b: "BinChannel", log=None, trouble=None,
+          notes=None) -> None:
     """Pass frames between two window channels until either ends.
 
     This is how a moved window reaches the screen on Windows, and will on
@@ -431,6 +446,17 @@ def relay(a: "BinChannel", b: "BinChannel", log=None, trouble=None) -> None:
     """
     log = log or (lambda *_: None)
     said = {} if trouble is None else trouble
+
+    def note(what) -> None:
+        """What the service is told of the window as it passes - its title,
+        and whether its frame has the keyboard. Never allowed to stop the
+        frames."""
+        if notes is None:
+            return
+        try:
+            notes(what)
+        except Exception:
+            pass
     # Set by whichever direction finishes first, because its tidying closes
     # BOTH channels - so the other one is then bound to fail, and that
     # failure is not news.
@@ -462,6 +488,20 @@ def relay(a: "BinChannel", b: "BinChannel", log=None, trouble=None) -> None:
                     except ChannelError:
                         pass
                     continue
+                if (which == "out" and frame[_HDR.size:_HDR.size + len(FOCUS_FRAME)]
+                        == FOCUS_FRAME):
+                    try:
+                        note({"focus": bool(unpack(frame)[0].get("on"))})
+                    except ChannelError:
+                        pass
+                    continue                      # for us, not the far side
+                if frame[_HDR.size:_HDR.size + len(META_FRAME)] == META_FRAME:
+                    try:
+                        title = unpack(frame)[0].get("title")
+                        if isinstance(title, str):
+                            note({"title": title[:200]})
+                    except ChannelError:
+                        pass
                 dst.send(frame)
         except ChannelError as e:
             # Said, not swallowed: which way stopped first, and why, is the
@@ -850,6 +890,11 @@ class AwaySession:
                     continue
                 if event is None:
                     break
+                if isinstance(event, dict) and event.get("t") == "focus":
+                    # For this computer's own service, which keeps it for
+                    # the tray (relay); home would only ignore it.
+                    self.ch.send(host_focus(bool(event.get("on"))))
+                    continue
                 while _is_move(event):
                     try:
                         nxt = self.frame.events.get_nowait()

@@ -4,6 +4,30 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-19 (later) - one window back on its own (steps 2.1 and 2.2)
+
+Asked for: with several windows on the AIO, *Bring windows home* brought
+them all; one should come back on its own, "the same exact method" as it
+went - the window in front, the tray, and no list of devices, since back
+means to the computer the window belongs to.
+
+* A frame says when it has the keyboard, over its loopback connection; its
+  service keeps it (the relay passes it on to nobody) and the status names
+  the frame in front - still counted for five seconds after it lost the
+  keyboard, because a click on the tray takes it first.
+* The relay also notes each window's title as its size and title pass, so
+  both trays can name the windows.
+* The tray: *In front: Notepad - from laptop*, *Send back to laptop*; and
+  *Bring one back*, every window away by name, on either computer.
+* `bring_window_home(id)` closes that one window's channel and says nothing
+  to the other computer about the rest.
+
+Tests: 15 new (relay, away session, node, tray), one for the frame's focus
+(Tk), and two real nodes sending two windows and one back - the other
+stayed. The channel's close taken out on purpose: that test failed.
+
+Not yet on the real machines - in the next test build.
+
 ## 2026-10-19 - the maintainer's first use: keys, tabs, and windows moved twice
 
 He used a build of last night's branches on both machines. What he found,

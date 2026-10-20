@@ -893,4 +893,7 @@ def test_a_lister_that_breaks_does_not_break_the_tray(api):
 def test_windows_already_on_another_screen_are_reported(api):
     api.node.windows_away = {"us:7": {"who": "aio", "mine": True}}
     assert api.status()["windows_away"] == [
-        {"which": "us:7", "device": "aio", "ours": True}]
+        {"which": "us:7", "device": "aio", "ours": True, "title": ""}]
+    api.node.windows_away["us:7"]["title"] = "Notepad"
+    assert api.status()["windows_away"][0]["title"] == "Notepad", \
+        "the tray names each window"

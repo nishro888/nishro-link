@@ -692,8 +692,8 @@ def _engine(args, cfg, stop=None) -> int:
     # each one to a helper started there and only passes frames along.
     from . import window_host, window_service
     n.move_windows = bool(cfg.get("move_windows", False))
-    n.serve_window = lambda ch, kind, which, whose: window_service.attach(
-        ch, kind, which, whose, log=log)
+    n.serve_window = lambda ch, kind, which, whose, notes=None: \
+        window_service.attach(ch, kind, which, whose, log=log, notes=notes)
     n.window_sides = (("home", "away") if window_host.can_lend() else ("away",))
     n.list_windows = lambda: window_service.windows_in_session(log)
     window_service.put_windows_back(log)       # R6, before anything hides one

@@ -265,8 +265,12 @@ class ControlAPI:
             # the tray can say that rather than claiming it went.
             "window_trouble": self.node.window_trouble,
             "windows_away": [
-                {"which": key, "device": s.get("who"), "ours": bool(s.get("mine"))}
+                {"which": key, "device": s.get("who"), "ours": bool(s.get("mine")),
+                 "title": s.get("title") or ""}
                 for key, s in sorted(self.node.windows_away.items())],
+            # The frame here that has the keyboard, so the tray can offer to
+            # send that window back (docs/moving-windows.md 9.5).
+            "frame_in_front": self._frame_in_front(),
             "firewall_blocked": self.firewall_blocked or [],
             "network_public": self.network_public or [],
             "setup": self.setup if self.setup and not self.setup.get("ok") else None,
@@ -359,6 +363,12 @@ class ControlAPI:
                 return {"error": why}
             self.log(f"showing a window on {device}")
             return {"ok": True}
+        if path == "/api/window/home" and body.get("which"):
+            # One window back where it belongs - the rest stay (9.3).
+            back = self.node.bring_window_home(str(body["which"]))
+            if back:
+                self.log(f"sent one window back where it belongs ({body['which']})")
+            return {"ok": True, "brought_home": 1 if back else 0}
         if path == "/api/window/home":
             how_many = self.node.bring_windows_home(body.get("device"))
             if how_many:
@@ -1018,6 +1028,15 @@ class ControlAPI:
     def _persist_placement(self, boxes) -> None:
         self.cfg["placement"] = boxes
         config.save(self.cfg, self.cfg_path)
+
+    def _frame_in_front(self):
+        finder = getattr(self.node, "frame_in_front", None)
+        key = finder() if finder else None
+        s = self.node.windows_away.get(key) if key else None
+        if not s:
+            return None
+        return {"which": key, "device": s.get("who"),
+                "title": s.get("title") or ""}
 
     def _movable_windows(self) -> list:
         """The windows on this computer that could be shown on another, as

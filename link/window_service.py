@@ -33,7 +33,7 @@ LIST_TIMEOUT = 15.0            # and for one that is only listing windows
 
 
 def attach(net, kind: str, which: str, whose: str, log=None,
-           launch=None) -> str:
+           launch=None, notes=None) -> str:
     """See one moved window through, from the service's side.
 
     `net` is the window channel to the other computer. `kind` is "lend" (one
@@ -48,10 +48,11 @@ def attach(net, kind: str, which: str, whose: str, log=None,
     something as simple and sayable as nobody being signed in.
     """
     log = log or (lambda *_: None)
-    return _attach(net, kind, which, whose, log, launch)
+    return _attach(net, kind, which, whose, log, launch, notes)
 
 
-def _attach(net, kind: str, which: str, whose: str, log, launch) -> str:
+def _attach(net, kind: str, which: str, whose: str, log, launch,
+            notes=None) -> str:
     token = secrets.token_hex(16)
     srv = socket.socket()
     srv.bind(("127.0.0.1", 0))
@@ -101,7 +102,7 @@ def _attach(net, kind: str, which: str, whose: str, log, launch) -> str:
                 net.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))
                 return why                # attach() sends the reason on
             trouble = {}
-            winmove.relay(net, host, log=log, trouble=trouble)
+            winmove.relay(net, host, log=log, trouble=trouble, notes=notes)
             # If the other computer said it could not show the window, that
             # is the answer - not "it came home fine".
             return str(trouble.get("why") or "")

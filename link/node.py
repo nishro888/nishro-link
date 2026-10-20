@@ -1437,7 +1437,8 @@ class Node:
             if not self.serve_window:
                 ch.send(winmove.pack({"t": "gone", "why": winmove.FAILED}))
                 return
-            why = self.serve_window(ch, kind, which, whose)
+            why = self.serve_window(ch, kind, which, whose,
+                                    notes=lambda d: self._window_note(key, mark, d))
             if why:
                 self._log(f"the window could not be shown: {why}")
                 self.window_trouble = {"device": with_whom, "why": why,
@@ -1469,6 +1470,58 @@ class Node:
                 ch.close()
             except Exception:
                 pass
+
+    # How long a frame counts as "in front" after it lost the keyboard: a
+    # click on the tray takes the keyboard from it before the menu opens.
+    FRONT_GRACE_S = 5.0
+
+    def _window_note(self, key, mark, what: dict) -> None:
+        """What the relay saw of one window: its title, or its frame (here)
+        gaining or losing the keyboard. Only for this run of it - a window
+        sent again has a mark of its own."""
+        entry = self.windows_away.get(key)
+        if entry is None or entry.get("mark") is not mark:
+            return
+        if "title" in what:
+            entry["title"] = str(what["title"])[:120]
+        if "focus" in what:
+            now = time.monotonic()
+            if what["focus"]:
+                entry["focused"], entry["blurred"] = now, None
+            else:
+                entry["blurred"] = now
+
+    def frame_in_front(self):
+        """The window whose frame here had the keyboard last - still has it,
+        or lost it a moment ago (FRONT_GRACE_S) - or None. Ours never: a
+        window of ours that is away is hidden here, not in a frame."""
+        best, now = None, time.monotonic()
+        for key, s in list(self.windows_away.items()):
+            focused, blurred = s.get("focused"), s.get("blurred")
+            if s.get("mine") or not focused:
+                continue
+            if blurred is not None and now - blurred > self.FRONT_GRACE_S:
+                continue
+            if best is None or focused > best[1]:
+                best = (key, focused)
+        return best[0] if best else None
+
+    def bring_window_home(self, key: str) -> bool:
+        """Bring ONE window back where it belongs (docs/moving-windows.md
+        9.3): from here, a frame goes back to its own computer; one of ours
+        comes home. Its channel is closed, so both ends finish it - and
+        nothing is said to the other computer about the rest, which stay
+        where they are. False if there was no such window."""
+        entry = self.windows_away.pop(str(key), None)
+        if entry is None:
+            return False
+        ch = entry.get("ch")
+        if ch is not None:
+            try:
+                ch.close()
+            except Exception:
+                pass
+        return True
 
     def _window_out(self, which: str, mine: bool, whose: str = None) -> None:
         """A member dialling the hub for one window."""

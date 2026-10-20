@@ -42,7 +42,7 @@ class Moving:
     def _server(self, node):
         """Stands in for the part of Nishro Link that has a screen: it runs
         the real sessions, against a fake window and a fake frame."""
-        def serve(ch, kind, which, whose):
+        def serve(ch, kind, which, whose, notes=None):
             if kind == "lend":
                 win = self.windows.get(which)
                 if win is None:
@@ -387,7 +387,7 @@ def test_the_other_computers_reason_crosses_instead_of_a_dead_socket(moving):
     wait(lambda: moving.aio.window_peers.get("laptop"), "the capability")
     # The member cannot show it - as if nobody were signed in over there.
     excuse = "nobody is signed in on aio, so there is no screen"
-    moving.aio.serve_window = lambda ch, k, w, s: excuse
+    moving.aio.serve_window = lambda ch, k, w, s, notes=None: excuse
 
     assert moving.hub.move_window_to("aio", "w1") == ""
     # The aio knows its own reason...

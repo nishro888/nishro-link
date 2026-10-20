@@ -554,13 +554,13 @@ you would any window there.
 
 ### Bringing it back
 
-- **Drag it back across the edge.** Take the window by its title bar and
-  drag it off the side of the screen the other computer is on - the same
-  edge the pointer crosses to drive that computer. A good shove past the
-  edge is enough - the title then says **"let go to send it back to
-  laptop"**; let go and it goes. Drag it back on screen instead and nothing happens.
+- **The window in front: the tray icon → Send back to laptop.** Click the
+  window first, then the tray; the menu names it - *"In front: Notepad -
+  from laptop"* - and back always means to the computer it belongs to.
+- **Any one of them, by name: the tray icon → Bring one back**, on either
+  computer - the windows shown here, and your own shown somewhere else.
+- **All of them: the tray icon → Bring windows home**.
 - Or **Win+Shift+** the arrow back towards its own computer.
-- Or **the tray icon → Bring windows home**.
 - It also comes back by itself if anything goes wrong: the network drops,
   either computer's Nishro Link stops or restarts, the other computer locks,
   or you switch the feature off. **A window is never left invisible** - even
