@@ -130,7 +130,17 @@ profile), each captured six times with `PrintWindow(PW_RENDERFULLCONTENT)`;
 | | shown | covered | hidden (layered, alpha 1, click-through) | off-screen | minimized |
 |---|---|---|---|---|---|
 | Tk, animated | drawing | drawing | **drawing** | frozen | frozen |
-| Edge, animated page | drawing | drawing | **drawing** | frozen | frozen |
+| Edge, animated page | drawing | **frozen** (see below) | **drawing** | frozen | frozen |
+
+- **Covered, Edge freezes - hidden or not.** The first check covered each
+  window with a borderless always-on-top Tk window, and read "drawing"; but
+  Chromium does not count a window like that (a tool window) as covering
+  anything. Covered by an ordinary window - a maximized Notepad in front -
+  Edge stops drawing within a second, shown or hidden, and starts again
+  once uncovered (2026-10-18). That is Chromium's own native window
+  occlusion tracking, so it is the same for Chrome and for programs built
+  on it (VS Code, Teams, Discord). A moved window is therefore also made
+  topmost (4.1), and drew on, covered, in every check.
 
 - Hidden that way, a window really is gone from the screen (Edge: 98% of the
   screen matched its picture when shown, 15% - chance - when hidden) and keeps
@@ -180,7 +190,12 @@ work:
   checks for R9.
 - **Hiding:** the window becomes a layered window at alpha 1, click-through
   (`WS_EX_LAYERED | WS_EX_TRANSPARENT`). Invisible, out of the way of the
-  laptop's own mouse, still drawing (section 3). Its old extended style and
+  laptop's own mouse, still drawing (section 3). It is also made
+  **topmost**, once invisible: a Chromium window stops drawing when it works
+  out it is covered, and nothing covers a topmost window - invisible and
+  click-through, it is in nobody's way up there. Coming home it leaves the
+  topmost band before it shows (unless it was topmost before), and so comes
+  back above the other windows. Its old extended style and
   alpha are written down first (`winmove.Rescue`, a JSON file written whole
   and renamed over the old one), so a crash between hiding and showing
   cannot leave someone else's window invisible for good: the next start puts
@@ -407,6 +422,14 @@ Worth keeping from it, because they were measured rather than reasoned:
   common ones: Chrome, Edge, Explorer, Office, VS Code.
 - Windows' focus rules (`SetForegroundWindow` from the agent); the parked
   pointer while input goes into a hidden window.
+- **A Chromium window covered since it was last in front will not become
+  topmost** - SetWindowPos says yes and nothing changes, until the window is
+  in front again. Moved like that, it freezes over there whenever a window
+  here covers it. Rare, since the window moved is the one in front; the log
+  says so when it happens. Bringing it to the front for a moment would fix
+  it and take the person's focus - not done.
+- A topmost window, even an invisible one, over a full-screen game at home
+  may cost the game Windows' fastest way of drawing - untested.
 - GNOME: does a covered or minimized window keep drawing for the portal; is
   the dialog needed every time; does a helper started at log-in reach the
   portal - the AIO's test answers these.

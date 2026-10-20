@@ -48,6 +48,66 @@ click past a click-through child (the test window has one on request); 1
 for the frame letting go of keys when it loses the keyboard. Each check
 broken on purpose was caught.
 
+
+## 2026-10-18 - a moved browser froze when a window covered it at home
+
+Found while measuring busy windows: the first run read 0 frames a second,
+because the frame showing the window sat on top of the hidden browser.
+Chromium stops drawing a window it works out is covered (its native window
+occlusion tracking) - hidden at alpha 1 or not - so a moved Chrome, Edge,
+VS Code or Teams window froze on the other computer the moment the person
+put a window over it at home. The 2026-10-13 check missed it: its cover was
+a borderless always-on-top Tk window, a tool window, which Chromium does not
+count as covering anything.
+
+Every check below on the laptop: an Edge page of moving colour (a throwaway
+profile), a Notepad maximized over it, four captures a second apart -
+"3/3" is drawing, "0/3" frozen. Each case in a process of its own, and each
+says what is in front and which window is above which (see "artifacts").
+
+| | covered | then |
+|---|---|---|
+| shown, never hidden | 0/3 | Notepad minimized: 3/3 |
+| hidden (as before), then covered | 0/3 | |
+| hidden **and topmost**, then covered (the fix) | **3/3**, Notepad in front and below it | home again: not topmost |
+| covered first, then hidden + topmost | 0/3, topmost refused | uncovered: 3/3, still refused; covered again: 0/3 |
+
+**Topmost is refused by Chromium, not Windows**, and only in one case:
+
+- Made topmost with the browser in front, or uncovered with a Notepad in
+  front beside it (as after the tray's menu), from this process or a fresh
+  one: topmost, every time.
+- A Notepad covered by a maximized Notepad: topmost.
+- A Chromium window covered since it was last in front: SetWindowPos says 1,
+  no error, and nothing changes - read every 5 ms for half a second, the bit
+  never comes on, so it is turned down rather than taken back. Uncovering it
+  does not help (moved aside or minimized, the cover); bringing the browser
+  to the front does, and then it becomes topmost at once.
+
+Nudges tried on a covered, hidden, topmost-refused browser, none of which
+woke it: a 1x1 window of our own shown and destroyed (Chromium ignores
+popups' events), the window moved a pixel and back, hidden and shown with
+SetWindowPos or ShowWindow, disabled and enabled, a non-popup window of our
+own changing state, the foreground moved to another window.
+
+So `window_win.Window.hide()` now makes the window topmost once it is
+invisible, `show()` takes it out of the band before it shows (unless it was
+topmost before it left; the extended style in the record says), and
+`capture()` asks again once a second for one that is not. The one case left
+- a browser covered since it was last in front when it is moved - freezes
+when covered and is logged; the window moved is nearly always the one in
+front. Seven new tests on a real window of the tests' own; three deliberate
+breaks of the fix each caught.
+
+**Artifacts, found and thrown out on the way:**
+
+- After its first Notepad, a script's later Notepads did not come to the
+  front (the foreground lock), so in one process every case after the first
+  read "covered 3/3" with nothing covering it - including the first "the
+  topmost fix works" result, which had to be measured again properly.
+- One run read "covered, asked, topmost True" with the Notepad not in front
+  at all.
+
 ## 2026-10-14 - a window really moves between the two machines
 
 **It works.** A window of a test script's own was moved from the laptop to

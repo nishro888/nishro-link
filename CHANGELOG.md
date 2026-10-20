@@ -47,6 +47,12 @@ Works with every 1.x.
     works fully.
 
 ### Fixed
+- **A moved browser no longer freezes when a window here covers it.** Chrome,
+  Edge and the programs built on them (VS Code, Teams, Discord) stop drawing a
+  window they work out is covered - hidden or not - so the window on the
+  other computer froze the moment something was put over it at home. While
+  it is away, a moved window is now kept above the others - invisible and
+  click-through, so it is in nobody's way - and it comes home on top.
 - **"The window is now on the other computer" is no longer said before it
   is.** The tray announced success the instant it was clicked, because
   asking is not arriving - on a hub the request has only asked the other
