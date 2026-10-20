@@ -7,6 +7,7 @@ the state in the icon, notifications, and the Linux dock's right-click menu.
 What is decided is pure data (tray.state/menu/changes), so it is tested here
 on any system; the Windows menu builder is tested on Windows.
 """
+import time
 import sys
 
 import pytest
@@ -138,20 +139,29 @@ class FakeAPI:
 class FakeUI:
     def __init__(self):
         self.shown, self.notes, self.quit_called = [], [], False
+        self.said = []                    # (title, text), so a test can read it
 
     def show(self, st, items):
         self.shown.append(st)
 
     def notify(self, title, text):
         self.notes.append(title)
+        self.said.append((title, text))
 
     def quit(self):
         self.quit_called = True
 
 
-def make(api):
+def make(api, in_front=None):
+    """A tray, with the window it would move answered for.
+
+    The real one looks at this computer's own windows; a test says what it
+    would have found, so no test depends on what happens to be on screen.
+    """
     ui = FakeUI()
-    return tray.Tray(lambda: api, ui, ["nishro-link"]), ui
+    t = tray.Tray(lambda: api, ui, ["nishro-link"])
+    t.look_for_window = lambda: in_front
+    return t, ui
 
 
 def test_it_redraws_only_when_something_changed():
@@ -450,3 +460,399 @@ def test_a_second_tray_exits_at_once(desktop):
 def test_a_desktop_without_a_tray_is_not_an_error(desktop, monkeypatch):
     desktop.ui = None
     assert tray.run(log=lambda *a: None) == 0
+
+
+# ---------------------------------------- moving windows between computers
+def with_windows(**extra):
+    """A status with the feature switched on and a device online."""
+    s = {"enabled": True, "connected": True, "role": "hub",
+         "devices": [{"name": "laptop", "me": True, "hub": True, "online": True},
+                     {"name": "aio", "me": False, "hub": False, "online": True}],
+         "move_windows": True, "windows_here": ["home", "away"],
+         "current_window": {"which": "111", "title": "Notepad"}}
+    s.update(extra)
+    return tray.state(s)
+
+
+def labels(st):
+    return [i.get("label") for i in tray.menu(st)]
+
+
+def test_nothing_about_windows_until_the_switch_is_on():
+    """Someone who has not turned it on should not be asked to wonder about
+    it - nothing shown, rather than something greyed out."""
+    st = with_windows(move_windows=False)
+    assert tray.window_items(st) == []
+    assert not any("window" in (lbl or "").lower() for lbl in labels(st))
+
+
+def test_nothing_about_windows_where_this_computer_cannot_do_it():
+    assert tray.window_items(with_windows(windows_here=[])) == []
+
+
+def test_one_other_computer_still_gets_the_list_not_a_plain_entry():
+    """The shape should not change when a third computer appears."""
+    st = with_windows()
+    sub = [i for i in tray.window_items(st) if i.get("kind") == "sub"]
+    assert sub and sub[0]["label"] == "Move the current window to"
+    assert [i["action"] for i in sub[0]["items"]] == ["window:aio"]
+    assert "Move the current window to" in labels(st)
+
+
+def test_several_computers_get_a_submenu():
+    st = with_windows(devices=[
+        {"name": "laptop", "me": True, "hub": True, "online": True},
+        {"name": "aio", "me": False, "hub": False, "online": True},
+        {"name": "desktop-1", "me": False, "hub": False, "online": True}])
+    sub = [i for i in tray.window_items(st) if i.get("kind") == "sub"]
+    assert sub and sub[0]["label"] == "Move the current window to"
+    assert [i["action"] for i in sub[0]["items"]] == ["window:aio",
+                                                      "window:desktop-1"]
+
+
+def test_a_computer_that_is_offline_is_not_offered():
+    st = with_windows(devices=[
+        {"name": "laptop", "me": True, "hub": True, "online": True},
+        {"name": "aio", "me": False, "hub": False, "online": False}])
+    assert not any("aio" in (i.get("label") or "") for i in tray.window_items(st))
+
+
+def test_windows_already_away_can_be_brought_home():
+    st = with_windows(windows_away=[{"which": "us:1", "device": "aio",
+                                     "ours": True}])
+    items = tray.window_items(st)
+    assert any(i.get("label") == "1 window is on another screen" for i in items)
+    assert any(i.get("action") == "windows-home" for i in items)
+
+
+def test_the_count_of_windows_away_reads_properly():
+    st = with_windows(windows_away=[{"which": "us:1"}, {"which": "us:2"}])
+    assert any(i.get("label") == "2 windows are on another screen"
+               for i in tray.window_items(st))
+
+
+def test_bringing_home_is_offered_even_with_nowhere_left_to_send_one():
+    """A window is away and the other computer has since gone offline: the
+    person must still be able to ask for it back."""
+    st = with_windows(
+        devices=[{"name": "laptop", "me": True, "hub": True, "online": True},
+                 {"name": "aio", "me": False, "hub": False, "online": False}],
+        windows_away=[{"which": "us:1", "device": "aio", "ours": True}])
+    assert any(i.get("action") == "windows-home" for i in tray.window_items(st))
+
+
+def test_a_status_from_an_older_service_says_nothing_about_windows():
+    """N6: the tray must not assume the service knows about any of this."""
+    st = tray.state({"enabled": True, "connected": True, "role": "hub",
+                     "devices": []})
+    assert st["move_windows"] is False
+    assert tray.window_items(st) == []
+
+
+# ------------------------- the window entries actually do something when clicked
+class WindowAPI(FakeAPI):
+    """Answers the window commands, and remembers what it was asked."""
+
+    def __init__(self, s, windows=None, error=None):
+        super().__init__(s)
+        self.windows = windows if windows is not None else [
+            {"which": "111", "title": "Notepad"},
+            {"which": "222", "title": "A browser"}]
+        self.error = error
+        self.asked = []
+
+    def command(self, path, body):
+        self.asked.append((path, body))
+        if path == "/api/windows":
+            return {"windows": self.windows}
+        if path == "/api/window/move":
+            if self.error:
+                return {"error": self.error}
+            # It really arrives, so the tray may say so.
+            self.s = dict(self.s, windows_away=[
+                {"which": f"laptop:{body.get('which')}",
+                 "device": body.get("device"), "ours": True}])
+            return {"ok": True}
+        if path == "/api/window/home":
+            return {"ok": True, "brought_home": 2}
+        return super().command(path, body)
+
+
+def window_status(**extra):
+    s = {"enabled": True, "connected": True, "role": "hub",
+         "move_windows": True, "windows_here": ["home", "away"],
+         "current_window": {"which": "111", "title": "Notepad"},
+         "devices": [{"name": "laptop", "me": True, "hub": True, "online": True},
+                     {"name": "aio", "me": False, "hub": False, "online": True}]}
+    s.update(extra)
+    return s
+
+
+def test_clicking_move_sends_the_window_in_front():
+    """The entry used to be drawn and do nothing at all - the action was
+    never wired up. The window is now the one the TRAY saw in front, so it
+    is the same one the menu named."""
+    api = WindowAPI(window_status())
+    t, ui = make(api, in_front={"which": "111", "title": "Notepad"})
+    t.poll_once()
+    t._move_a_window("aio")
+    assert ("/api/window/move", {"which": "111", "device": "aio"}) in api.asked, (
+        f"asked: {api.asked}")
+    assert ui.notes, "the person was not told it happened"
+
+
+def test_where_the_tray_cannot_see_windows_it_asks_the_service():
+    """On Linux the tray cannot look at the windows itself, so the part of
+    Nishro Link that can is asked - and its list is frontmost first, which
+    is what "the window in front" means."""
+    api = WindowAPI(window_status(current_window=None),
+                    windows=[{"which": "999", "title": "On top"},
+                             {"which": "111", "title": "Behind"}])
+    t, ui = make(api)
+    t.poll_once()
+    t._move_a_window("aio")
+    assert ("/api/windows", {}) in api.asked
+    moved = [b for p, b in api.asked if p == "/api/window/move"]
+    assert moved == [{"which": "999", "device": "aio"}]
+
+
+def test_with_no_window_to_move_the_person_is_told_not_left_wondering():
+    api = WindowAPI(window_status(current_window=None), windows=[])
+    t, ui = make(api)
+    t.poll_once()
+    t._move_a_window("aio")
+    assert not [p for p, _b in api.asked if p == "/api/window/move"]
+    assert ui.notes, "nothing was said"
+
+
+def test_a_refusal_is_shown_to_the_person():
+    api = WindowAPI(window_status(), error="aio is not connected")
+    t, ui = make(api)
+    t.poll_once()
+    t._move_a_window("aio")
+    assert ui.notes, "the reason was not shown"
+
+
+def test_clicking_bring_windows_home_asks_for_them_back():
+    api = WindowAPI(window_status())
+    t, ui = make(api)
+    t.poll_once()
+    t.act("windows-home")
+    assert ("/api/window/home", {}) in api.asked
+    assert ui.notes, "the person was not told"
+
+
+def test_the_move_action_is_recognised_from_the_menu_item():
+    """The menu puts the device's name in the action; act() must take it."""
+    api = WindowAPI(window_status())
+    t, ui = make(api, in_front={"which": "111", "title": "Notepad"})
+    t.poll_once()
+    items = tray.window_items(tray.state(window_status()))
+    inside = [i for it in items for i in (it.get("items") or [])]
+    action = next(i["action"] for i in items + inside
+                  if (i.get("action") or "").startswith("window:"))
+    assert action == "window:aio"
+    t.act(action)
+    time.sleep(0.5)                     # act() does the moving on a thread
+    assert any(p == "/api/window/move" for p, _b in api.asked), \
+        f"the action did nothing: {api.asked}"
+
+
+# ------------------------------- a window dragged across to another computer
+DOOR = {"side": "left", "edge": 0, "device": "aio"}
+
+
+class AskedAPI:
+    """Remembers the whole of what was asked, body and all."""
+
+    def __init__(self, answer=None):
+        self.asked, self.answer = [], answer or {"ok": True}
+
+    def status(self):
+        return {}
+
+    def command(self, path, body):
+        self.asked.append((path, body))
+        return self.answer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ------------------- "Move the current window to", and telling the truth
+TWO = {"enabled": True, "move_windows": True, "windows_here": ["home", "away"],
+       "devices": [{"name": "laptop", "online": True, "me": True, "hub": True},
+                   {"name": "aio", "online": True, "me": False, "hub": False},
+                   {"name": "desk-pc", "online": True, "me": False,
+                    "hub": False}],
+       "current_window": {"which": "4242", "title": "report.txt - Notepad"}}
+
+
+def items_of(st, label):
+    """The submenu under a label, or None."""
+    for it in tray.menu(st):
+        if it.get("label") == label:
+            return it
+    for it in tray.menu(st):
+        for sub in it.get("items") or []:
+            if sub.get("label") == label:
+                return sub
+    return None
+
+
+def test_the_window_in_front_is_named_in_the_menu():
+    """The maintainer: "sometimes i am not sure which windo is chosen"."""
+    st = tray.state(TWO)
+    labels = [i.get("label") for i in tray.menu(st)]
+    assert any("report.txt - Notepad" in (l or "") for l in labels), labels
+
+
+def test_moving_is_always_a_list_of_devices_even_with_one():
+    """There will be more than two computers, so the shape should not change
+    when a third appears."""
+    one = dict(TWO, devices=[d for d in TWO["devices"]
+                             if d["name"] in ("laptop", "aio")])
+    sub = items_of(tray.state(one), "Move the current window to")
+    assert sub is not None, tray.menu(tray.state(one))
+    assert sub["kind"] == "sub"
+    assert [i["label"] for i in sub["items"]] == ["aio"]
+
+
+def test_every_other_computer_is_offered():
+    sub = items_of(tray.state(TWO), "Move the current window to")
+    assert [i["label"] for i in sub["items"]] == ["aio", "desk-pc"]
+    assert all(i["action"].startswith("window:") for i in sub["items"])
+
+
+def test_this_computer_is_not_offered_to_itself():
+    sub = items_of(tray.state(TWO), "Move the current window to")
+    assert "laptop" not in [i["label"] for i in sub["items"]]
+
+
+def test_with_no_window_in_front_there_is_nothing_to_move():
+    st = tray.state(dict(TWO, current_window=None))
+    assert items_of(st, "Move the current window to") is None
+
+
+# These two reach into window_win, which does ctypes.WinDLL("user32") when
+# it is imported - so they cannot even be collected off Windows, let alone
+# run. Pretending the platform is win32 is not enough; the module behind it
+# has to exist. CI's five Linux jobs found this in 25 seconds, which no
+# amount of running the suite on this laptop would have.
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="window_win loads user32 at import")
+def test_the_tray_sees_the_window_in_front_itself(monkeypatch):
+    """Asked of this computer, not of the service: the tray runs where the
+    windows are, and asking the service starts a helper process - far too
+    much to do every two seconds to put a name in a menu."""
+    monkeypatch.setattr(tray.sys, "platform", "win32")
+    import link.window_win as ww
+    monkeypatch.setattr(ww, "in_front",
+                        lambda own_pid=None: (4242, "report.txt - Notepad"))
+    monkeypatch.setattr(ww, "handle", lambda h: int(h))
+    assert tray.current_window() == {"which": "4242",
+                                     "title": "report.txt - Notepad"}
+
+
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="window_win loads user32 at import")
+def test_a_frame_in_front_means_nothing_to_move(monkeypatch):
+    """Not the window underneath it: that is not the one anybody meant."""
+    monkeypatch.setattr(tray.sys, "platform", "win32")
+    import link.window_win as ww
+    monkeypatch.setattr(ww, "in_front", lambda own_pid=None: (
+        None, "that is a window from another computer, shown here"))
+    assert tray.current_window() is None
+
+
+@pytest.mark.skipif(sys.platform != "win32",
+                    reason="window_win loads user32 at import")
+def test_nothing_in_front_is_not_an_error(monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", "win32")
+    import link.window_win as ww
+    monkeypatch.setattr(ww, "in_front", lambda own_pid=None: (None, ""))
+    assert tray.current_window() is None
+
+
+def test_where_windows_cannot_be_seen_it_simply_says_so(monkeypatch):
+    monkeypatch.setattr(tray.sys, "platform", "linux")
+    assert tray.current_window() is None
+
+
+# ------------------------------------------------- asking is not arriving
+class MovingAPI:
+    """A service that takes the request and may or may not deliver."""
+
+    def __init__(self, arrives=True, error=None, trouble=None):
+        self.arrives, self.error, self.trouble = arrives, error, trouble
+        self.asked = []
+        self.away = []
+
+    def status(self):
+        return {"enabled": True, "move_windows": True,
+                "windows_here": ["home", "away"], "devices": TWO["devices"],
+                "windows_away": self.away, "window_trouble": self.trouble}
+
+    def command(self, path, body):
+        self.asked.append((path, body))
+        if self.error:
+            return {"error": self.error}
+        if self.arrives:
+            self.away = [{"which": f"laptop:{body.get('which')}",
+                          "device": body.get("device"), "ours": True}]
+        return {"ok": True}
+
+
+def test_it_says_the_window_arrived_only_once_it_has():
+    t, ui = make(None)
+    t.api = MovingAPI(arrives=True)
+    t.st = tray.state(TWO)
+    t._move_a_window("aio")
+    assert t.api.asked == [("/api/window/move",
+                            {"which": "4242", "device": "aio"})]
+    assert ui.notes == ["Nishro Link"]
+    assert any("is now on aio" in text for _title, text in ui.said), ui.said
+
+
+def test_a_window_that_never_turns_up_is_not_announced_as_arrived():
+    """The bug the maintainer reported: "moving a window in laptop shows
+    notification that window in aio, but actually not". /api/window/move
+    answers as soon as the request is on its way - on a hub it has only
+    asked the other computer to dial in - so the tray announced success the
+    instant it was clicked, and the other computer refused a second later.
+    """
+    t, ui = make(None)
+    t.api = MovingAPI(arrives=False)
+    t.st = tray.state(TWO)
+    t._move_a_window("aio")
+    assert not any("is now on" in text for _title, text in ui.said), ui.said
+    assert any("could not" in text for _title, text in ui.said), ui.said
+
+
+def test_the_other_computers_reason_is_passed_on_if_it_gave_one():
+    t, ui = make(None)
+    t.api = MovingAPI(arrives=False,
+                      trouble={"device": "aio",
+                               "why": "nobody is signed in on aio"})
+    t.st = tray.state(TWO)
+    t._move_a_window("aio")
+    assert any("nobody is signed in on aio" in text
+               for _title, text in ui.said), ui.said
+
+
+def test_a_refusal_from_this_computer_is_said_at_once():
+    t, ui = make(None)
+    t.api = MovingAPI(error="aio cannot show a window from here")
+    t.st = tray.state(TWO)
+    t._move_a_window("aio")
+    assert any("cannot show a window" in text for _title, text in ui.said), \
+        ui.said

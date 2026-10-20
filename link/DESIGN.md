@@ -485,6 +485,24 @@ Announce on change, transfer on request, chunked, capped. Copying a 20 MB image
 must not stall a screen switch. Any node may originate; `origin` + `seq` stop a
 change echoing back to the machine it came from.
 
+### Moved windows — a separate channel, and a process with a screen
+
+A window's program stays where it is; the window is shown, and driven, on the
+other computer (`docs/moving-windows.md` is the whole design). Its pictures
+travel on a connection of their own, dialled and proved exactly like a link
+and never mistaken for one, then handed over to **binary frames** — a length
+and the sealed bytes — so a picture pays neither base64 nor the line cap.
+Home sends a picture only while fewer than two are unshown, so a slow link
+gives a slower but current window rather than a queue of old ones.
+
+The service has no desktop — SYSTEM in session 0, or root outside every
+session — so it keeps the connection, the password and the group, and starts
+one helper per moved window in the signed-in session (`window_host`), passing
+frames between the two. Windows are hidden by being made layered at alpha 1
+and click-through, which is the one way they keep drawing; what is needed to
+undo that is written down first, so nothing can leave someone else's window
+invisible.
+
 ### Files — a separate channel
 
 Bulk transfer gets its own connection on its own port. A 2 GB file must never

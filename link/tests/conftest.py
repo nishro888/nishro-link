@@ -10,6 +10,8 @@ them, so there is exactly one interpreter now and each module gets a Toplevel.
 Requested only by the UI modules, which skip themselves where there is no
 display - so a headless run never creates it.
 """
+import gc
+
 import pytest
 
 
@@ -20,6 +22,20 @@ def tk_session():
     r.withdraw()
     yield r
     r.destroy()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def tk_garbage_collected_here():
+    """What a module's tests left in reference cycles is collected as the
+    module ends, on the main thread - never later, on whichever thread the
+    collector happens to run in. The UI modules leave hundreds of Tk
+    variables and images so; freed on any thread but the interpreter's, each
+    costs tkinter a second waiting for a main loop that is not running
+    (WaitForMainloop). Measured: after two UI modules, one collection on
+    another thread took 117 s. In a live test that thread is the network's,
+    and a window that should take a moment did not come in 60 (CI, twice)."""
+    yield
+    gc.collect()
 
 
 @pytest.fixture(autouse=True)

@@ -96,13 +96,21 @@ def running_as_root() -> bool:
     return hasattr(os, "geteuid") and os.geteuid() == 0
 
 
-def command(cmd, s=None) -> list:
-    """`cmd` wrapped to run inside the session, as its user."""
+def command(cmd, s=None, extra_env=None) -> list:
+    """`cmd` wrapped to run inside the session, as its user.
+
+    `extra_env` is for anything the caller needs that the session itself does
+    not provide - PYTHONPATH, for one: this wrapper deliberately passes only
+    the session's own variables, so a command that relies on the environment
+    it was started with loses it here.
+    """
     s = s or active()
     if s is None:
         raise LookupError("nobody is logged in")
+    env = dict(s["env"])
+    env.update(extra_env or {})
     return ["runuser", "-u", s["user"], "--", "env",
-            *[f"{k}={v}" for k, v in s["env"].items()], *cmd]
+            *[f"{k}={v}" for k, v in env.items()], *cmd]
 
 
 def run(cmd, **kw):

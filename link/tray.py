@@ -19,6 +19,11 @@ import threading
 import time
 
 POLL_S = 2.0
+# How long a window is given to appear on the other computer before the tray
+# says it did not. Long enough for a dial-in, a helper and a frame on a slow
+# machine; short enough that nobody is left wondering.
+WINDOW_WAIT_S = 12.0
+WINDOW_POLL_S = 0.4
 
 
 # ------------------------------------------------------------------ what to show
@@ -49,7 +54,46 @@ def state(s) -> dict:
                 "me": bool(d.get("me")), "hub": bool(d.get("hub"))} for d in devs]
     return {"icon": icon, "header": header, "tooltip": f"Nishro Link - {header}",
             "sharing": bool(s.get("enabled")), "devices": devices,
-            "notify": bool(s.get("notify", True)), "reachable": True}
+            "notify": bool(s.get("notify", True)), "reachable": True,
+            # Moving windows between computers (docs/moving-windows.md).
+            "move_windows": bool(s.get("move_windows")),
+            "windows_here": list(s.get("windows_here") or []),
+            "windows_away": list(s.get("windows_away") or []),
+            # Which window "Move the current window to" means, so nobody has
+            # to guess - the maintainer could not always tell which was
+            # chosen. Put in by poll_once, which can see this computer.
+            "current_window": s.get("current_window"),
+            # Why the last window could not be shown, if one could not.
+            "window_trouble": s.get("window_trouble")}
+
+
+def current_window():
+    """The window the menu would move: the one in front that can be moved,
+    and not one of Nishro Link's own.
+
+    Asked of THIS computer, not of the service. The tray runs in the
+    person's session, where the windows are; asking the service means
+    starting a helper process over loopback, which is far too much to do
+    every two seconds just to put a name in a menu.
+
+    Windows only so far - on GNOME one program may not see another's
+    windows, the same wall that stops a window being hidden there.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        from . import window_win
+        # The window really in front - and if THAT cannot be moved (a frame
+        # showing another computer's window, one of Nishro Link's own),
+        # nothing: the first window down the stack that could be moved was
+        # offered before, which was the one underneath.
+        hwnd, title = window_win.in_front(os.getpid())
+        if hwnd:
+            return {"which": str(window_win.handle(hwnd)),
+                    "title": (title or "a window")[:80]}
+    except Exception:
+        return None                   # never worth a tray's life (P4)
+    return None
 
 
 def device_label(d: dict) -> str:
@@ -82,12 +126,50 @@ def menu(st: dict) -> list:
         {"kind": "item", "label": "Release input", "action": "release", "enabled": live},
         {"kind": "sep"},
         {"kind": "sub", "label": "Devices", "items": devices, "enabled": True},
+    ] + window_items(st) + [
         {"kind": "sep"},
         {"kind": "item", "label": "Open Nishro Link", "action": "open", "enabled": True,
          "default": True},
         {"kind": "item", "label": "Hide this icon", "action": "hide", "enabled": True},
         {"kind": "item", "label": "Quit Nishro Link", "action": "quit", "enabled": True},
     ]
+
+
+def window_items(st: dict) -> list:
+    """The menu's part for moving windows between computers, or nothing at
+    all where the switch is off or this computer cannot do it.
+
+    Nothing is shown rather than something greyed out: a person who has not
+    turned the feature on should not be asked to wonder about it. The
+    settings page is where it is switched on.
+    """
+    if not st.get("move_windows") or not st.get("windows_here"):
+        return []
+    live = st["reachable"]
+    others = [d for d in st["devices"] if not d["me"] and d["online"]]
+    away = st.get("windows_away") or []
+    out = [{"kind": "sep"}]
+    here = st.get("current_window")
+    if "home" in st["windows_here"] and others and here:
+        # The window is NAMED, because the menu moves whichever is in front
+        # and that is not always the one the person has in mind.
+        out.append({"kind": "item", "label": f"In front: {here['title']}",
+                    "action": None, "enabled": False})
+        # Always a list, even for one other computer: there will be more
+        # than two, and the shape should not change when the third appears.
+        out.append({"kind": "sub", "label": "Move the current window to",
+                    "enabled": live,
+                    "items": [{"kind": "item", "label": d["name"],
+                               "action": f"window:{d['name']}",
+                               "enabled": live} for d in others]})
+    if away:
+        what = ("1 window is on another screen" if len(away) == 1
+                else f"{len(away)} windows are on another screen")
+        out.append({"kind": "item", "label": what, "action": None,
+                    "enabled": False})
+        out.append({"kind": "item", "label": "Bring windows home",
+                    "action": "windows-home", "enabled": live})
+    return out if len(out) > 1 else []
 
 
 def changes(before: dict, after: dict) -> list:
@@ -124,6 +206,10 @@ class Tray:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self.born = time.time()          # a Quit after this closes this tray
+        # Which window the menu would move. Looked for HERE, not asked of
+        # the service: the tray runs where the windows are. An attribute so
+        # a test can answer for it without a real window on a real screen.
+        self.look_for_window = current_window
 
     def poll_once(self) -> None:
         from . import service
@@ -143,6 +229,8 @@ class Tray:
                     break
                 except Exception:
                     self.api = None
+            if s is not None:
+                s = dict(s, current_window=self.look_for_window())
             st = state(s)
             if self.st is not None and st["notify"]:
                 for title, text in changes(self.st, st):
@@ -182,9 +270,109 @@ class Tray:
             elif action == "quit":
                 threading.Thread(target=self._quit, daemon=True).start()
                 return
+            elif action == "windows-home":
+                if api is None:
+                    return
+                got = api.command("/api/window/home", {}) or {}
+                how_many = got.get("brought_home") or 0
+                if how_many:
+                    self.ui.notify("Nishro Link",
+                                   f"{how_many} window(s) are back on this "
+                                   f"computer.")
+            elif str(action).startswith("window:"):
+                if api is None:
+                    return
+                threading.Thread(target=self._move_a_window,
+                                 args=(str(action)[len("window:"):],),
+                                 daemon=True).start()
+                return
         except Exception as e:
             self.ui.notify("Nishro Link", f"That didn't work: {e}")
         threading.Thread(target=self.poll_once, daemon=True).start()
+
+    def _move_a_window(self, device: str) -> None:
+        """Send the window in front to `device`, and say what REALLY happened.
+
+        The one in front, not one picked from a list: a tray menu cannot ask
+        - on Linux it is rebuilt as things change and would close under the
+        person reading it - and "the window I am looking at" is what anyone
+        means by this.
+
+        Asking is not arriving. /api/window/move answers as soon as the
+        request is on its way, and on a hub it has only asked the other
+        computer to dial in - so this used to announce "Notepad is now on
+        aio" the instant it was clicked. The maintainer saw exactly that
+        while the window never appeared: the other computer had refused and
+        closed the channel a second later. Nothing is claimed now until the
+        service says the window really is over there.
+        """
+        which, name = self._what_to_move()
+        if which is None:
+            return                        # already said why
+        try:
+            got = self.api.command("/api/window/move",
+                                   {"which": which, "device": device}) or {}
+        except Exception as e:
+            self.ui.notify("Nishro Link", f"Could not send that window: {e}")
+            return
+        if got.get("error"):
+            self.ui.notify("Nishro Link", got["error"])
+            return
+        if self._arrived(which, device):
+            self.ui.notify("Nishro Link", f"{name} is now on {device}.")
+            return
+        self.ui.notify("Nishro Link", self._why_not(device, name, which))
+
+    def _what_to_move(self):
+        """(which, name), or (None, None) having said why not."""
+        here = (self.st or {}).get("current_window")
+        if here and here.get("which"):
+            return str(here["which"]), (here.get("title") or "The window")[:60]
+        # No window seen from here - on Linux the tray cannot look - so ask
+        # the part of Nishro Link that can.
+        try:
+            windows = (self.api.command("/api/windows", {})
+                       or {}).get("windows") or []
+        except Exception as e:
+            self.ui.notify("Nishro Link", f"Could not look for windows: {e}")
+            return None, None
+        if not windows:
+            self.ui.notify("Nishro Link",
+                           "No window on this computer can be moved just now.")
+            return None, None
+        first = windows[0]
+        return (str(first.get("which")),
+                (first.get("title") or "The window")[:60])
+
+    def _arrived(self, which: str, device: str) -> bool:
+        """Wait, briefly, for the service to say the window is over there."""
+        end = time.monotonic() + WINDOW_WAIT_S
+        while time.monotonic() < end:
+            for away in (self._fresh() or {}).get("windows_away") or []:
+                key = str(away.get("which") or "")
+                if key.endswith(f":{which}") and away.get("device") == device:
+                    return True
+            time.sleep(WINDOW_POLL_S)
+        return False
+
+    def _fresh(self):
+        try:
+            return self.api.status() if self.api else None
+        except Exception:
+            return None
+
+    def _why_not(self, device: str, name: str, which: str) -> str:
+        """What to tell the person when the window did not go.
+
+        The other computer's own reason if it gave one - "nobody is signed in
+        on aio" is worth far more than "it did not work".
+        """
+        trouble = (self._fresh() or {}).get("window_trouble") or {}
+        why = trouble.get("why")
+        if why and (not trouble.get("device") or trouble["device"] == device):
+            return f"{name} could not be shown on {device}: {why}"
+        return (f"{name} could not be shown on {device}. "
+                f"Activity on both computers says why.")
 
     def _quit(self) -> None:
         """Quit Nishro Link: the service stops, then this tray goes - and this

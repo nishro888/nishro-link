@@ -53,6 +53,7 @@ class ControlAPI:
         node.on_manage = self._on_manage
         node.on_policy = self._on_policy
         node.core.find_on_shake = bool(cfg.get("find_on_shake", True))
+        node.move_windows = bool(cfg.get("move_windows", False))
         # What the hub remembers of each device, for a rename or a return.
         for d in cfg.get("devices") or []:
             if d.get("id") and d.get("name"):
@@ -256,6 +257,16 @@ class ControlAPI:
             "encrypted": True,       # every link: secure.py
             "find_on_shake": bool(self.node.core.find_on_shake),
             "notify": bool(self.cfg.get("notify", True)),
+            "move_windows": bool(self.node.move_windows),
+            # What this computer can actually do with windows, so the
+            # settings page can say why the switch will not help here.
+            "windows_here": sorted(self.node.window_sides),
+            # Why the last window could not be shown, if one could not, so
+            # the tray can say that rather than claiming it went.
+            "window_trouble": self.node.window_trouble,
+            "windows_away": [
+                {"which": key, "device": s.get("who"), "ours": bool(s.get("mine"))}
+                for key, s in sorted(self.node.windows_away.items())],
             "firewall_blocked": self.firewall_blocked or [],
             "network_public": self.network_public or [],
             "setup": self.setup if self.setup and not self.setup.get("ok") else None,
@@ -338,6 +349,24 @@ class ControlAPI:
             # Show where the pointer is, on whichever machine it is on.
             self.node._act(self.node.core.find)
             return {"ok": True}
+        if path == "/api/window/move":
+            # Show one of this computer's windows on another's screen.
+            which, device = body.get("which"), body.get("device")
+            if which is None or not device:
+                return {"error": "which window, and on which device?"}
+            why = self.node.move_window_to(str(device), which)
+            if why:
+                return {"error": why}
+            self.log(f"showing a window on {device}")
+            return {"ok": True}
+        if path == "/api/window/home":
+            how_many = self.node.bring_windows_home(body.get("device"))
+            if how_many:
+                self.log(f"brought {how_many} window(s) back to this computer")
+            return {"ok": True, "brought_home": how_many}
+        if path == "/api/windows":
+            # What could be moved from here, for the tray's menu.
+            return {"windows": self._movable_windows()}
         if path == "/api/config":
             return self._configure(body)
         if path == "/api/quit":
@@ -990,6 +1019,20 @@ class ControlAPI:
         self.cfg["placement"] = boxes
         config.save(self.cfg, self.cfg_path)
 
+    def _movable_windows(self) -> list:
+        """The windows on this computer that could be shown on another, as
+        [{"which", "title"}]. Empty where this system cannot move windows."""
+        if not self.node.move_windows or "home" not in self.node.window_sides:
+            return []
+        lister = getattr(self.node, "list_windows", None)
+        if lister is None:
+            return []
+        try:
+            return [{"which": str(w), "title": t} for w, t in lister()]
+        except Exception as e:
+            self.log(f"could not list the windows that could move: {e!r}")
+            return []
+
     def _configure(self, body: dict) -> dict:
         """Write settings through. Anything needing a restart says so rather than
         pretending to have taken effect."""
@@ -1019,6 +1062,15 @@ class ControlAPI:
         if "notify" in body:
             self.cfg["notify"] = bool(body["notify"])
             live["notify"] = self.cfg["notify"]
+        if "move_windows" in body:
+            on = bool(body["move_windows"])
+            self.cfg["move_windows"] = on
+            self.node.move_windows = on
+            if not on:
+                # Switched off: everything comes home at once, here and on
+                # the other computer (R1, R6).
+                self.node.bring_windows_home(None)
+            live["move_windows"] = on
         if "find_on_shake" in body:
             on = bool(body["find_on_shake"])
             self.cfg["find_on_shake"] = on

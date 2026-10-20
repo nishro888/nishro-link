@@ -81,11 +81,23 @@ def test_a_big_copy_arrives_whole_while_the_link_carries_on(pair, tmp_path, monk
     import time
     monkeypatch.setattr(files, "CHUNK", 2048)
     real_data = files.Receive.data
+    pieces = []
 
+    # A pause every 16th piece, not a tiny one at every piece: before Python
+    # 3.11 a sleep on Windows lasts at least a timer tick (up to 15.6 ms), and
+    # 3,072 of those outlasted the test (CI, Python 3.8).
     def slow_data(self, index, text):
-        time.sleep(0.0004)
+        pieces.append(index)
+        if len(pieces) % 16 == 0:
+            time.sleep(0.004)
         real_data(self, index, text)
     monkeypatch.setattr(files.Receive, "data", slow_data)
+    # Six megabytes in 2 KB pieces: 3,072 of them. It looks like a lot for
+    # BACKLOG = 32, and it is NOT - shrinking it to 1.5 MB was tried, and
+    # with the backlog wait deleted the test still PASSED, because the
+    # connection's queue never filled. The size is what makes the queue
+    # overflow, which is the whole property. Measured both ways rather than
+    # reasoned about.
     big = tmp_path / "video.mp4"
     big.write_bytes(os.urandom(6 * 1024 * 1024))
     pair.hub.file_offers[4] = Offer([big])
@@ -94,7 +106,15 @@ def test_a_big_copy_arrives_whole_while_the_link_carries_on(pair, tmp_path, monk
     threading.Thread(target=lambda: done.append(pair.aio.files_pull(4)), daemon=True).start()
     pair.hub_cap.sink.on_pointer(0, 384, -5, 0)        # the pointer crosses meanwhile
     pair.wait(lambda: pair.aio_cap.suppress[0] is True, what="the crossing, mid-copy")
-    pair.wait(lambda: done, timeout=30, what="the big copy")
+    # Ninety seconds, and it is not generosity. This takes 1.5 s on Python
+    # 3.11 and about FIFTY on CI's Windows Python 3.8, which is what made it
+    # fail at 30: send_over waits for the backlog in time.sleep(0.002)
+    # steps, and before 3.11 a sleep on Windows lasts at least a timer tick
+    # of up to 15.6 ms - 3,072 pieces of that is a minute of waiting, all of
+    # it in the sleep floor rather than in any real work. (The "copy was
+    # stopped" error in that CI log was the fixture tearing the pair down
+    # afterwards, not the cause.)
+    pair.wait(lambda: done, timeout=90, what="the big copy")
     assert (tmp_path / "aio" / files.FOLDER / "video.mp4").read_bytes() == big.read_bytes()
     assert pair.aio.ch is link, "the link was not touched"
 

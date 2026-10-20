@@ -8,6 +8,74 @@ release may add things, but never anything an older 1.x cannot speak. A change
 that breaks that would be 2.0. Before 1.0, in the betas, a minor version could
 change the protocol, and a group had to run the same minor version.
 
+## [Unreleased]
+
+Works with every 1.x.
+
+### Added
+- **Move a window to the other computer.** A program keeps running where it
+  is; its window appears on the other computer, live, and the mouse and
+  keyboard used over there drive it. It is the window that moves, not the
+  program, which is why a Windows program's window can appear on a Linux
+  screen. **Off until you switch it on**, on both computers
+  (Settings -> *Move windows between computers*), because a moved window's
+  pictures and what you type into it travel to the other computer - sealed
+  like everything else on the link, with keys of their own, on a connection
+  of their own so a window never holds up the pointer.
+  - From the tray: *Move the current window to*, then the computer - with
+    the window it means **named above it**, so there is never a doubt about
+    which one is about to go. Or Win+Shift+Left/Right,
+    the keys that throw a window at the next monitor - carried on past the
+    last one. The same keys bring it back, as does *Bring windows home*.
+  - Away it is an ordinary window, saying where it came from
+    ("Notepad - from laptop"): move it, resize it, maximize it, type in it.
+    Its close button closes the program's window, as that button would at
+    home, so the program can still ask whether to save.
+  - **A window is never left invisible.** It comes home if the network drops,
+    if either computer's Nishro Link stops, restarts or is killed outright,
+    if the other computer locks, or if the switch goes off. What is needed to
+    put it back is written down before it is hidden, and anything still
+    hidden is restored the next time Nishro Link starts.
+  - Up to four windows at once. Typing and clicking feel immediate; the
+    picture updates fifteen to twenty-five times a second, so smooth video it
+    is not. Browsers and editors work; a game, or anything reading the mouse
+    and keyboard straight from the hardware, will not respond. Windows that
+    cannot move say which and why.
+  - Moving a window **from** Ubuntu is not finished: GNOME does not let one
+    program hide another's window, so for now such a window shows on the
+    other computer and stays on its own screen too. Moving one **to** Ubuntu
+    works fully.
+
+### Fixed
+- **"The window is now on the other computer" is no longer said before it
+  is.** The tray announced success the instant it was clicked, because
+  asking is not arriving - on a hub the request has only asked the other
+  computer to dial in. It now waits for the service to say the window
+  really is over there, and says plainly when it is not.
+- **The other computer's reason for refusing a window now reaches you.** It
+  used to close the channel without a word, so all this computer could say
+  was "[WinError 10038] An operation was attempted on something that is not
+  a socket" - where the truth was something as simple as nobody being
+  signed in over there. The reason crosses the link and reaches the
+  notification and the log.
+- **The pointer arrow is drawn as soon as the other computer's mouse moves
+  it.** After a restart the pointer moved and clicked perfectly but no arrow
+  was drawn until this computer's own mouse or touchpad was touched: Windows
+  draws the arrow only once it has seen mouse input, and moving the pointer
+  outright is not that. Nishro Link now gives the system real mouse input
+  whenever driving begins, and puts the pointer back on the exact pixel.
+- **The mouse wheel scrolls in a moved window.** It had only ever been
+  proved against a window that logs the message, not one that acts on it: a
+  hidden window is click-through, so the wheel went past it to whatever was
+  behind.
+- **A menu no longer complains if a key arrives just as it closes.** A menu
+  dismisses itself when the focus leaves it - another window appearing is
+  enough - and a key already on its way then landed on a menu that had gone.
+- **Keys carry their scan code.** A program that reads the scan code to know
+  which physical key was struck got zero from Nishro Link and could not
+  tell. (Not enough for Avro Keyboard, which acts on no injected key at all
+  - see the manual.)
+
 ## [1.1.0] - 2026-09-30
 
 Works with every 1.x.
