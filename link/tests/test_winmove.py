@@ -660,3 +660,80 @@ def test_a_cannot_frame_says_what_it_is_and_fits():
     assert len(header["why"]) == 300, "a peer must not send us an essay"
     assert frame[2:2 + len(winmove.CANNOT_FRAME)] == winmove.CANNOT_FRAME, (
         "the relay spots these without unpacking every frame")
+
+
+# ---------------------------------------- agreeing what pictures to send
+def test_png_is_always_allowed_and_comes_first():
+    assert winmove._codecs(["jpeg"]) == ("png", "jpeg")
+    assert winmove._codecs(None) == ("png",)
+    assert winmove._codecs([]) == ("png",)
+
+
+def test_a_codec_nobody_here_knows_is_dropped_not_trusted():
+    """The list comes from the other computer."""
+    assert winmove._codecs(["webp", "png", 7, None, "jpeg", "jpeg"]) == \
+        ("png", "jpeg")
+    assert winmove._codecs("jpeg") == ("png",), "a string is not a list"
+
+
+def _home_with_recording_encoder():
+    seen = []
+
+    def encode(raw, w, h, codecs=("png",)):
+        seen.append(tuple(codecs))
+        return "png", b"x"
+    s = winmove.HomeSession(ch=None, window=None, encode=encode)
+    return s, seen
+
+
+def test_home_sends_png_only_until_away_says_otherwise():
+    """An older away never says, and draws only PNG."""
+    s, _ = _home_with_recording_encoder()
+    assert s.codecs == ("png",)
+
+
+def test_home_uses_what_away_says_it_can_draw():
+    s, _ = _home_with_recording_encoder()
+    s._on({"t": "ready", "codecs": ["png", "jpeg"]}, b"")
+    assert s.codecs == ("png", "jpeg")
+
+
+def test_an_older_ready_with_no_list_still_means_png():
+    s, _ = _home_with_recording_encoder()
+    s._on({"t": "ready"}, b"")
+    assert s.codecs == ("png",)
+
+
+def test_away_says_what_its_frame_can_draw():
+    sent = []
+
+    class Ch:
+        def send(self, frame):
+            sent.append(winmove.unpack(frame)[0])
+
+    class Frame:
+        codecs = ("png", "jpeg")
+
+        def open(self, title, w, h):
+            pass
+
+    a = winmove.AwaySession(Ch(), Frame())
+    a._meta({"t": "meta", "title": "x", "w": 10, "h": 10})
+    ready = [m for m in sent if m.get("t") == "ready"]
+    assert ready and ready[0]["codecs"] == ["png", "jpeg"]
+
+
+def test_a_frame_that_says_nothing_is_announced_as_png_only():
+    sent = []
+
+    class Ch:
+        def send(self, frame):
+            sent.append(winmove.unpack(frame)[0])
+
+    class Frame:
+        def open(self, title, w, h):
+            pass
+
+    a = winmove.AwaySession(Ch(), Frame())
+    a._meta({"t": "meta", "title": "x", "w": 10, "h": 10})
+    assert [m for m in sent if m.get("t") == "ready"][0]["codecs"] == ["png"]

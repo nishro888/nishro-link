@@ -525,6 +525,9 @@ class HomeSession:
         self.ended = None             # one of HOME/GONE/DROPPED/STOPPED/FAILED
         self._stop = False
         self._ready = threading.Event()
+        # What the other end can draw, from its "ready". PNG until it says:
+        # an older away says nothing and draws PNG, and must get PNG.
+        self.codecs = ("png",)
         self._last = b""              # the picture last sent
         self._last_wh = None          # the size it was captured at
         self._keyed = 0.0             # when the whole picture last went
@@ -629,7 +632,7 @@ class HomeSession:
             cut = b"".join(raw[(y + row) * stride + x * 4:
                                (y + row) * stride + (x + rw) * 4]
                            for row in range(rh))
-            codec, data = self.encode(cut, rw, rh)
+            codec, data = self.encode(cut, rw, rh, self.codecs)
             out.append((x, y, rw, rh, codec, data))
         self.ch.send(pic(self.pacer.next_number(), out))
         return True
@@ -661,6 +664,7 @@ class HomeSession:
     def _on(self, header: dict, _payload: bytes) -> None:
         t = header.get("t")
         if t == "ready":
+            self.codecs = _codecs(header.get("codecs"))
             self._ready.set()
         elif t == "ack":
             self.pacer.acked(header.get("n"))
@@ -712,6 +716,18 @@ class HomeSession:
             code = header.get("code")
             if isinstance(code, int) and 0 <= code < 1024:
                 self.window.key(code, bool(header.get("down")))
+
+
+def _codecs(said) -> tuple:
+    """The codecs a peer says it can draw, as far as we know them - and PNG
+    always, which every version draws. Anything else in the list, or a list
+    that is not one, is ignored: it comes from the other computer."""
+    out = ["png"]
+    if isinstance(said, (list, tuple)):
+        for c in said:
+            if isinstance(c, str) and c in CODECS and c not in out:
+                out.append(c)
+    return tuple(out)
 
 
 def _is_move(event) -> bool:
@@ -828,7 +844,12 @@ class AwaySession:
                 raise BadMessage("the window's size never came")
             self.frame.open(self.title or "", *self.size)
             self._open = True
-            self.ch.send(pack({"t": "ready"}))
+            # Which pictures this end can DRAW, so home never sends one it
+            # cannot: PNG always, JPEG where this system has a decoder. An
+            # older home ignores the list and sends PNG, which is drawn.
+            self.ch.send(pack({"t": "ready",
+                               "codecs": list(getattr(self.frame, "codecs",
+                                                      ("png",)))}))
         else:
             self.frame.retitle(self.title or "")
 

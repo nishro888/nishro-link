@@ -37,8 +37,9 @@ Works with every 1.x.
     put it back is written down before it is hidden, and anything still
     hidden is restored the next time Nishro Link starts.
   - Up to four windows at once. Typing and clicking feel immediate; the
-    picture updates fifteen to twenty-five times a second, so smooth video it
-    is not. Browsers and editors work; a game, or anything reading the mouse
+    picture updates up to twenty-five times a second - a busy one, a video
+    or a photo, travels as JPEG, a fifth of the bytes, while text stays
+    sharp - so smooth video it is not. Browsers and editors work; a game, or anything reading the mouse
     and keyboard straight from the hardware, will not respond. Windows that
     cannot move say which and why.
   - Moving a window **from** Ubuntu is not finished: GNOME does not let one

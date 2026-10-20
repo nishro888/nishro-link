@@ -48,6 +48,71 @@ click past a click-through child (the test window has one on request); 1
 for the frame letting go of keys when it loses the keyboard. Each check
 broken on purpose was caught.
 
+
+## 2026-10-18 - busy windows as JPEG, measured on both machines
+
+Asked for: moved windows "lag free". The 2026-10-14 entry found where the
+time goes - a busy window's PNG, 71 ms and 300 KB a picture - and named a
+lossy codec for pictures that are not text as the one thing that would make
+moving colour smooth. Built (`jpeg.py`, `picture.choose`), with each
+system's own codec: GDI+ on Windows, GdkPixbuf on Linux.
+
+**Where the line between text and busy goes.** zlib level 1 on a 64 KB
+sample from the middle of real captured windows, BGRA as the encoder sees
+it, four captures each:
+
+| | ratio |
+|---|---|
+| a web page of text (Edge) | 0.010 |
+| Notepad full of text | 0.052 |
+| moving colour (Edge) | 0.243-0.256 |
+
+The line is at 0.12, well clear of both. Below 128x128 a rectangle stays PNG
+whatever it looks like - a small square is cheap either way.
+
+**One busy 1000x700 picture, the laptop:**
+
+| | PNG (as before) | JPEG, quality 75 (GDI+) |
+|---|---|---|
+| encode | 63 ms | 5.8-8.0 ms |
+| bytes | 299 KB | 52 KB |
+| decode, away | Tk reads it: 18.2-21.8 ms | GDI+ 8.1-9.3 ms, then Tk draws it 3.5-4.0 ms |
+
+**The same picture on the AIO** (bridge id 304; it decodes, the laptop
+encodes): PNG 258 KB, Tk 34.9 ms; JPEG 52 KB, GdkPixbuf 14.0 ms then Tk
+21.9 ms. The totals tie - but the decode runs on the channel's thread and
+Tk's thread only draws, so the two overlap and Tk's thread is busy 22 ms a
+picture instead of 35. The AIO's gain is mostly the bytes: a fifth of them,
+on its 2.4 GHz Wi-Fi.
+
+**Frames actually shown, end to end.** Everything real but the network: a
+browser of moving colour, captured by `window_win.Window`, sent by
+`winmove.HomeSession` with the real chooser over a socket pair, drawn by a
+real `window_frame.Frame`, counted as acknowledgements over 8 seconds after
+the frame was up:
+
+| | run 1 | run 2 |
+|---|---|---|
+| PNG only (as before) | 15.2 fps, 3.0 MB/s | 16.6-17.0 fps, 3.3-3.4 MB/s |
+| JPEG where busy | 24.1-24.8 fps, 1.0 MB/s | 23.6-24.2 fps, 1.0 MB/s |
+
+JPEG reaches the cap (`MAX_FPS = 25`) on a third of the bytes. Overlapping
+capture with encode (the other idea of 2026-10-14) is not worth building
+now: at the cap nothing is waiting on it.
+
+Two things learned on the way:
+
+- The first fps run read **0.0 frames a second**. Not the codec: the frame
+  showing the window was on top of the hidden browser, and Chromium stops
+  drawing a window it works out is covered. That is a real fault in moving
+  windows, with its own entry and fix.
+- The first AIO numbers (JPEG 80 ms, 264 KB) came from a synthetic picture
+  of random noise, which JPEG cannot compress - not a fair test. Measured
+  again on a real captured frame, sent over as files: the numbers above.
+
+Not yet tried: the real link, laptop to AIO over the Wi-Fi - it needs this
+build installed on the AIO.
+
 ## 2026-10-14 - a window really moves between the two machines
 
 **It works.** A window of a test script's own was moved from the laptop to

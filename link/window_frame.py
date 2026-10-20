@@ -28,7 +28,7 @@ import queue
 import sys
 import threading
 
-from . import keymap, picture
+from . import jpeg, keymap, picture
 
 POLL_MS = 8                     # how often the Tk loop looks for work
 RESIZE_SETTLE_MS = 250          # a drag of the frame's corner is many events
@@ -131,6 +131,9 @@ class Frame:
         self._last_sent_size = None
         self._unknown_keys = set()
         self._keys_held = set()         # pressed here and not yet let go
+        # What this frame can draw, for home to choose from (winmove "ready").
+        self._jpeg = jpeg.decoder()
+        self.codecs = ("png", "jpeg") if self._jpeg is not None else ("png",)
         self._title = ""
 
     # ------------------------------------------------- what the session calls
@@ -146,7 +149,40 @@ class Frame:
         _HOST.later(lambda: self._build(int(w), int(h)))
 
     def draw(self, regions) -> None:
-        _HOST.later(lambda: self._do_draw(regions))
+        """Draw pieces of the window. Called on the channel's thread.
+
+        A JPEG is decoded HERE, not on Tk's thread: decoding a whole busy
+        window takes a few milliseconds on the laptop and more on a slower
+        computer, and on Tk's thread it would hold up every click and key
+        in every frame. Tk is handed a PPM, which it draws from bytes in a
+        few milliseconds - faster than it decodes the PNG it would otherwise
+        get (measured on the laptop: 3.5 ms against 18 ms, 1000x700).
+        """
+        ready = []
+        for x, y, w, h, codec, data in regions:
+            if codec == "jpeg":
+                piece = self._from_jpeg(w, h, data)
+                if piece is None:
+                    continue
+                codec, data = "ppm", piece
+            ready.append((x, y, w, h, codec, data))
+        _HOST.later(lambda: self._do_draw(ready))
+
+    def _from_jpeg(self, w, h, data):
+        if self._jpeg is None:
+            self.log("a picture arrived as JPEG, which this frame cannot show")
+            return None
+        try:
+            dw, dh, rgb = self._jpeg(data)
+        except Exception as e:
+            self.log(f"a JPEG piece of the window could not be read: {e!r}")
+            return None
+        if (dw, dh) != (w, h):
+            # The header said one size and the bytes are another: draw
+            # nothing rather than something misplaced.
+            self.log(f"a {w}x{h} piece of the window arrived as {(dw, dh)}")
+            return None
+        return jpeg.ppm(dw, dh, rgb)
 
     def retitle(self, title: str) -> None:
         self._title = title or ""
@@ -223,14 +259,15 @@ class Frame:
         if self._top is None:
             return
         for x, y, w, h, codec, data in regions:
-            if codec != "png":
+            if codec == "png":
+                was = picture.size(data)
+                if was != (w, h):
+                    # The header said one size and the bytes are another:
+                    # draw nothing rather than something misplaced.
+                    self.log(f"a {w}x{h} piece of the window arrived as {was}")
+                    continue
+            elif codec != "ppm":           # a JPEG, decoded in draw()
                 self.log(f"a picture arrived as {codec}, which this frame cannot show")
-                continue
-            was = picture.size(data)
-            if was != (w, h):
-                # The header said one size and the bytes are another: draw
-                # nothing rather than something misplaced.
-                self.log(f"a {w}x{h} piece of the window arrived as {was}")
                 continue
             if self._size and (x + w > self._size[0] or y + h > self._size[1]):
                 self._resize_to(max(x + w, self._size[0]),

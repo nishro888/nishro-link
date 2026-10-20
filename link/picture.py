@@ -83,10 +83,55 @@ def png(raw: bytes, w: int, h: int, level: int = None) -> bytes:
             + _chunk(b"IEND", b""))
 
 
-def encode(raw: bytes, w: int, h: int):
-    """(codec, bytes) for one of a window's changed rectangles - what
-    winmove.HomeSession is given and what travels on the channel."""
+def encode(raw: bytes, w: int, h: int, codecs=("png",)):
+    """(codec, bytes) for one of a window's changed rectangles - PNG. What
+    winmove.HomeSession is given where nothing better is available."""
     return "png", png(raw, w, h)
+
+
+# --------------------------------------------------- text, or not text
+# zlib level 1's ratio on a sample from the middle of a rectangle, as BGRA:
+# a cheap and good test of whether PNG will keep it small. Measured on real
+# windows on the laptop, 1000x700:
+#
+#     a web page of text        0.010
+#     Notepad full of text      0.052   (ClearType's colour fringes)
+#     a browser of moving colour 0.24 - 0.26
+#
+# so the line goes between, with room either side.
+TEXT_LIKE = 0.12
+SAMPLE = 64 * 1024
+# Below this JPEG's own headers are most of the bytes, and a small square of
+# a window is nearly always a piece of text or an edge of the interface.
+JPEG_MIN_AREA = 128 * 128
+
+
+def looks_like_text(raw: bytes, w: int, h: int) -> bool:
+    """Would PNG keep this sharp AND small? Text, interface, flat colour."""
+    mid = (len(raw) // 2) // 4 * 4
+    sample = raw[max(0, mid - SAMPLE // 2): mid + SAMPLE // 2]
+    if not sample:
+        return True
+    return len(zlib.compress(sample, 1)) / len(sample) < TEXT_LIKE
+
+
+def choose(raw: bytes, w: int, h: int, codecs=("png",), jpeg=None):
+    """(codec, bytes) for one rectangle: JPEG where both ends can do it and
+    the picture is busy, PNG otherwise.
+
+    `codecs` is what the computer drawing it says it can draw (winmove: the
+    "codecs" in "ready"), `jpeg` this computer's encoder (jpeg.encoder()),
+    or None. Text and interface stay PNG, because JPEG smears the edges of
+    letters; a JPEG that fails to come out falls back to PNG rather than
+    losing the picture.
+    """
+    if (jpeg is not None and "jpeg" in codecs and w * h >= JPEG_MIN_AREA
+            and not looks_like_text(raw, w, h)):
+        try:
+            return "jpeg", jpeg(raw, w, h)
+        except Exception:
+            pass
+    return encode(raw, w, h)
 
 
 def size(data: bytes):
