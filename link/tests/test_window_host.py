@@ -50,11 +50,12 @@ class FarEnd:
     """The other computer: reads the frames a moved window sends, and can
     answer as a frame would."""
 
-    def __init__(self, ch):
+    def __init__(self, ch, said=None):
         self.ch = ch
         self.frames = []
         self.pictures = []
         self.stop = False
+        self.said = said if said is not None else []   # the service's log
         self._thread = threading.Thread(target=self._read, daemon=True)
         self._thread.start()
 
@@ -83,8 +84,12 @@ class FarEnd:
             if cond():
                 return
             time.sleep(0.05)
+        # What the service heard - the helper's own words among it, if it
+        # said any before it went quiet: a bare timeout, seen on CI's
+        # Windows runner for Python 3.8, said nothing about why.
         pytest.fail(f"timed out waiting for {what}. frames so far: "
-                    f"{[f.get('t') for f in self.frames]}")
+                    f"{[f.get('t') for f in self.frames]}; the service heard: "
+                    f"{self.said[-12:]}")
 
 
 def lend_real(subject, log=None):
@@ -100,7 +105,7 @@ def lend_real(subject, log=None):
             near, "lend", str(subject.hwnd), "the-other-computer",
             log=(log or said.append)))
     threading.Thread(target=run, daemon=True, name="service-side").start()
-    return FarEnd(far), said, done
+    return FarEnd(far, said), said, done
 
 
 # ------------------------------------------------------------------ the path

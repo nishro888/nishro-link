@@ -28,7 +28,7 @@ import queue
 import sys
 import threading
 
-from . import keymap, picture
+from . import keymap, picture, winmove
 
 POLL_MS = 8                     # how often the Tk loop looks for work
 RESIZE_SETTLE_MS = 250          # a drag of the frame's corner is many events
@@ -178,6 +178,7 @@ class Frame:
         self._picture = tk.PhotoImage(master=top, width=w, height=h)
         self._canvas.create_image(0, 0, anchor="nw", image=self._picture,
                                   tags="pic")
+        self._mark_picture()
         # The size it was just told to open at counts as already sent, or the
         # first <Configure> - which arrives simply from the window appearing -
         # would tell home to resize the window to the size it already is.
@@ -218,6 +219,7 @@ class Frame:
         self._canvas.delete("pic")
         self._canvas.create_image(0, 0, anchor="nw", image=self._picture,
                                   tags="pic")
+        self._mark_picture()
 
     def _do_draw(self, regions) -> None:
         if self._top is None:
@@ -240,6 +242,24 @@ class Frame:
             # window. The patch is only a carrier - once its pixels are in
             # the frame's own image it can go.
             self._picture.tk.call(self._picture, "copy", patch, "-to", x, y)
+        self._mark_picture()          # a piece over the corner took it away
+
+    def _mark_picture(self) -> None:
+        """The frame's mark (winmove.FRAME_MARK), in the bottom-right corner
+        of the window shown - eight pixels of it, put back after every
+        drawing, so that this frame shared on through GNOME's dialog is
+        known for what it is and refused (window_gnome)."""
+        if self._picture is None or not self._size:
+            return
+        w, h = self._size
+        n = len(winmove.FRAME_MARK)
+        if w < n or h < 1:
+            return
+        row = " ".join("#%02x%02x%02x" % c for c in winmove.FRAME_MARK)
+        try:
+            self._picture.put("{" + row + "}", to=(w - n, h - 1))
+        except Exception:
+            pass                       # a mark is never worth a frame
 
     def _take_away(self, why) -> None:
         if self._gone:

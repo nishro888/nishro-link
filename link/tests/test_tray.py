@@ -856,3 +856,59 @@ def test_a_refusal_from_this_computer_is_said_at_once():
     t._move_a_window("aio")
     assert any("cannot show a window" in text for _title, text in ui.said), \
         ui.said
+
+
+# ------------------------------------------- GNOME: its own dialog chooses
+def test_where_gnome_chooses_the_window_the_menu_offers_to_show_one():
+    """No program may see which window is in front on GNOME, so nothing is
+    named: the computer is chosen here, the window in GNOME's dialog."""
+    st = with_windows(current_window=None, windows_pick=True)
+    sub = [i for i in tray.window_items(st) if i.get("kind") == "sub"]
+    assert sub and sub[0]["label"] == "Show a window on"
+    assert [i["action"] for i in sub[0]["items"]] == ["window:aio"]
+    assert not any((i.get("label") or "").startswith("In front:")
+                   for i in tray.window_items(st))
+
+
+def test_a_status_without_the_pick_flag_offers_nothing_new():
+    """An older service says nothing about picking: as before, no window in
+    front means nothing to move."""
+    st = with_windows(current_window=None)
+    assert not any(i.get("kind") == "sub" for i in tray.window_items(st))
+
+
+def test_each_window_chosen_in_gnomes_dialog_is_asked_for_by_a_name_of_its_own():
+    """Two windows shown at once must not be taken for one: the service keeps
+    them apart by what the tray asked for."""
+    t, ui = make(None)
+    t.api = MovingAPI(arrives=True)
+    t.st = tray.state(dict(TWO, windows_pick=True))
+    t._move_a_window("aio")
+    t._move_a_window("aio")
+    asked = [b["which"] for p, b in t.api.asked if p == "/api/window/move"]
+    assert len(asked) == 2 and all(w.startswith("pick-") for w in asked)
+    assert asked[0] != asked[1]
+
+
+def test_the_person_is_told_to_choose_and_then_where_it_went():
+    t, ui = make(None)
+    t.api = MovingAPI(arrives=True)
+    t.st = tray.state(dict(TWO, windows_pick=True))
+    t._move_a_window("aio")
+    texts = [text for _title, text in ui.said]
+    assert any("Choose the window to show on aio" in x for x in texts), texts
+    assert any("is now on aio, and still here too" in x for x in texts), texts
+
+
+def test_the_tray_waits_as_long_as_gnomes_dialog_may_take(monkeypatch):
+    """Choosing takes the person a while: the short wait for an ordinary
+    window would give up on them before they had chosen."""
+    monkeypatch.setattr(tray, "WINDOW_WAIT_S", 0.05)
+    monkeypatch.setattr(tray, "PICK_WAIT_S", 0.6)
+    t, ui = make(None)
+    t.api = MovingAPI(arrives=False)
+    t.st = tray.state(dict(TWO, windows_pick=True))
+    started = time.monotonic()
+    t._move_a_window("aio")
+    assert time.monotonic() - started >= 0.55, "it gave up as for any window"
+    assert any("could not" in text for _title, text in ui.said), ui.said

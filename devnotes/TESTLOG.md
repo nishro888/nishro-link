@@ -48,6 +48,47 @@ click past a click-through child (the test window has one on request); 1
 for the frame letting go of keys when it loses the keyboard. Each check
 broken on purpose was caught.
 
+
+## 2026-10-18 - windows from the AIO (stage 5): built, checked short of the dialog
+
+`window_gnome.py`: one RemoteDesktop portal session with a ScreenCast WINDOW
+source, pictures from PipeWire through GStreamer, input through the same
+session. Read first, in the sources:
+
+- GNOME's portal (`xdg-desktop-portal-gnome`, screencast.c) accepts a WINDOW
+  source on a remote-desktop session - no monitor-only rule - so one dialog
+  covers the window and its use, without the Shell extension.
+- mutter (meta-remote-desktop-session.c): a positive discrete scroll step is
+  DOWN (or right), so the frame's "up is positive" is turned over; buttons
+  are evdev codes; keycodes go straight to its virtual keyboard; absolute
+  motion goes through the stream's own transform, which window streams have.
+
+**On the AIO, everything short of GNOME's dialog** (bridge id 306,
+read-only, no session opened): the module loads and says it can
+(`why_not("pick")` empty: the portal offers WINDOW sources, keyboard and
+pointer, and pipewiresrc, videoconvert and appsink are there); every D-Bus
+value it sends builds; `Buffer.extract_dup` gives bytes; a real
+`Gst.Sample` comes out as the right picture; the PipeWire pipeline parses,
+with `fd` and `path`; the appsink's `try-pull-sample` works without the
+GstApp bindings, which the AIO lacks; and the real `Stream.newest()`, fed
+GStreamer's own test pattern at an odd width (322x241), gave whole pictures
+that changed. GStreamer 1.28.2. One thing it showed: the portal's signal
+loop was not yet running the instant after it started, so a close in that
+moment would have been lost - it now waits for the loop.
+
+Laptop: 24 tests with a fake portal and stream (size and picture agree
+across a resize, logical coordinates on a scaled screen, the wheel the
+right way up, evdev buttons and keys, nothing left held down, a "no" in the
+dialog in words); 3 for the helper (the window is opened before it says it
+is ready, so the refusal reaches the service; Windows' handles still become
+numbers); 5 for the tray; status and package dependencies. Three deliberate
+breaks - the wheel not turned over, a new size slipping in, the window
+opened after "ready" - each caught.
+
+Not yet tried: GNOME's dialog itself, with nothing to parent it; pictures
+from a real window, covered or not; where a click lands; typing - all with
+the maintainer at the AIO.
+
 ## 2026-10-14 - a window really moves between the two machines
 
 **It works.** A window of a test script's own was moved from the laptop to

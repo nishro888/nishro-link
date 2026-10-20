@@ -183,7 +183,11 @@ def control(ver: str, files: dict) -> bytes:
             f"Depends: python3 (>= 3.8), python3-tk, python3-evdev, "
             f"python3-cryptography (>= 2.5), xclip, python3-gi, "
             # The tray icon. A dependency too, for the same reason as xclip.
-            f"gir1.2-ayatanaappindicator3-0.1 | gir1.2-appindicator3-0.1\n"
+            f"gir1.2-ayatanaappindicator3-0.1 | gir1.2-appindicator3-0.1, "
+            # Showing a window of this computer's on another: its pictures
+            # come from PipeWire through GStreamer (window_gnome.py).
+            f"gir1.2-gstreamer-1.0, gstreamer1.0-plugins-base, "
+            f"gstreamer1.0-pipewire\n"
             f"Recommends: pkexec | policykit-1, x11-xserver-utils\n"
             f"Suggests: wl-clipboard\n"
             f"Section: utils\n"

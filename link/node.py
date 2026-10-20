@@ -986,6 +986,7 @@ class Node:
         # rather than claiming the window went. {"device", "why", "when"}.
         self.window_trouble = None
         self.window_sides = ()        # "home", "away", or both
+        self.window_pick = False      # our window is chosen in the desktop's dialog
         self.list_windows = None      # () -> [(which, title)] that could move
         self.windows_away = {}        # key -> {"who", "mine"}
         self.window_peers = {}        # name -> will that computer move windows?

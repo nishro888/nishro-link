@@ -596,10 +596,28 @@ more.
 
 ### From a Linux computer
 
-Moving windows **from** Ubuntu is not finished yet. GNOME does not let one
-program hide or take over another's window, so for now a window shared from
-Linux appears on the other computer **and stays on its own screen as well**.
-Moving windows **to** Linux works fully.
+On Ubuntu, GNOME does not let one program see which window is in front, or
+hide another's window, so it works a little differently:
+
+1. **The tray icon → Show a window on**, then the computer.
+2. **GNOME asks which window**, in a dialog of its own: choose the window,
+   and allow it to be used from the other computer. Cancel, and nothing is
+   shared - the tray says so.
+3. The window appears on the other computer - **and stays on its own screen
+   as well**.
+
+Over there you use it as you would at home, with three differences that come
+from GNOME's rules:
+
+- **Clicks are real clicks on the Ubuntu screen**, so they reach the window
+  only where nothing covers it there.
+- **Keys go to whichever window has the focus on the Ubuntu screen** - click
+  into the window first.
+- **It keeps its own size**, and closing it over there stops showing it - it
+  does not close the program.
+
+To stop showing it: close it on the other computer, or **the tray icon →
+Bring windows home**.
 
 ---
 

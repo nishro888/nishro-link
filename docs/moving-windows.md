@@ -216,19 +216,42 @@ work:
 Pictures travel from the agent to the service on a second loopback
 connection of their own, already compressed; the service only relays them.
 
-### 4.2 Home on GNOME (Linux) - to be confirmed on the AIO
+### 4.2 Home on GNOME (Linux) - built; GNOME's dialog to be tried on the AIO
 
 Wayland lets no program see, move or hide another program's window. GNOME's
 answer is the desktop portal: **ScreenCast** for one window's picture (from
 PipeWire), **RemoteDesktop** for pointer and keys aimed at that window, both
-granted by the person in GNOME's own dialog. A **session helper** - Nishro
-Link run as the person, in their session - does this:
+granted by the person in GNOME's own dialog. `window_gnome.py` does this,
+in the same per-window helper that captures a window on Windows (started in
+the session by the service, `window_service.py`):
 
-- the dialog, then the window's pictures through GStreamer (`pipewiresrc` to
-  an `appsink`), compressed with GdkPixbuf;
-- input through `NotifyPointerMotionAbsolute` in the window's own
-  coordinates, `NotifyPointerButton`, `NotifyKeyboardKeycode` (evdev codes,
-  which is what Nishro Link speaks already).
+- **Choosing:** the tray's *Show a window on*, then the computer. The helper
+  opens ONE portal session - RemoteDesktop, with a ScreenCast source of type
+  WINDOW on it (GNOME's portal allows a window there; read in its source) -
+  so a single dialog asks both which window and whether it may be used. The
+  window is opened BEFORE the helper tells the service it is ready
+  (`window_host.open_window`), so a "no" in the dialog travels back as the
+  reason, to the tray on both computers, like any refusal.
+- **Pictures:** `OpenPipeWireRemote` gives a file descriptor;
+  `pipewiresrc fd=... path=<node> ! videoconvert ! video/x-raw,format=BGRx !
+  appsink max-buffers=1 drop=true` always holds the newest picture, never a
+  queue. The appsink is driven through its `try-pull-sample` action signal:
+  the AIO has no GstApp bindings, and needs none. BGRx is the same four
+  bytes a pixel as Windows' BGRA, so everything after the capture is shared.
+  A picture of a new size (the window was resized at home) waits for the
+  next round, so the size HomeSession was told and the picture it cuts up
+  always agree.
+- **Input:** `NotifyPointerMotionAbsolute` in the stream's logical
+  coordinates (the picture's pixels over the screen's scale, worked out once
+  from the size GNOME gives and the first picture), `NotifyPointerButton`
+  (evdev `BTN_LEFT`...), `NotifyPointerAxisDiscrete` - turned over for the
+  vertical axis, since in mutter a positive step scrolls down and the
+  frame's is up - and `NotifyKeyboardKeycode` (evdev, which is what Nishro
+  Link speaks already). Whatever the far side holds down is let go when the
+  sharing ends: these are real keys on this desktop.
+- **Packages:** `gir1.2-gstreamer-1.0`, `gstreamer1.0-plugins-base` and
+  `gstreamer1.0-pipewire` are dependencies of the package, so they arrive
+  with it (pkexec, as every install).
 
 What GNOME cannot do without help: hide the window at home, or see it being
 dragged. So from GNOME the window **stays visible at home** and is shown on
@@ -238,9 +261,9 @@ extension** (stage 6) can do both later - it runs inside GNOME itself - at the
 cost of an extra part that GNOME releases can break and that needs one
 log-out to start.
 
-The service is root and outside every session, so the helper is started in
-the session (like the tray, at log-in) and attaches to the service the way
-the tray does (`api.json`), then holds a loopback connection.
+What else Wayland's rules mean, and the person is told: the window has no
+title over there (the portal does not say it), and the frame can neither
+resize it nor close it - closing the frame ends the sharing instead.
 
 ### 4.3 Away: the frame
 
@@ -394,7 +417,9 @@ Worth keeping from it, because they were measured rather than reasoned:
    the maintainer's request: the tray menu is the only way to move a window
    (section 4.6).
 5. **AIO to laptop:** GNOME home through the portals; Windows away (the frame
-   in the agent).
+   in the agent). Built, with tests that fake the portal; what only GNOME can
+   answer - its dialog, the pictures, where a click lands - waits for a run
+   on the AIO with the maintainer there.
 6. **Optional - the GNOME Shell extension:** dragging from the AIO, and
    hiding the window there.
 7. **Documents** (manual, DESIGN.md, CHANGELOG), the real-machine checks, a
@@ -407,9 +432,13 @@ Worth keeping from it, because they were measured rather than reasoned:
   common ones: Chrome, Edge, Explorer, Office, VS Code.
 - Windows' focus rules (`SetForegroundWindow` from the agent); the parked
   pointer while input goes into a hidden window.
-- GNOME: does a covered or minimized window keep drawing for the portal; is
-  the dialog needed every time; does a helper started at log-in reach the
-  portal - the AIO's test answers these.
+- GNOME, to be tried on the AIO: does the dialog open with no parent window
+  (`parent_window` ""; a terminal script's attempt in 2026-10-13 logged
+  "Failed to associate portal window with parent window" and showed none);
+  does a covered or minimized window keep sending pictures; does a click
+  land where it was aimed, on a scaled screen too; is the dialog needed
+  every time (a restore token, `persist_mode`, could spare it - not used
+  yet).
 - The AIO's 2.4 GHz Wi-Fi, with power saving: the picture rate it carries.
 - Tk's speed at showing pictures on the AIO (under XWayland).
 - Screens of different density: 1:1 at first.

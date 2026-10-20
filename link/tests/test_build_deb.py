@@ -162,6 +162,16 @@ def test_the_dock_can_match_the_window_to_the_menu_entry(deb):
     assert f"\nStartupWMClass={wm_class}\n" in entry
 
 
+def test_what_showing_a_window_from_here_needs_is_required(deb):
+    """GStreamer, its PipeWire element and its bindings: what window_gnome
+    takes a shared window's pictures through. Required, not recommended, as
+    xclip is - an upgrade does not add a new recommendation."""
+    f = fields(deb)
+    for need in ("gir1.2-gstreamer-1.0", "gstreamer1.0-plugins-base",
+                 "gstreamer1.0-pipewire"):
+        assert need in f["Depends"], need
+
+
 def test_xclip_is_required_not_wl_clipboard(deb):
     """On GNOME, wl-clipboard flashes a window in the dock at every read - and
     a Recommends is not installed when an existing package is upgraded."""

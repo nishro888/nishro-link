@@ -695,6 +695,7 @@ def _engine(args, cfg, stop=None) -> int:
     n.serve_window = lambda ch, kind, which, whose: window_service.attach(
         ch, kind, which, whose, log=log)
     n.window_sides = (("home", "away") if window_host.can_lend() else ("away",))
+    n.window_pick = window_host.picks()        # GNOME: its own dialog chooses
     n.list_windows = lambda: window_service.windows_in_session(log)
     window_service.put_windows_back(log)       # R6, before anything hides one
     if hub is not None:
