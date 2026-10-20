@@ -22,6 +22,7 @@ work. `devnotes/README.md` has the routine. Nothing personal in any of it.
 | `link/DESIGN.md` | How it works, and the safety rules (P1-P6). Read before a larger change. |
 | `docs/design-decisions.md` | Why each choice was made, and the bugs that taught something. |
 | `CONTRIBUTING.md` | Setup, where things are, guidelines. |
+| `docs/development.md` | **How work gets done: branches, pull requests, reviews, releases.** Read before touching git. `main` is protected - every change arrives by PR with CI green. |
 | `RELEASING.md` | The release checklist, including the checks made by hand on real machines. |
 | `CHANGELOG.md` | What changed, per version. Update it with every user-visible change. |
 | `docs/manual.md` | The user manual. Update it when behaviour or the window changes. |
