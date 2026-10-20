@@ -419,3 +419,119 @@ def set_image(png: bytes) -> bool:
     finally:
         if owner:
             u32.DestroyWindow(owner)
+
+
+# ------------------------------------------------------------------- files
+# Files copied in Explorer travel as CF_HDROP: a DROPFILES header, then each
+# full path in UTF-16 with its own NUL, and one more NUL at the end. Explorer
+# also leaves "Preferred DropEffect" saying whether a paste copies or moves
+# (a cut); what Nishro Link puts there always says COPY - files that came
+# from another computer are never moved away by a paste here.
+CF_HDROP = 15
+DROPEFFECT_COPY = 1
+_DROP_EFFECT = None
+_SHELL = None
+
+
+class _DROPFILES(ctypes.Structure):
+    _fields_ = [("pFiles", wintypes.DWORD), ("x", ctypes.c_long),
+                ("y", ctypes.c_long), ("fNC", wintypes.BOOL),
+                ("fWide", wintypes.BOOL)]
+
+
+def _drop_effect_format() -> int:
+    global _DROP_EFFECT
+    if _DROP_EFFECT is None:
+        u32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
+        u32.RegisterClipboardFormatW.restype = wintypes.UINT
+        _DROP_EFFECT = u32.RegisterClipboardFormatW("Preferred DropEffect")
+    return _DROP_EFFECT
+
+
+def _shell():
+    """shell32's DragQueryFileW: the same reader Explorer's own paste uses,
+    which copes with every form CF_HDROP comes in (wide or not)."""
+    global _SHELL
+    if _SHELL is None:
+        sh = ctypes.WinDLL("shell32")
+        sh.DragQueryFileW.argtypes = [wintypes.HANDLE, wintypes.UINT,
+                                      wintypes.LPWSTR, wintypes.UINT]
+        sh.DragQueryFileW.restype = wintypes.UINT
+        _SHELL = sh
+    return _SHELL
+
+
+@_serial
+def get_files():
+    """The files and folders on the clipboard (copied in Explorer), as full
+    paths; [] when it holds none; None if it could not be opened."""
+    if not _open():
+        return None
+    try:
+        if not u32.IsClipboardFormatAvailable(CF_HDROP):
+            return []
+        h = u32.GetClipboardData(CF_HDROP)
+        if not h:
+            return []
+        sh = _shell()
+        out = []
+        for i in range(sh.DragQueryFileW(h, 0xFFFFFFFF, None, 0)):
+            size = sh.DragQueryFileW(h, i, None, 0) + 1
+            buf = ctypes.create_unicode_buffer(size)
+            if sh.DragQueryFileW(h, i, buf, size) and buf.value:
+                out.append(buf.value)
+        return out
+    finally:
+        u32.CloseClipboard()
+
+
+@_serial
+def set_files(paths) -> bool:
+    """Put files on the clipboard the way Explorer does, so a paste in any
+    folder copies them there: CF_HDROP, and Preferred DropEffect = COPY."""
+    paths = [str(p) for p in paths]
+    if not paths:
+        return False
+    head = _DROPFILES(ctypes.sizeof(_DROPFILES), 0, 0, False, True)
+    names = ("\0".join(paths) + "\0\0").encode("utf-16-le")
+    hdrop = _global(bytes(head) + names)
+    heffect = _global(DROPEFFECT_COPY.to_bytes(4, "little"))
+    if not hdrop:
+        if heffect:
+            k32.GlobalFree(heffect)
+        return False
+    owner = u32.CreateWindowExW(0, "STATIC", None, 0, 0, 0, 0, 0, None, None, None, None)
+    try:
+        if not _open(owner):
+            for h in (hdrop, heffect):
+                if h:
+                    k32.GlobalFree(h)
+            return False
+        try:
+            u32.EmptyClipboard()
+            if not u32.SetClipboardData(CF_HDROP, hdrop):
+                k32.GlobalFree(hdrop)
+                if heffect:
+                    k32.GlobalFree(heffect)
+                return False
+            if heffect and not u32.SetClipboardData(_drop_effect_format(), heffect):
+                k32.GlobalFree(heffect)
+            return True                       # the clipboard owns them now
+        finally:
+            u32.CloseClipboard()
+    finally:
+        if owner:
+            u32.DestroyWindow(owner)
+
+
+@_serial
+def drop_effect():
+    """What Preferred DropEffect says (1 copy, 2 move), or None - for the
+    tests, and for telling a cut from a copy."""
+    if not _open():
+        return None
+    try:
+        raw = _read(_drop_effect_format())
+        return int.from_bytes(raw[:4], "little") if raw and len(raw) >= 4 else None
+    finally:
+        u32.CloseClipboard()

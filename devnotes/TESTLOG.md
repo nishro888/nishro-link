@@ -4,6 +4,34 @@ Newest first. What was run, on what, and what came out - so a result is not
 re-earned, and a failure is not repeated. Machines: "the laptop" (Windows 10,
 the hub) and "the AIO" (Ubuntu 26.04, GNOME, Wayland).
 
+## 2026-10-19 - files over the clipboard (step 4.4), on this laptop
+
+- Windows clipboard (`test_clip_win_files.py`, 5, the real clipboard): a
+  file list written and read back exactly; Preferred DropEffect is COPY;
+  Windows' own reader (`Get-Clipboard -Format FileDropList`) sees our list
+  and we read the list `Set-Clipboard -Path` writes; a Bangla file name;
+  text is not taken for files.
+- GNOME's types (`test_clip.py`, 6): `x-special/gnome-copied-files` and
+  `text/uri-list` read, other hosts' URIs left out, ours written as "copy"
+  + file:// URIs; through get, set and the agent's wire. **Not yet against
+  GNOME Files on the AIO.**
+- The sync (`test_clip.py`): a copied file list announced with its size;
+  files never asked for on the link; fetched only when the pointer comes,
+  once; a newer copy (here or there) drops them; files landing after a newer
+  copy leave the clipboard alone; arrived files are not sent back.
+- Two real nodes (`test_files_live.py`): a file copied on the member is on
+  the hub's clipboard, its bytes equal; a folder copied on the hub waits
+  (1 s, nothing fetched) and comes when the pointer crosses; no echo; a
+  third device's copy is not taken from the hub. **First run failed**: a
+  replaced clipboard (as the service and the tests make) had no way to carry
+  files -> the node now wires whichever clipboard it is given.
+- The person's Desktop (`test_userdirs.py`): Windows, as the signed-in user,
+  equals the shell's Desktop; the service's Linux side with stand-ins (root,
+  a person's session: `xdg-user-dir` asked with their HOME, files and the
+  folders made given to them). **SYSTEM's path (WTSQueryUserToken) untested** - it
+  needs the installed service.
+- 10 deliberate breaks of the new code, each caught by a test.
+
 ## 2026-10-19 - the maintainer's first use: keys, tabs, and windows moved twice
 
 He used a build of last night's branches on both machines. What he found,

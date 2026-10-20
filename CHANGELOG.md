@@ -45,6 +45,17 @@ Works with every 1.x.
     program hide another's window, so for now such a window shows on the
     other computer and stays on its own screen too. Moving one **to** Ubuntu
     works fully.
+- **Files over the clipboard.** Copy files or folders (Ctrl+C) in Explorer
+  or Files, move to the other computer and paste them in a folder there
+  (Ctrl+V). They come over in the background when the pointer arrives - a
+  copy pasted where it was made never travels - on a connection of their
+  own, proved and sealed like the link, so a big copy never holds up the
+  pointer. They land in **Desktop > Nishro Link Files**, on the Desktop of
+  the person signed in at that screen, and that computer's clipboard then
+  holds them. Up to 2 GB a copy; a newer copy on either computer takes
+  their place. In a group of three or more, files go to and from the hub;
+  between two other devices, not yet. An older 1.x neither offers nor
+  fetches them.
 
 ### Fixed
 - **"The window is now on the other computer" is no longer said before it

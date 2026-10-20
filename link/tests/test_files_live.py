@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from link import files                                     # noqa: E402
+from link import clip, files                               # noqa: E402
 from link.files import FilesError, Offer                   # noqa: E402
 from test_files import tree                                # noqa: E402
 from test_node_live import Pair                            # noqa: E402
@@ -177,3 +177,54 @@ def test_a_hub_that_cannot_prove_the_password_gets_nothing(pair, src, monkeypatc
     srv.close()
     assert seen and seen[0].get("t") == "hello"
     assert seen[1:] == [None], "nothing was sent to it after its bad proof"
+
+
+# ------------------------------------- the clipboard, end to end (4.4)
+# The pair's clipboards are stand-ins (test_node_live), so a copy here is a
+# copy on one node's board and a paste is what lands on the other's.
+def test_a_file_copied_on_the_member_is_on_the_hubs_clipboard(pair, src, tmp_path):
+    dest = tmp_path / "laptop" / files.FOLDER
+    pair.aio_board.copy((clip.FILES, [str(src / "letter.docx")]))
+    pair.wait(lambda: pair.hub_board.text == (clip.FILES, [str(dest / "letter.docx")]),
+              what="the file on the hub's clipboard")
+    assert (dest / "letter.docx").read_bytes() == (src / "letter.docx").read_bytes()
+
+
+def test_a_folder_copied_on_the_hub_comes_to_the_member_with_the_pointer(pair, src, tmp_path):
+    dest = tmp_path / "aio" / files.FOLDER
+    pair.hub_board.copy((clip.FILES, [str(src / "Album")]))
+    pair.wait(lambda: pair.aio.clip._files_waiting, what="the copy announced")
+    import time
+    time.sleep(1.0)                   # the pointer is still on the hub
+    assert not dest.exists(), "fetched before the pointer came"
+    pair.hub_cap.sink.on_pointer(0, 384, -5, 0)         # over to the member
+    pair.wait(lambda: pair.aio_board.text == (clip.FILES, [str(dest / "Album")]),
+              what="the folder on the member's clipboard")
+    assert tree(dest / "Album") == tree(src / "Album")
+
+
+def test_files_copied_on_another_member_are_not_taken_from_the_hub(pair, src, tmp_path):
+    """The hub passes a third computer's announcement on, but not its files
+    (yet): the member must not ask the hub for that copy's number, which
+    may well be one of the hub's own copies."""
+    pair.hub.file_offers[3] = Offer([src / "letter.docx"])
+    pair.aio.clip.on_message({"t": "clipmeta", "origin": "desk", "seq": 3,
+                              "formats": [clip.FILES], "bytes": 5000, "from": "laptop"})
+    pair.aio.clip.pointer_here()
+    import time
+    time.sleep(1.0)
+    assert not (tmp_path / "aio").exists(), "took the hub's own copy for another's"
+    assert any("would have to come through laptop" in line for line in pair.logs["aio"]), \
+        pair.logs["aio"][-6:]
+
+
+def test_files_that_arrive_are_not_sent_back(pair, src, tmp_path):
+    dest = tmp_path / "laptop" / files.FOLDER
+    pair.aio_board.copy((clip.FILES, [str(src / "letter.docx")]))
+    pair.wait(lambda: pair.hub_board.text == (clip.FILES, [str(dest / "letter.docx")]),
+              what="the file on the hub's clipboard")
+    import time
+    time.sleep(1.5)                   # several clipboard ticks on both
+    assert pair.aio_board.text == (clip.FILES, [str(src / "letter.docx")]), \
+        "the hub sent the file it had just received back to the member"
+    assert not (tmp_path / "aio").exists()

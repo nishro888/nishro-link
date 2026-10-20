@@ -435,7 +435,12 @@ handled by its hardware and always act on the laptop.)
 
 **Copy and paste.** Copy text or an image (a screenshot, a photo, an image
 from a web page) on one computer, move to another, paste. Images up to 16 MB.
-Files don't cross yet.
+
+Files and folders too: copy them in Explorer or Files, move to the other
+computer, and paste in any folder there. They come over in the background
+when the pointer arrives, and land first in **Desktop → Nishro Link Files**;
+a paste copies them on from there. Up to 2 GB a copy. In a group of three or
+more, files go to and from the hub, not yet between two other devices.
 
 **At the lock and sign-in screens.** Because Nishro Link runs as a service from
 boot, you can use another computer's mouse and keyboard to sign in.

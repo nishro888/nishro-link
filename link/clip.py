@@ -44,6 +44,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import urllib.parse
 
 from . import protocol
 
@@ -70,6 +71,43 @@ WRITE_IMAGE = {"wl": ["wl-copy", "--type", IMAGE],
                "xclip": ["xclip", "-selection", "clipboard", "-t", IMAGE, "-i"]}
 TEXT_TYPES = frozenset({"text/plain", "text/plain;charset=utf-8", "UTF8_STRING",
                         "STRING", "TEXT"})
+# FILES: what a file manager copied - full paths, from GNOME Files in its own
+# type (a first line saying copy or cut, then one file:// URI a line), or as
+# a plain URI list from others. Files win over the text that comes with them:
+# Files offers the paths as text too, and pasting text is not what copying
+# a file was for.
+FILES = "files"
+GNOME_FILES = "x-special/gnome-copied-files"
+FILE_TYPES = (GNOME_FILES, "text/uri-list")
+READ_TYPE = {"wl": lambda t: ["wl-paste", "--no-newline", "--type", t],
+             "xclip": lambda t: ["xclip", "-selection", "clipboard", "-t", t, "-o"]}
+WRITE_FILES = {"wl": ["wl-copy", "--type", GNOME_FILES],
+               "xclip": ["xclip", "-selection", "clipboard", "-t", GNOME_FILES, "-i"]}
+
+
+def parse_file_list(text: str) -> list:
+    """The paths in a GNOME Files copy or a text/uri-list. Only files of
+    this computer: a URI naming another host is left out, as are comments."""
+    out = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line in ("copy", "cut"):
+            continue
+        if not line.startswith("file:"):
+            continue
+        parsed = urllib.parse.urlparse(line)
+        if parsed.netloc not in ("", "localhost"):
+            continue
+        path = urllib.parse.unquote(parsed.path)
+        if path:
+            out.append(path)
+    return out
+
+
+def file_list_text(paths) -> str:
+    """Paths as GNOME Files puts them on the clipboard: "copy", then each as
+    a file:// URI - so a paste in Files copies them, and never moves them."""
+    return "copy" + "".join("\n" + pathlib.PurePosixPath(p).as_uri() for p in paths)
 
 
 def order(env=None) -> list:
@@ -123,6 +161,11 @@ def get():
     try:
         if sys.platform == "win32":
             from . import clip_win
+            paths = clip_win.get_files()
+            if paths is None:
+                return None
+            if paths:
+                return (FILES, paths)
             text = clip_win.get_text()
             if text is None or text:
                 return text
@@ -132,6 +175,13 @@ def get():
             if tool in TYPES:
                 t = _run(TYPES[tool], capture_output=True, text=True, timeout=5)
                 offered = frozenset(t.stdout.split()) if t.returncode == 0 else frozenset()
+                for kind in FILE_TYPES:
+                    if kind in offered and tool in READ_TYPE:
+                        r = _run(READ_TYPE[tool](kind), capture_output=True,
+                                 text=True, timeout=5)
+                        paths = parse_file_list(r.stdout) if r.returncode == 0 else []
+                        if paths:
+                            return (FILES, paths)
                 if IMAGE in offered and not offered & TEXT_TYPES:
                     r = _run(READ_IMAGE[tool], capture_output=True, timeout=10)
                     if r.returncode == 0 and r.stdout.startswith(b"\x89PNG"):
@@ -145,7 +195,10 @@ def get():
 
 
 def set(value) -> bool:
-    """Put text (a str) or an image (("image/png", bytes)) on the clipboard."""
+    """Put text (a str), an image (("image/png", bytes)) or files
+    ((FILES, [paths])) on the clipboard."""
+    if isinstance(value, tuple) and value[0] == FILES:
+        return _set_files(value[1])
     if isinstance(value, tuple):
         return _set_image(value[1])
     text = value
@@ -163,6 +216,25 @@ def set(value) -> bool:
                 return True
     except Exception:
         pass
+    return False
+
+
+def _set_files(paths) -> bool:
+    global last_error
+    last_error = None
+    try:
+        if sys.platform == "win32":
+            from . import clip_win
+            return clip_win.set_files(paths)
+        for tool in _tools():
+            if tool not in WRITE_FILES:
+                continue
+            r = _run(WRITE_FILES[tool], input=file_list_text(paths), text=True,
+                     timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if r.returncode == 0:
+                return True
+    except Exception as e:
+        last_error = repr(e)
     return False
 
 
@@ -190,6 +262,8 @@ def to_wire(value, spool):
     path of a file holding it - the agent's channel takes lines of 128 KB at
     most, and the service and its agent share the disk (agent.py). `spool` is
     a function giving that path: asked only when there is an image."""
+    if isinstance(value, tuple) and value[0] == FILES:
+        return {"fmt": FILES, "paths": [str(p) for p in value[1]]}
     if isinstance(value, tuple):
         path = pathlib.Path(spool())
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -201,6 +275,8 @@ def to_wire(value, spool):
 def from_wire(value):
     """The other half of to_wire. The file goes once read: a copied image can
     be anything, and nothing needs it on disk."""
+    if isinstance(value, dict) and value.get("fmt") == FILES:
+        return (FILES, [str(p) for p in value.get("paths") or []])
     if isinstance(value, dict) and value.get("file"):
         path = pathlib.Path(value["file"])
         try:
@@ -247,6 +323,19 @@ class ClipboardSync:
         self._last = None             # what we last knew of, either direction
         self._offer = None            # (seq, format, data) we have announced
         self._incoming = {}           # seq -> {index: chunk}
+        # Files do not ride the input channel: the node carries them on a
+        # files connection of their own (files.py). It offers what was
+        # copied here - offer_files(seq, paths) gives the bytes, or raises -
+        # and fetches what was copied there - fetch_files(the announcement).
+        # Unset, files are neither offered nor fetched.
+        self.offer_files = None
+        self.fetch_files = None
+        # Files copied over there wait for the pointer: fetched when it comes
+        # here (pointer_here), so a copy pasted on the computer it was made
+        # on - most of them - is not carried across as well.
+        self._files_waiting = None    # that copy's announcement
+        self._copies = 0              # copies seen, here or over there
+        self._fetched_at = None       # _copies when the waiting files were fetched
         # Said in the log: what was asked for, sent, and whether it landed -
         # never what it was. An image that did not cross left no trace at all.
         self.log = lambda line: None
@@ -276,6 +365,8 @@ class ClipboardSync:
         if value is None:             # held by another program: look again
             self._native = None
             return []
+        if isinstance(value, tuple) and value[0] == FILES:
+            return self._offer_files([str(p) for p in value[1] or []])
         if isinstance(value, tuple):
             fmt, data = value
             size = len(data or b"")
@@ -285,11 +376,73 @@ class ClipboardSync:
         if not data or _key(fmt, data) == self._last:
             return []
         self._last = _key(fmt, data)
+        self._copied()
         if size > (self.max_image_bytes if fmt == IMAGE else self.max_bytes):
             return []                 # too big to offer: nothing announced
         self._seq += 1
         self._offer = (self._seq, fmt, data)
         return [protocol.clipmeta(self.node, self._seq, [fmt], size)]
+
+    def _offer_files(self, paths) -> list:
+        key = _key(FILES, paths)
+        if not paths or key == self._last:
+            return []
+        self._last = key
+        self._copied()
+        if self.offer_files is None:
+            return []                 # nothing here to carry files
+        self._seq += 1
+        try:
+            total = int(self.offer_files(self._seq, paths))
+        except Exception as e:
+            self.log(f"clipboard: the files copied here cannot be offered: {e}")
+            return []
+        self._offer = (self._seq, FILES, paths)
+        return [protocol.clipmeta(self.node, self._seq, [FILES], total)]
+
+    def _copied(self) -> None:
+        """Something newer was copied, here or over there: files still
+        waiting for the pointer are no longer what a paste should give."""
+        self._copies += 1
+        self._files_waiting = None
+
+    def pointer_here(self) -> None:
+        """The pointer is on this computer: files copied over there and
+        still waiting are fetched now, in the background. Cheap when nothing
+        waits - it is called on every tick the pointer is here."""
+        msg, self._files_waiting = self._files_waiting, None
+        if msg is None or self.fetch_files is None:
+            return
+        who = msg.get("origin") or msg.get("from") or "another device"
+        self._fetched_at = self._copies
+        self.log(f"clipboard: fetching the files {who} copied ({_size(msg.get('bytes', 0))})")
+        try:
+            self.fetch_files(msg)
+        except Exception as e:
+            self.log(f"clipboard: the files from {who} could not be fetched: {e}")
+
+    def files_arrived(self, tops, who="another device") -> bool:
+        """Files copied on another computer are here: onto this computer's
+        clipboard, so a paste in any folder copies them there. Known first,
+        so our own poll does not take them for a new copy and send them
+        straight back. Unless something was copied while they were on their
+        way: then that is what a paste should give, and they stay in the
+        folder."""
+        paths = [str(t) for t in tops]
+        if not paths:
+            return False
+        fetched_at, self._fetched_at = self._fetched_at, None
+        if fetched_at is not None and fetched_at != self._copies:
+            self.log(f"clipboard: the files from {who} are in the folder; the "
+                     f"clipboard keeps what was copied after them")
+            return False
+        self._last = _key(FILES, paths)
+        self._native = None
+        ok = self._write((FILES, paths))
+        self.log(f"clipboard: {len(paths)} item(s) of files from {who} "
+                 + ("are on this computer's clipboard" if ok is not False else
+                    "could NOT be put on this computer's clipboard"))
+        return ok is not False
 
     # ---- the other side's ----
     def on_message(self, msg: dict) -> list:
@@ -305,7 +458,15 @@ class ClipboardSync:
     def _on_meta(self, msg) -> list:
         if msg.get("origin") == self.node:
             return []                 # our own announcement, come back to us
+        self._copied()
         formats = msg.get("formats") or ["text"]
+        if FILES in formats:
+            if self.fetch_files is not None:
+                who = msg.get("origin") or msg.get("from") or "another device"
+                self.log(f"clipboard: {who} copied files ({_size(msg.get('bytes', 0))})"
+                         f" - they come over with the pointer")
+                self._files_waiting = msg
+            return []                 # they come on a files connection, not here
         fmt = "text" if "text" in formats else IMAGE if IMAGE in formats else None
         if fmt is None:
             return []                 # nothing we can take
@@ -363,7 +524,7 @@ class ClipboardSync:
 
 
 def _what(fmt) -> str:
-    return "an image" if fmt == IMAGE else "text"
+    return "an image" if fmt == IMAGE else "files" if fmt == FILES else "text"
 
 
 def _bytes(fmt, data) -> int:
@@ -382,4 +543,6 @@ def _size(n: int) -> str:
 def _key(fmt, data):
     """What a clipboard value is known by, to tell a new copy from one we have
     already seen: text by itself, an image by its digest."""
+    if fmt == FILES:
+        return (FILES, tuple(str(p) for p in data))
     return data if fmt == "text" else (fmt, hashlib.sha256(data).hexdigest())
