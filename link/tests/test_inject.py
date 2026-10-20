@@ -116,19 +116,71 @@ def test_bools_and_ints_mean_the_same_thing():
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows injector")
+def windows_injector_on_paper(sent, scan=30):
+    """A WindowsInjector with nothing of Windows in it but the structures.
+
+    SendInput is answered rather than called, so what WOULD have been sent is
+    what the test reads. The structures themselves are real: INPUT must be
+    exactly the size Windows expects or SendInput quietly does nothing, so a
+    fake of those would hide the one thing most worth getting right.
+    """
+    import ctypes
+    from link.inject import WindowsInjector
+    inj = WindowsInjector.__new__(WindowsInjector)
+    inj.c = ctypes
+
+    def map_virtual_key(vk, how):
+        return scan
+
+    def keybd_event(vk, sc, fl, x):
+        sent.append(("keybd_event", vk, sc, fl))
+
+    # _types() sets argtypes on these, so they have to be there first - and
+    # SendInput is never reached: _send is answered below.
+    inj.u = types.SimpleNamespace(
+        MapVirtualKeyW=map_virtual_key, keybd_event=keybd_event,
+        SendInput=lambda *a: 1, GetCursorInfo=lambda *a: 0)
+    inj._types()
+
+    def send(one):
+        ki = one.u.ki
+        sent.append((int(ki.wVk), int(ki.wScan), int(ki.dwFlags)))
+        return True
+    inj._send = send
+    return inj
+
+
 def test_windows_treats_a_repeat_as_another_keydown():
     """Windows does not auto-repeat injected keys itself, so a repeat has to be
     another keydown - and any truthy value already is one."""
     from link.inject import WindowsInjector
     sent = []
-    inj = WindowsInjector.__new__(WindowsInjector)
-    inj.u = types.SimpleNamespace(keybd_event=lambda vk, sc, fl, x: sent.append((vk, fl)))
-    inj.KEYUP = WindowsInjector.KEYUP
+    inj = windows_injector_on_paper(sent)
     inj.key(KEY_G, REPEAT)
     inj.key(KEY_G, True)
     inj.key(KEY_G, False)
-    assert sent[0][1] == 0 and sent[1][1] == 0, "repeat and press are both keydowns"
-    assert sent[2][1] == WindowsInjector.KEYUP
+    assert sent[0][2] == 0 and sent[1][2] == 0, "repeat and press are both keydowns"
+    assert sent[2][2] == WindowsInjector.KEYEVENTF_KEYUP
+
+
+def test_windows_keys_carry_a_scan_code_not_zero():
+    """The fix for Avro Keyboard: a program that reads the scan code to know
+    which physical key was struck learns nothing from zero. Proved against
+    real hooks in test_inject_win.py; here it is the plain shape of what is
+    sent, on any machine."""
+    sent = []
+    inj = windows_injector_on_paper(sent, scan=88)        # F12's
+    inj.key(KEY_G, True)
+    assert sent == [(ord("G"), 88, 0)]
+
+
+def test_a_key_falls_back_to_the_old_way_if_sendinput_will_not_have_it():
+    """Whatever goes wrong, a key the person pressed must still land."""
+    sent = []
+    inj = windows_injector_on_paper(sent)
+    inj._send = lambda one: False
+    inj.key(KEY_G, True)
+    assert sent == [("keybd_event", ord("G"), 30, 0)]
 
 
 
@@ -155,15 +207,15 @@ def test_windows_plays_media_keys_as_extended_keys_and_sets_brightness():
     import threading
     from link.inject import WindowsInjector
     sent, steps = [], []
-    inj = WindowsInjector.__new__(WindowsInjector)
-    inj.u = types.SimpleNamespace(keybd_event=lambda vk, sc, fl, x: sent.append((vk, fl)))
+    inj = windows_injector_on_paper(sent, scan=0)
     inj._b_lock = threading.Lock()
     inj._b_pending, inj._b_busy = 0, False
     inj._brightness = lambda step: steps.append(step)
     inj.key(115, 1)                                   # volume up
     inj.key(115, 0)
-    assert sent == [(0xAF, WindowsInjector.EXTENDED),
-                    (0xAF, WindowsInjector.EXTENDED | WindowsInjector.KEYUP)]
+    ext = WindowsInjector.KEYEVENTF_EXTENDED
+    assert sent == [(0xAF, 0, ext),
+                    (0xAF, 0, ext | WindowsInjector.KEYEVENTF_KEYUP)]
     inj.key(225, 1)
     inj.key(225, 2)                                   # held: a repeat
     inj.key(225, 0)                                   # its release does nothing

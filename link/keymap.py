@@ -89,3 +89,64 @@ def evdev_to_vk(code: int):
 def linux_keys() -> list:
     """Every key the Linux virtual device must declare - uinput drops the rest."""
     return sorted(set(E.values()) | SYSTEM)
+
+
+# --- the keys Windows calls "extended" ---
+# A real keyboard sends these with an E0 prefix, which is the ONLY thing that
+# tells the arrows apart from the number pad (Left Arrow and numpad 4 share
+# scan code 75) and the right Ctrl from the left. MapVirtualKey(VSC_EX) marks
+# the right-hand modifiers, the Windows keys and the media keys for us, but
+# NOT the navigation keys - measured on Windows 10 - so those are listed.
+# It matters because inject.py now sends real scan codes: with scan code
+# zero, as before, a program had only the virtual key to go on and the
+# distinction never arose.
+_EXTENDED_NAMES = ("LEFT", "RIGHT", "UP", "DOWN", "HOME", "END", "PAGEUP",
+                   "PAGEDOWN", "INSERT", "DELETE", "NUMLOCK")
+WINDOWS_EXTENDED = frozenset(
+    vk for vk, name in _VK_NAME.items() if name in _EXTENDED_NAMES)
+
+
+# --- Tk keysym -> evdev name ---
+# What a frame showing a moved window gets from its own system (Tk reports a
+# keysym per key) turned into the evdev codes Nishro Link speaks everywhere.
+# Letters and digits are worked out rather than listed; this is the rest.
+_TK_NAME = {
+    "Escape": "ESC", "BackSpace": "BACKSPACE", "Tab": "TAB", "Return": "ENTER",
+    "KP_Enter": "ENTER", "space": "SPACE", "minus": "MINUS", "equal": "EQUAL",
+    "bracketleft": "LEFTBRACE", "bracketright": "RIGHTBRACE",
+    "semicolon": "SEMICOLON", "apostrophe": "APOSTROPHE", "grave": "GRAVE",
+    "backslash": "BACKSLASH", "comma": "COMMA", "period": "DOT",
+    "slash": "SLASH", "Caps_Lock": "CAPSLOCK", "Num_Lock": "NUMLOCK",
+    "Scroll_Lock": "SCROLLLOCK", "Shift_L": "LEFTSHIFT", "Shift_R": "RIGHTSHIFT",
+    "Control_L": "LEFTCTRL", "Control_R": "RIGHTCTRL", "Alt_L": "LEFTALT",
+    "Alt_R": "RIGHTALT", "Super_L": "LEFTMETA", "Super_R": "RIGHTMETA",
+    "Win_L": "LEFTMETA", "Win_R": "RIGHTMETA", "Meta_L": "LEFTMETA",
+    "Meta_R": "RIGHTMETA", "Home": "HOME", "End": "END", "Prior": "PAGEUP",
+    "Next": "PAGEDOWN", "Up": "UP", "Down": "DOWN", "Left": "LEFT",
+    "Right": "RIGHT", "Insert": "INSERT", "Delete": "DELETE",
+    # The shifted punctuation Tk names differently, but it is the same key:
+    # the far side is sent the key, and holds Shift itself.
+    "exclam": "1", "at": "2", "numbersign": "3", "dollar": "4", "percent": "5",
+    "asciicircum": "6", "ampersand": "7", "asterisk": "8", "parenleft": "9",
+    "parenright": "0", "underscore": "MINUS", "plus": "EQUAL",
+    "braceleft": "LEFTBRACE", "braceright": "RIGHTBRACE", "colon": "SEMICOLON",
+    "quotedbl": "APOSTROPHE", "asciitilde": "GRAVE", "bar": "BACKSLASH",
+    "less": "COMMA", "greater": "DOT", "question": "SLASH",
+}
+for _i in range(1, 13):
+    _TK_NAME[f"F{_i}"] = f"F{_i}"
+
+TK_TO_EVDEV = {}
+for _sym, _name in _TK_NAME.items():
+    if _name in E:
+        TK_TO_EVDEV[_sym] = E[_name]
+for _ch in "abcdefghijklmnopqrstuvwxyz":
+    TK_TO_EVDEV[_ch] = E[_ch.upper()]
+    TK_TO_EVDEV[_ch.upper()] = E[_ch.upper()]
+for _ch in "0123456789":
+    TK_TO_EVDEV[_ch] = E[_ch]
+
+
+def tk_to_evdev(keysym: str):
+    """The evdev code for a Tk keysym, or None for a key we do not carry."""
+    return TK_TO_EVDEV.get(keysym)

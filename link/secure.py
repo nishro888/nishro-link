@@ -142,9 +142,16 @@ class Sealer:
         self._aead, self._seq = ChaCha20Poly1305(key), 0
 
     def seal(self, plain: bytes) -> bytes:
+        return base64.b64encode(self.seal_bytes(plain))
+
+    def seal_bytes(self, plain: bytes) -> bytes:
+        """The same, without the base64: for a channel that frames by length
+        (the window channel, winmove.py), where pictures would otherwise pay
+        it on top of their own encoding. The numbering is shared - a channel
+        that starts with lines and goes on in binary keeps counting."""
         nonce = _nonce(self._seq)
         self._seq += 1
-        return base64.b64encode(self._aead.encrypt(nonce, bytes(plain), None))
+        return self._aead.encrypt(nonce, bytes(plain), None)
 
 
 class Opener:
@@ -158,6 +165,10 @@ class Opener:
             raw = base64.b64decode(line, validate=True)
         except (ValueError, TypeError):
             raise SecureError("a frame that is not an encrypted frame") from None
+        return self.open_bytes(raw)
+
+    def open_bytes(self, raw: bytes) -> bytes:
+        """`open` for a frame that came without base64 (Sealer.seal_bytes)."""
         if len(raw) < TAG:
             raise SecureError("a frame too short to be genuine")
         try:

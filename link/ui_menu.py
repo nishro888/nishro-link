@@ -238,18 +238,38 @@ class Dropdown:
             return False
 
     def light(self, i) -> None:
-        if i == self.active:
+        """Highlight row i - or do nothing, if the menu has already gone.
+
+        A menu dismisses itself when the focus leaves it, and a key can
+        arrive in the same breath: another window appearing takes the focus,
+        the menu destroys itself, and the key that was already on its way
+        lands here. Without the check that `close` has always had, Tk raises
+        `invalid command name` on a canvas that no longer exists. It showed
+        up as a test failing now and then on a different test each time,
+        which is how a race usually announces itself.
+        """
+        if i == self.active or not self.alive():
             return
         C = self.kit.C
-        for j in (self.active, i):
-            if j is not None and 0 <= j < len(self.rows):
-                self.canvas.itemconfigure(self.rows[j][1][0],
-                                          fill=C["menu_hi"] if j == i else C["menu"])
+        try:
+            for j in (self.active, i):
+                if j is not None and 0 <= j < len(self.rows):
+                    self.canvas.itemconfigure(
+                        self.rows[j][1][0],
+                        fill=C["menu_hi"] if j == i else C["menu"])
+        except tk.TclError:
+            return                        # it went between the two lines
         self.active = i
 
     def tick(self, i) -> str:
-        """The mark by row i: a tick, a dot, or nothing."""
-        return self.canvas.itemcget(self.rows[i][1][1], "text")
+        """The mark by row i: a tick, a dot, or nothing - "" once it has
+        gone, for the same reason light() checks."""
+        if not self.alive():
+            return ""
+        try:
+            return self.canvas.itemcget(self.rows[i][1][1], "text")
+        except tk.TclError:
+            return ""
 
     def _row_at(self, y):
         for y0, y1, index in self._bands:
@@ -268,7 +288,7 @@ class Dropdown:
             self.choose(i)
 
     def move(self, d) -> None:
-        if not self.rows:
+        if not self.rows or not self.alive():
             return
         i = -1 if self.active is None and d > 0 else (
             0 if self.active is None else self.active)

@@ -234,3 +234,30 @@ def test_the_right_click_menu_is_the_same_kind(app):
         assert isinstance(app._menu, ui_menu.Dropdown) and app._menu.alive()
     finally:
         app._menu.close()
+
+
+def test_a_key_arriving_after_the_menu_has_gone_does_nothing(menu):
+    """A menu dismisses itself when the focus leaves it, and a key can
+    arrive in the same breath - another window appears, the menu destroys
+    itself, and the key already on its way lands on a canvas that no longer
+    exists. It showed up as this file failing now and then on a different
+    test each time, which is how a race usually announces itself.
+    """
+    dd, _ = menu()
+    dd.close()
+    assert not dd.alive()
+    dd.move(-1)                 # must not raise
+    dd.move(1)
+    dd.light(0)
+    assert dd.tick(0) == ""
+
+
+def test_the_highlight_still_works_while_it_is_there(menu):
+    """The guard must not have switched the menu off."""
+    dd, _ = menu()
+    dd.light(1)
+    assert dd.active == 1
+    dd.move(1)
+    assert dd.active == 2
+    dd.move(-1)
+    assert dd.active == 1
