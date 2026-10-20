@@ -170,12 +170,24 @@ def test_a_piece_whose_bytes_are_not_the_size_claimed_is_not_drawn(frame):
 
 
 def test_a_codec_the_frame_cannot_show_is_refused_not_guessed_at(frame):
+    """"raw" is a codec the channel knows (the tests use it) and the frame
+    does not draw. It used to be "jpeg" here - which the frame now draws."""
+    opened(frame, "x", 32, 32)
+    said = []
+    frame.log = said.append
+    frame.draw([(0, 0, 32, 32, "raw", bytes(32 * 32 * 4))])
+    wait(lambda: said, "a word about it")
+    assert "cannot show" in said[0]
+
+
+def test_bytes_that_only_claim_to_be_a_jpeg_are_refused(frame):
+    """Decoded on the channel's thread, and a failure is said, not drawn."""
     opened(frame, "x", 32, 32)
     said = []
     frame.log = said.append
     frame.draw([(0, 0, 32, 32, "jpeg", b"not really a jpeg")])
     wait(lambda: said, "a word about it")
-    assert "cannot show" in said[0]
+    assert "could not be read" in said[0] or "cannot show" in said[0], said
 
 
 # ------------------------------------------------------------- what to send back
@@ -295,3 +307,35 @@ def test_a_frame_that_cannot_open_asks_for_the_window_to_come_home(monkeypatch):
     assert f.wait_until_open(5) is False, "no frame should have opened"
     assert {"t": "home"} in drained(
         f.events, until=lambda seen: {"t": "home"} in seen)
+
+
+# ------------------------------------------------------------ JPEG pieces
+@pytest.mark.skipif(__import__("link.jpeg", fromlist=["x"]).decoder() is None,
+                    reason="no JPEG decoder on this system")
+def test_a_jpeg_piece_is_drawn_where_it_belongs(frame):
+    """A busy piece of the window arrives as JPEG; it must land in the right
+    place in the right colour (lossy, so near enough)."""
+    from link import jpeg
+    opened(frame, "x", 80, 60)
+    w, h = 40, 30
+    raw = bytes([20, 40, 220, 255]) * (w * h)       # BGRA: a red
+    data = jpeg.encoder()(raw, w, h)
+    frame.draw([(10, 12, w, h, "jpeg", data)])
+    got = None
+    end = time.monotonic() + 8
+    while time.monotonic() < end:
+        got = on_tk(lambda: frame._picture.get(25, 25))
+        if got and got[0] > 150:
+            break
+        time.sleep(0.05)
+    assert got and abs(got[0] - 220) < 30 and got[2] < 70, got
+    # and outside it, still the background
+    outside = on_tk(lambda: frame._picture.get(2, 2))
+    assert outside[0] < 100, outside
+
+
+def test_the_frame_says_what_it_can_draw():
+    from link import jpeg
+    f = window_frame.Frame(where="laptop")
+    assert "png" in f.codecs
+    assert ("jpeg" in f.codecs) == (jpeg.decoder() is not None)

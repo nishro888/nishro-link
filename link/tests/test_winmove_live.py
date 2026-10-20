@@ -108,7 +108,7 @@ class FakeFrame:
         self.events.put(event)
 
 
-def raw_encode(cut, w, h):
+def raw_encode(cut, w, h, codecs=("png",)):
     """The simplest codec: the bytes as they are. A real home uses GDI+ or
     GdkPixbuf; nothing in the sessions depends on which."""
     return "raw", cut

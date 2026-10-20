@@ -138,3 +138,76 @@ def test_the_chunks_carry_the_checksums_a_png_must_have():
 ])
 def test_size_says_no_to_what_is_not_a_png(data):
     assert picture.size(data) is None
+
+
+# ------------------------------------------------ text stays PNG, busy goes JPEG
+def _gradient(w, h):
+    """A smooth colour gradient, BGRA - busy, the way a photo or video is."""
+    out = bytearray(w * h * 4)
+    for y in range(h):
+        for x in range(w):
+            i = (y * w + x) * 4
+            out[i] = (x * 255 // w) & 0xFF
+            out[i + 1] = (y * 255 // h) & 0xFF
+            out[i + 2] = ((x * 7 + y * 13) % 251) & 0xFF
+            out[i + 3] = 255
+    return bytes(out)
+
+
+def _page(w, h):
+    """White with dark strokes, BGRA - text-like."""
+    out = bytearray(b"\xf8\xf8\xf8\xff" * (w * h))
+    for y in range(10, h, 20):
+        for x in range(10, w - 10, 3):
+            i = (y * w + x) * 4
+            out[i:i + 3] = b"\x22\x22\x22"
+    return bytes(out)
+
+
+def fake_jpeg(raw, w, h):
+    return b"JPEG" + bytes([w & 0xFF, h & 0xFF])
+
+
+def test_a_busy_picture_goes_as_jpeg_where_both_ends_can():
+    raw = _gradient(256, 256)
+    codec, data = picture.choose(raw, 256, 256, ("png", "jpeg"), fake_jpeg)
+    assert codec == "jpeg" and data.startswith(b"JPEG")
+
+
+def test_text_stays_png_because_jpeg_smears_letters():
+    raw = _page(256, 256)
+    codec, _ = picture.choose(raw, 256, 256, ("png", "jpeg"), fake_jpeg)
+    assert codec == "png"
+
+
+def test_nothing_goes_as_jpeg_to_a_computer_that_cannot_draw_it():
+    """An older away says nothing about codecs, and must get PNG."""
+    raw = _gradient(256, 256)
+    assert picture.choose(raw, 256, 256, ("png",), fake_jpeg)[0] == "png"
+
+
+def test_no_jpeg_encoder_here_means_png():
+    raw = _gradient(256, 256)
+    assert picture.choose(raw, 256, 256, ("png", "jpeg"), None)[0] == "png"
+
+
+def test_a_small_square_stays_png_whatever_it_shows():
+    """JPEG's headers would be most of the bytes."""
+    raw = _gradient(64, 64)
+    assert picture.choose(raw, 64, 64, ("png", "jpeg"), fake_jpeg)[0] == "png"
+
+
+def test_a_jpeg_that_fails_to_come_out_falls_back_to_png():
+    """The picture must still arrive."""
+    def broken(raw, w, h):
+        raise OSError("GDI+ said no")
+    raw = _gradient(256, 256)
+    codec, data = picture.choose(raw, 256, 256, ("png", "jpeg"), broken)
+    assert codec == "png" and picture.size(data) == (256, 256)
+
+
+def test_the_text_test_is_measured_against_real_windows():
+    """The line between text and busy was measured on real windows (picture.py);
+    these hold it to the right side of both."""
+    assert picture.looks_like_text(_page(256, 256), 256, 256)
+    assert not picture.looks_like_text(_gradient(256, 256), 256, 256)

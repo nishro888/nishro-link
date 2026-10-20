@@ -99,10 +99,12 @@ Words used below:
   lives; nothing of the window is written to disk.
 - **N6 - Every 1.x works with every 1.x:** an older peer neither offers nor
   accepts windows; the tray says it needs a newer Nishro Link there.
-- **N7 - No new Python packages, and no new library for pictures at all.**
-  Encoding is `zlib` and nothing else (`picture.py`), the same code on both
-  systems; Tk, already there for the window, both shows the pictures and is
-  the frame. Windows uses its own APIs through `ctypes` (PrintWindow for the
+- **N7 - No new Python packages, and no picture library that is not
+  already part of the system.** Text is PNG written with `zlib`
+  (`picture.py`), the same code on both systems; a busy picture is JPEG,
+  through the codec each system already has - GDI+ on Windows, GdkPixbuf on
+  GNOME (`jpeg.py`) - and PNG wherever one of them is missing. Tk, already
+  there for the window, both shows the pictures and is the frame. Windows uses its own APIs through `ctypes` (PrintWindow for the
   capture, posted messages for the input). Only **stage 5** - showing a
   window that lives on GNOME - needs anything more: GStreamer and PipeWire
   through the desktop portal (`gir1.2-gstreamer-1.0`,
@@ -288,6 +290,7 @@ window's pictures must never queue in front of the pointer.
 
 | away -> home | |
 |---|---|
+| `ready` | the frame is up; `codecs`: what it can draw (`png` always, `jpeg` if it has a decoder) - an older one says nothing and gets PNG |
 | `ack` | the last picture shown - home sends at most two ahead |
 | `in` | input: `move` x y, `btn` name down, `wheel` dx dy, `key` code down |
 | `size` | w h - the frame was resized |
@@ -297,10 +300,26 @@ window's pictures must never queue in front of the pointer.
 - **Pictures:** the whole window the first time, after a resize, and every
   ten seconds; otherwise only what changed, found by comparing 64x64 tiles
   with the last picture sent and joining neighbours into rectangles.
-  Everything is PNG, written by hand with `zlib` (`picture.py`): no GDI+, no
-  GdkPixbuf, no Pillow - the same code on both systems, text stays sharp,
-  and Tk reads the bytes as they are, so the computer showing the window
-  decodes nothing and copies a square into place in about 0.01 ms.
+  Each rectangle is PNG or JPEG, chosen by what it looks like
+  (`picture.choose`):
+  - **Text and flat interface: PNG**, written by hand with `zlib`
+    (`picture.py`) - sharp, and Tk reads the bytes as they are, so the
+    computer showing the window decodes nothing and copies a square into
+    place in about 0.01 ms.
+  - **Busy: JPEG**, at quality 75 - a photo, a video, a gradient: anything
+    `zlib` at level 1 cannot get below 0.12 of its size, tried on a 64 KB
+    sample from the middle (0.3-0.8 ms). Real windows came out at 0.01 (a
+    web page of text), 0.05 (Notepad) and 0.24-0.26 (moving colour). Only
+    for a rectangle of 128x128 or more, and only when the away side said in
+    its `ready` that it can decode JPEG. The codec is the system's own -
+    GDI+ on Windows, GdkPixbuf on Linux - through `ctypes` and `gi`, so
+    nothing is installed for it; where it is missing, everything stays PNG.
+  - Measured on a busy 1000x700 window (TESTLOG, 2026-10-18): PNG 63 ms and
+    about 300 KB a picture, JPEG 6 ms and 52 KB; shown 15-17 times a second
+    as PNG, 24-25 (the cap) as JPEG, on a third of the bytes. The away side
+    decodes a JPEG on the channel's own thread, so Tk's thread only copies
+    pixels: on the AIO, decoding takes 14 ms and drawing 22 ms, side by side
+    rather than one after the other.
 - **Pace:** home captures again only when fewer than two pictures are
   unacknowledged, so the rate follows what the network and the away computer
   can take, and a slow link shows a slower but current window - never a

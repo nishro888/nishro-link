@@ -585,8 +585,9 @@ more.
 
 - **Up to four windows** away at once.
 - **Typing and clicking feel immediate.** Smooth video does not: the window
-  updates about fifteen to twenty-five times a second, less for a very large
-  window on a slower computer.
+  updates up to twenty-five times a second, a busy one such as a video
+  included, and less for a very large window on a slower computer or
+  network.
 - **Most programs work**, browsers and editors included. A **game**, or
   anything that reads the mouse and keyboard straight from the hardware, will
   not respond in a moved window.

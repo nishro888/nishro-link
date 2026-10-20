@@ -177,7 +177,7 @@ def lend(which: str, to_whom: str, ch, log) -> str:
     """Hide one of our windows and send what it looks like over `ch`."""
     win = windows_module()
     window = win.Window(int(which), rescue=rescue_record(log), log=log)
-    session = winmove.HomeSession(ch, window, picture.encode, log=log)
+    session = winmove.HomeSession(ch, window, _encoder(), log=log)
 
     # The window is hidden only once the frame is really up over there, so a
     # frame that never appears cannot leave a window invisible here; and it
@@ -202,6 +202,18 @@ def lend(which: str, to_whom: str, ch, log) -> str:
     finally:
         window.show()
     return ""
+
+
+def _encoder():
+    """How this computer turns a piece of a window into bytes: JPEG where the
+    picture is busy and the other end can draw it, PNG otherwise
+    (picture.choose). Where this system has no JPEG encoder, PNG only."""
+    from . import jpeg
+    made = jpeg.encoder()
+
+    def encode(raw, w, h, codecs=("png",)):
+        return picture.choose(raw, w, h, codecs, made)
+    return encode
 
 
 def show(which: str, whose: str, ch, log) -> str:
